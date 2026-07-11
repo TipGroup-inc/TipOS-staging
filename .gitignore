@@ -1,0 +1,12 @@
+build/
+*.iso
+*.o
+*.elf
+*.bin
+*.tmp
+*.bak
+temp.*
+*.log
+.DS_Store
+disk.img
+/iso/
