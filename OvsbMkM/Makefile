@@ -28,9 +28,11 @@ SRCS := \
 
 SRCS += src/drivers/keyboard.c
 SRCS += src/drivers/ata.c
+SRCS += src/drivers/vga_gfx.c
 SRCS += src/fs/fat32.c
 SRCS += src/commands/shell_cmds.c
 SRCS += src/kernel/pic.c
+SRCS += src/commands/compositor.c
 
 OBJS := $(patsubst %.c,$(BUILD_DIR)/%.o,$(SRCS))
 

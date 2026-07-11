@@ -1,0 +1,7 @@
+v0.5.0.0
+
+Format: v0.STAGE.RELEASE.FEATURE
+  STAGE  = 5 = Editor maduro + RTC + timer + repeat rate + shell line editing + 
+                history + PATH + redirection + syntax highlight + undo + clipboard
+  RELEASE = 0 = first release with all new features
+  FEATURE = 0 = initial feature set

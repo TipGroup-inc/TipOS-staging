@@ -661,3 +661,88 @@ int fat32_mkdir(const char *name) {
     }
     return -1;
 }
+
+int fat32_rename(const char *oldname, const char *newname) {
+    uint8_t old83[11], new83[11];
+    name_to_83(oldname, old83);
+    name_to_83(newname, new83);
+    uint32_t c = current_dir_cluster;
+    while (c >= 2 && c < 0x0FFFFFF8) {
+        uint32_t s = cluster_to_sector(c);
+        for (uint32_t si = 0; si < sectors_per_cluster; si++) {
+            uint8_t buf[512];
+            if (ata_read_sector(s + si, buf) != 0) return FAT_ERR_IO;
+            fat32_dir_entry_t *e = (fat32_dir_entry_t *)buf;
+            for (int i = 0; i < 16; i++) {
+                if (e[i].name[0] == 0x00 || e[i].name[0] == 0xE5) continue;
+                if (e[i].attr == 0x0F) continue;
+                int match = 1;
+                for (int j = 0; j < 11; j++)
+                    if (e[i].name[j] != old83[j]) { match = 0; break; }
+                if (!match) continue;
+                for (int j = 0; j < 11; j++) e[i].name[j] = new83[j];
+                if (ata_write_sector(s + si, buf) != 0) return FAT_ERR_IO;
+                return 0;
+            }
+        }
+        c = fat_read_entry(c);
+    }
+    return FAT_ERR_NOTFOUND;
+}
+
+int fat32_rmdir(const char *name) {
+    uint8_t name83[11];
+    name_to_83(name, name83);
+    uint32_t c = current_dir_cluster;
+    while (c >= 2 && c < 0x0FFFFFF8) {
+        uint32_t s = cluster_to_sector(c);
+        for (uint32_t si = 0; si < sectors_per_cluster; si++) {
+            uint8_t buf[512];
+            if (ata_read_sector(s + si, buf) != 0) return FAT_ERR_IO;
+            fat32_dir_entry_t *e = (fat32_dir_entry_t *)buf;
+            for (int i = 0; i < 16; i++) {
+                if (e[i].name[0] == 0x00 || e[i].name[0] == 0xE5) continue;
+                if (e[i].attr == 0x0F) continue;
+                int match = 1;
+                for (int j = 0; j < 11; j++)
+                    if (e[i].name[j] != name83[j]) { match = 0; break; }
+                if (!match) continue;
+                if (!(e[i].attr & 0x10)) return FAT_ERR_NOTDIR;
+                uint32_t cl = ((uint32_t)e[i].first_cluster_high << 16) | e[i].first_cluster_low;
+                /* Verifica se está vazio: só . e .. */
+                if (cl != 0) {
+                    uint8_t db[512];
+                    if (ata_read_sector(cluster_to_sector(cl), db) == 0) {
+                        fat32_dir_entry_t *de = (fat32_dir_entry_t *)db;
+                        int empty = 1;
+                        for (int ei = 2; ei < 16; ei++) {
+                            if (de[ei].name[0] != 0x00 && de[ei].name[0] != 0xE5)
+                                { empty = 0; break; }
+                        }
+                        if (!empty) return FAT_ERR_NOSPACE;
+                    }
+                    /* Libera a cadeia de clusters */
+                    uint32_t next;
+                    do {
+                        next = fat_read_entry(cl);
+                        fat_write_entry(cl, 0);
+                        cl = next;
+                    } while (cl >= 2 && cl < 0x0FFFFFF8);
+                }
+                e[i].name[0] = 0xE5;
+                if (ata_write_sector(s + si, buf) != 0) return FAT_ERR_IO;
+                return 0;
+            }
+        }
+        c = fat_read_entry(c);
+    }
+    return FAT_ERR_NOTFOUND;
+}
+
+int fat32_stat(const char *name, uint32_t *size, uint8_t *attr) {
+    fat32_dir_entry_t e;
+    if (find_entry(current_dir_cluster, name, &e) < 0) return FAT_ERR_NOTFOUND;
+    if (size) *size = e.size;
+    if (attr) *attr = e.attr;
+    return 0;
+}

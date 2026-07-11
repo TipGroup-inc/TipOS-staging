@@ -14,6 +14,14 @@ void cmd_edit(const char *name);
 void cmd_mkdir(const char *name);
 void cmd_cd(const char *name);
 void cmd_pwd(void);
+void cmd_mv(const char *args);
+void cmd_cp(const char *args);
+void cmd_rmdir(const char *name);
+void cmd_stat(const char *name);
+void cmd_disp(void);
 void cmd_exec(const char *name);
+void cmd_date(void);
+void cmd_uptime(void);
+int  cmd_exec_in_dir(const char *name, const char *dir);
 
 #endif

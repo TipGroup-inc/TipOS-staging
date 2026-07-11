@@ -12,16 +12,15 @@ def pack(code, entry_offset=0):
     """Wrap flat binary code in minimal Mach-O executable.
 
     Layout: [header(32) + __TEXT_seg(72) + LC_MAIN(24) + code]
-    - __TEXT: fileoff=0, vmaddr=0x2000000, filesize=vmsize=total
-      -> kernel copes whole file to 0x2000000
-    - LC_MAIN entryoff = offset of code (after header+cmds)
-      -> entry = 0x2000000 + entryoff points to _start
+    - __TEXT: fileoff=code_off, vmaddr=0x2000000, filesize=len(code)
+      -> kernel loads only the code part to 0x2000000
+    - LC_MAIN entryoff = offset within code to _start
+      -> entry = 0x2000000 + entryoff
     """
     segname = b'__TEXT\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
 
     total_cmds_size = 72 + 24
     code_off = 32 + total_cmds_size
-    total_size = code_off + len(code)
 
     header = struct.pack('<IIIIIIII',
         MH_MAGIC_64,
@@ -35,13 +34,13 @@ def pack(code, entry_offset=0):
 
     seg = struct.pack('<II', LC_SEGMENT_64, 72)
     seg += struct.pack('<16s', segname)
-    seg += struct.pack('<QQ', 0x2000000, total_size)   # vmaddr, vmsize
-    seg += struct.pack('<QQ', 0, total_size)            # fileoff, filesize
-    seg += struct.pack('<II', 7, 5)                     # maxprot, initprot
-    seg += struct.pack('<II', 0, 0)                     # nsects, flags
+    seg += struct.pack('<QQ', 0x2000000, len(code))   # vmaddr, vmsize
+    seg += struct.pack('<QQ', code_off, len(code))     # fileoff, filesize
+    seg += struct.pack('<II', 7, 5)                    # maxprot, initprot
+    seg += struct.pack('<II', 0, 0)                    # nsects, flags
 
     main_cmd = struct.pack('<II', LC_MAIN, 24)
-    main_cmd += struct.pack('<QQ', code_off + entry_offset, 0)
+    main_cmd += struct.pack('<QQ', entry_offset, 0)
 
     data = header + seg + main_cmd + code
     return data, len(data)

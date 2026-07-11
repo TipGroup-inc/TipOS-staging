@@ -37,7 +37,7 @@ void *mach_o_load(void *data, unsigned int len) {
         if (cmd->cmd == LC_SEGMENT_64) {
             segment_command_64_t *seg = (segment_command_64_t *)cmds;
             if (seg->filesize > 0) {
-                if (file_base == 0 && seg->fileoff == 0) {
+                if (file_base == 0) {
                     file_base = seg->vmaddr;
                     slide = 0x2000000;
                 }

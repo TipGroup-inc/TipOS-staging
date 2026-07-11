@@ -49,7 +49,9 @@ KERNEL_SRCS := \
     $(KERNEL_DIR)/src/kernel/ls_bin.c \
     $(KERNEL_DIR)/src/kernel/test_macho.c \
     $(KERNEL_DIR)/src/drivers/keyboard.c \
+    $(KERNEL_DIR)/src/drivers/vga_gfx.c \
     $(KERNEL_DIR)/src/commands/shell_cmds.c \
+    $(KERNEL_DIR)/src/commands/compositor.c \
     $(KERNEL_DIR)/src/kernel/pic.c \
     $(KERNEL_DIR)/src/fs/fat32.c
 
