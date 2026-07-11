@@ -27,8 +27,8 @@ static volatile uint64_t press_tick = 0;
 static volatile uint64_t last_repeat_tick = 0;
 extern volatile uint64_t timer_ticks;
 
-#define REPEAT_DELAY  50
-#define REPEAT_RATE    3
+#define REPEAT_DELAY  80
+#define REPEAT_RATE    8
 
 static const char norm[] = {
     0,27,'1','2','3','4','5','6','7','8','9','0','-','=','\b',
@@ -135,26 +135,13 @@ void keyboard_init(void) {
 
 char keyboard_read(void) {
     while (1) {
-        // Check software buffer
         if (kb_head != kb_tail) {
             char c = kb_buffer[kb_tail];
             kb_tail = (kb_tail + 1) % KB_BUFFER_SIZE;
-            // reset repeat state when consuming a character
             last_make_sc = 0;
             last_repeat_char = 0;
             return c;
         }
-        // Poll hardware
-        if (inb(0x64) & 0x01) {
-            uint8_t sc = inb(0x60);
-            process_scancode(sc);
-            if (kb_head != kb_tail) {
-                char c = kb_buffer[kb_tail];
-                kb_tail = (kb_tail + 1) % KB_BUFFER_SIZE;
-                return c;
-            }
-        }
-        // Keyboard repeat logic
         if (last_make_sc && last_repeat_char) {
             uint64_t held = timer_ticks - press_tick;
             if (held > REPEAT_DELAY && (timer_ticks - last_repeat_tick) >= REPEAT_RATE) {
@@ -167,5 +154,5 @@ char keyboard_read(void) {
 }
 
 int keyboard_avail(void) {
-    return (kb_head != kb_tail) ? 1 : (inb(0x64) & 0x01) ? 1 : 0;
+    return (kb_head != kb_tail) ? 1 : 0;
 }

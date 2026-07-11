@@ -498,7 +498,8 @@ void shell_loop() {
         if (k == K_DEL) {
             if (pos < len) {
                 for (int i = pos; i < len - 1; i++) cmd[i] = cmd[i + 1];
-                len--; goto redraw;
+                len--;
+                if (pos < len) goto redraw; else { vga_puts("\x1b[P"); }
             }
             continue;
         }
@@ -506,15 +507,23 @@ void shell_loop() {
         // ── Backspace ──────────────────────────────────────
         if (k == '\b' || k == 127) {
             if (pos > 0) {
-                for (int i = pos - 1; i < len - 1; i++) cmd[i] = cmd[i + 1];
-                pos--; len--; goto redraw;
+                pos--; len--;
+                for (int i = pos; i < len; i++) cmd[i] = cmd[i + 1];
+                if (pos < len) goto redraw; else { vga_putchar('\b'); }
             }
             continue;
         }
 
         // ── Printable characters ───────────────────────────
         if (k >= 32 && k <= 126) {
-            if (len < CMD_MAX - 1) {
+            if (len >= CMD_MAX - 1) continue;
+            if (pos == len) {
+                // Append at end: fast path, no redraw
+                cmd[pos] = k;
+                vga_putchar(k);
+                pos++; len++;
+            } else {
+                // Insert in middle: need redraw
                 for (int i = len; i > pos; i--) cmd[i] = cmd[i - 1];
                 cmd[pos] = k;
                 pos++; len++; goto redraw;
