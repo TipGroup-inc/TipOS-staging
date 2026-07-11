@@ -78,6 +78,11 @@ void debug_puts(const char *s) {
     vga_puts(s);
 }
 
+void *memset(void *s, int c, int n) {
+    for (int i = 0; i < n; i++) ((uint8_t*)s)[i] = c;
+    return s;
+}
+
 int strcmp(const char *a, const char *b) {
     while (*a && *a == *b) { a++; b++; }
     return *a - *b;
