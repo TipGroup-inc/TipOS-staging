@@ -15,8 +15,6 @@ build-kernel:
   script:
     - cd OvsbMkM
     - make clean
-    # Fix GCC 15 compat: inw/outw com %edx → %dx
-    - sed -i 's/inw %edx, %ax/inw %dx, %ax/g; s/outw %ax, %edx/outw %ax, %dx/g' src/drivers/ata.c
     - make all
   artifacts:
     paths:

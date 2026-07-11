@@ -45,6 +45,19 @@ $(BUILD_DIR)/%.o: %.c | $(BUILD_DIR)
 	mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+# ata.c: GCC 15 requer %dx em vez de %edx para inw/outw
+# Compila pra assembly, aplica sed, monta com as
+BUILD_ATA_S := $(BUILD_DIR)/src/drivers/ata.s
+BUILD_ATA_O := $(BUILD_DIR)/src/drivers/ata.o
+
+$(BUILD_ATA_S): src/drivers/ata.c | $(BUILD_DIR)
+	mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -S $< -o $@
+	sed -i 's/inw %edx, %ax/inw %dx, %ax/g; s/outw %ax, %edx/outw %ax, %dx/g' $@
+
+$(BUILD_ATA_O): $(BUILD_ATA_S)
+	as --64 -o $@ $<
+
 $(BUILD_DIR)/boot64.o: src/kernel/boot64.asm | $(BUILD_DIR)
 	$(NASM) $(NASM_FLAGS) -o $@ $<
 
