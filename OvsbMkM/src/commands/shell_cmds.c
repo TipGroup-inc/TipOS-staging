@@ -44,7 +44,7 @@ void cmd_help(void) {
     vga_puts("Comandos disponiveis:\n");
     set_vga_color(C_OUTPUT);
     vga_puts("help  clear  echo  about  shutdown\n");
-    vga_puts("ls    touch  rm    cat    edit\n");
+    vga_puts("ls    touch  rm    cat    edit   cc\n");
     vga_puts("mkdir cd     pwd   exec\n");
     vga_puts("mv    cp     rmdir stat  disp\n");
 }
@@ -402,6 +402,41 @@ void cmd_uptime(void) {
     p = 0; v = mins; if (v == 0) n[p++] = '0'; else do { n[p++] = '0' + (v % 10); v /= 10; } while (v); if (p < 2) vga_putchar('0');
     while (p > 0) vga_putchar(n[--p]);
     vga_putchar('\n');
+}
+
+void cmd_cc(const char *name) {
+    while (*name == ' ') name++;
+    if (*name == '\0') { vga_puts("Uso: cc <arquivo.c>\n"); return; }
+    char src[64]; int i = 0;
+    while (name[i] && i < 63) { src[i] = name[i]; i++; }
+    src[i] = '\0';
+    if (i < 3 || src[i-2] != '.' || (src[i-1] != 'c' && src[i-1] != 'C')) {
+        set_vga_color(C_ERROR);
+        vga_puts("Apenas arquivos .c\n");
+        set_vga_color(C_OUTPUT);
+        return;
+    }
+    static uint8_t buf[4096];
+    int bytes = fat32_read_file(src, buf, 4096);
+    if (bytes < 0) { print_err(FAT_ERR_NOTFOUND, src); return; }
+    /* Create /SRC/ if needed */
+    fat32_mkdir("SRC");
+    fat32_change_dir("SRC");
+    char dst[64]; int j;
+    for (j = 0; j < i; j++) dst[j] = src[j];
+    dst[j] = '\0';
+    if (fat32_create_file(dst) == 0 || fat32_write_file(dst, buf, bytes) > 0) {
+        fat32_write_file(dst, buf, bytes);
+        set_vga_color(C_SUCCESS);
+        vga_puts("Fonte salvo em /SRC/"); vga_puts(dst); vga_putchar('\n');
+        set_vga_color(C_OUTPUT);
+        vga_puts("Rode 'cc-host "); i = 0; while (src[i] && src[i] != '.') { vga_putchar(src[i]); i++; } vga_puts("' no HOST\n");
+    } else {
+        set_vga_color(C_ERROR);
+        vga_puts("Erro ao salvar fonte\n");
+        set_vga_color(C_OUTPUT);
+    }
+    fat32_change_dir("/");
 }
 
 void cmd_stat(const char *name) {
