@@ -158,10 +158,10 @@
 - [x] **Autocomplete** (TAB → lista arquivos, comandos)
 - [x] **Prompt customizável** (PS1: `\u`, `\h`, `\w`, `\$`, etc)
 - [x] **Aliases** (alias ll='ls -l')
-- [ ] **Background jobs** (&, jobs, fg, bg)
+- [x] **Background jobs** (&, jobs, fg, bg)
 - [x] **Variáveis de ambiente** ($PATH, $HOME, $EDITOR)
 - [x] **Scripting** — executar lista de comandos de um arquivo .sh
-- [ ] **^C interrompe comando atual** (precisa de sinais)
+- [x] **^C interrompe comando atual** (precisa de sinais)
 
 ### 2.4 Relógio / Data
 
@@ -581,6 +581,12 @@ Ring 3 / Proteção ───────────┬────────
 | **HOJE** | **Makefile corrigido** — disk.img como ATA primary master (`-drive file=... -boot order=d`) |
 | **HOJE** | **crt0 exit** — _start() chama exit(ret) no final (syscall SYS_exit) |
 | **HOJE** | **Commit + push GitHub** — d1741b0 no TipGroup-inc/TipOS-staging.git |
+| **HOJE** | **munmap_all_user() + fds_cleanup() reais no SYS_exit** — limpa todo bitmap + FD table ao sair de ring 3 |
+| **HOJE** | **Background jobs** — parsing de `&`, job table (16 slots), builtins `jobs`/`fg`/`bg` |
+| **HOJE** | **Makefile raiz delegado p/ OvsbMkM/** — elimina duplicação de regras |
+| **HOJE** | **READMEs atualizados** — raiz, OvsbMkM/, userland/ com ring3, graphy, 30 syscalls |
+| **HOJE** | **^C (SIGINT) interrompe ring 3** — sigint_pending flag, abort via syscall_entry.asm |
+| **HOJE** | **Ctrl modifier no keyboard** — ctrl_pressed separado de shift, Ctrl+letra → control codes |
 
 ---
 
@@ -620,8 +626,8 @@ Ring 3 / Proteção ───────────┬────────
 - [ ] graphy: word wrap
 - [ ] graphy: scroll horizontal (linhas > 80 col)
 - [x] graphy: bracket matching
-- [ ] shell: background jobs (&, jobs, fg, bg)
-- [ ] shell: ^C interrompe comando atual
+- [x] shell: background jobs (&, jobs, fg, bg)
+- [x] shell: ^C interrompe comando atual
 - [ ] TUI lib: suporte a config file (~/.tiposrc)
 - [ ] TUI lib: menu bar widget, list selector
 - [ ] TUI lib: scrollback history buffer por janela
