@@ -231,8 +231,8 @@ static int write_chain(uint32_t start_cluster, uint8_t *buffer, uint32_t size) {
             if (next == 0 || next >= 0x0FFFFFF8) {
                 uint32_t free = fat_find_free();
                 if (free == 0) return -1;
-                fat_write_entry(cluster, free);
-                fat_write_entry(free, 0x0FFFFFFF);
+                    if (fat_write_entry(cluster, free) != 0) return -1;
+                if (fat_write_entry(free, 0x0FFFFFFF) != 0) return -1;
                 cluster = free;
             } else {
                 cluster = next;
@@ -248,8 +248,8 @@ static int alloc_clusters(uint32_t start, uint32_t count) {
     for (uint32_t i = 0; i < count; i++) {
         uint32_t free = fat_find_free();
         if (free == 0) return -1;
-        fat_write_entry(prev, free);
-        fat_write_entry(free, 0x0FFFFFFF);
+        if (fat_write_entry(prev, free) != 0) return -1;
+        if (fat_write_entry(free, 0x0FFFFFFF) != 0) return -1;
         prev = free;
     }
     return 0;
@@ -502,10 +502,10 @@ int fat32_write_file(const char *name, const uint8_t *buffer, uint32_t size) {
     if (find_entry(current_dir_cluster, name, &entry) < 0) return -1;
     uint32_t cluster = first_cluster_of(&entry);
 
-    if (cluster == 0) {
+        if (cluster == 0) {
         cluster = fat_find_free();
         if (cluster == 0) return -1;
-        fat_write_entry(cluster, 0x0FFFFFFF);
+        if (fat_write_entry(cluster, 0x0FFFFFFF) != 0) return -1;
         entry.first_cluster_low = cluster & 0xFFFF;
         entry.first_cluster_high = (cluster >> 16) & 0xFFFF;
     }
@@ -684,9 +684,9 @@ int fat32_mkdir(const char *name) {
     uint32_t c = current_dir_cluster;
     while (c >= 2 && c < 0x0FFFFFF8) {
         uint32_t s = cluster_to_sector(c);
-        for (uint32_t si = 0; si < sectors_per_cluster; si++) {
+            for (uint32_t si = 0; si < sectors_per_cluster; si++) {
             uint8_t buf[512];
-            ata_read_sector(s + si, buf);
+            if (ata_read_sector(s + si, buf) != 0) return FAT_ERR_IO;
             fat32_dir_entry_t *entries = (fat32_dir_entry_t *)buf;
             for (int i = 0; i < 16; i++) {
                 if (entries[i].name[0] == 0xE5) continue;
@@ -698,7 +698,7 @@ int fat32_mkdir(const char *name) {
                     entries[i].first_cluster_low = new_cluster & 0xFFFF;
                     entries[i].first_cluster_high =
                         (new_cluster >> 16) & 0xFFFF;
-                    ata_write_sector(s + si, buf);
+                    if (ata_write_sector(s + si, buf) != 0) return FAT_ERR_IO;
 
                     /* Formata o novo diretório: entradas . e .. */
                     uint8_t dirbuf[512] = {0};
@@ -720,8 +720,8 @@ int fat32_mkdir(const char *name) {
                         (current_dir_cluster >> 16) & 0xFFFF;
                     /* Marca cluster como EOC na FAT */
                     uint32_t ds = cluster_to_sector(new_cluster);
-                    fat_write_entry(new_cluster, 0x0FFFFFFF);
-                    ata_write_sector(ds, dirbuf);
+                    if (fat_write_entry(new_cluster, 0x0FFFFFFF) != 0) return FAT_ERR_IO;
+                    if (ata_write_sector(ds, dirbuf) != 0) return FAT_ERR_IO;
                     return 0;
                 }
             }
@@ -788,7 +788,7 @@ int fat32_rmdir(const char *name) {
                             if (de[ei].name[0] != 0x00 && de[ei].name[0] != 0xE5)
                                 { empty = 0; break; }
                         }
-                        if (!empty) return FAT_ERR_NOSPACE;
+                        if (!empty) return FAT_ERR_NOTEMPTY;
                     }
                     /* Libera a cadeia de clusters */
                     uint32_t next;

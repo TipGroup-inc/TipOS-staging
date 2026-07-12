@@ -34,8 +34,10 @@ void *kmalloc(size_t size) {
 }
 
 void kfree(void *ptr) {
-    if (!ptr) return;
-    free_page(ptr);
+    (void)ptr;
+    // Bump allocator: no free. kfree is intentionally a no-op.
+    // Kernel objects are permanent (no leak in practice since
+    // kmalloc is unused and the 4MB heap is enough for boot).
 }
 
 static void free_page(void *addr) {

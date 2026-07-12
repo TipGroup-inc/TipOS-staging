@@ -34,6 +34,7 @@ static void print_err(int err, const char *name) {
     else if (err == FAT_ERR_NOTDIR) vga_puts("Nao e diretorio\n");
     else if (err == FAT_ERR_NOSPACE) vga_puts("Disco cheio\n");
     else if (err == FAT_ERR_IO) vga_puts("Erro de E/S\n");
+    else if (err == FAT_ERR_NOTEMPTY) { vga_puts("Diretorio nao vazio: "); vga_puts(name); vga_putchar('\n'); }
     else { vga_puts("Erro "); vga_putchar('0' + (-err)); vga_putchar('\n'); }
     set_vga_color(C_OUTPUT);
 }

@@ -34,7 +34,10 @@ static void del(int off);
 static int grow(int needed) {
     if (needed <= cap) return 0;
     int newcap = cap ? cap : 4096;
-    while (newcap < needed) newcap *= 2;
+    while (newcap < needed) {
+        if (newcap > 0x3FFFFFFF) return -1;
+        newcap *= 2;
+    }
     char *nb = realloc(buf, newcap);
     if (!nb) return -1;
     buf = nb;
@@ -131,9 +134,10 @@ static void del(int off) {
 }
 
 static void load(const char *fn) {
-    strncpy(fname, fn, 255);
+    strncpy(fname, fn, 255); fname[255] = '\0';
     struct stat st;
     if (stat(fn, &st) < 0) { sz = 0; mod = 0; lns_build(); return; }
+    if (st.st_size > 0x3FFFFFFF) { sts("File too large"); sz = 0; mod = 0; lns_build(); return; }
     if (grow(st.st_size + 4096) < 0) { sz = 0; mod = 0; lns_build(); return; }
     sz = 0;
     FILE *f = fopen(fn, "r");
@@ -370,7 +374,7 @@ static void screen(void) {
     if (msg[0]) {
         strncpy(sb, msg, COLS); sb[COLS] = 0; l = strlen(sb);
     } else {
-        l = strlen(fname); memcpy(sb, fname, l);
+        l = strlen(fname); if (l > COLS) l = COLS; memcpy(sb, fname, l);
         if (mod && l < COLS) sb[l++] = '*';
         char tmp[16];
         if (l < COLS) { sb[l++] = ' '; }
@@ -463,10 +467,10 @@ static void swap_buf(void) {
     int tmp_sz = sz; sz = sz2; sz2 = tmp_sz;
     memcpy(lns2, lns, sizeof(lns)); nlns2 = nlns;
     cx2 = cx; cy2 = cy; co2 = co; top2 = top; mod2 = mod;
-    strcpy(fn2, fname);
+    strncpy(fn2, fname, 255); fn2[255] = '\0';
     memcpy(lns, lns2, sizeof(lns)); nlns = nlns2;
     cx = cx2; cy = cy2; co = co2; top = top2; mod = mod2;
-    strcpy(fname, fn2);
+    strncpy(fname, fn2, 255); fname[255] = '\0';
 }
 
 static void kill_line(void) {
@@ -580,7 +584,7 @@ int main(int argc, char **argv) {
             if (prompt("Cmd: ", cmd, 127) > 0) {
                 if (strcmp(cmd, "q") == 0) break;
                 if (strncmp(cmd, "w ", 2) == 0) {
-                    strncpy(fname, cmd + 2, 255);
+                    strncpy(fname, cmd + 2, 255); fname[255] = '\0';
                     save();
                 }
                 sts(cmd);

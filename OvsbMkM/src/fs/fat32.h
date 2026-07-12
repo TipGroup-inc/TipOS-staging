@@ -13,6 +13,7 @@
 #define FAT_ERR_IO       -3  /* Falha de leitura/gravação no disco */
 #define FAT_ERR_NOSPACE  -4  /* Disco cheio (sem clusters livres) */
 #define FAT_ERR_NOTDIR   -5  /* Entrada não é um diretório */
+#define FAT_ERR_NOTEMPTY -6  /* Diretório não está vazio */
 
 typedef struct {
     uint8_t  jump[3];
