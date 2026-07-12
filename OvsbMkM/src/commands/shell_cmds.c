@@ -10,17 +10,36 @@ extern void vga_clear(void);
 extern char keyboard_read(void);
 extern volatile uint64_t timer_ticks;
 
+static inline void outb(uint16_t port, uint8_t val) {
+    __asm__ volatile ("outb %0, %1" :: "a"(val), "Nd"(port));
+}
+static inline uint8_t inb(uint16_t port) {
+    uint8_t ret;
+    __asm__ volatile ("inb %1, %0" : "=a"(ret) : "Nd"(port));
+    return ret;
+}
+
+static void sync_fs(void) {
+    fat32_sync();
+    vga_puts("FS OK\n");
+}
+
 static void print_err(int err, const char *name) {
     if (err == 0) return;
+    set_vga_color(C_ERROR);
     if (err == FAT_ERR_NOTFOUND) { vga_puts("Nao encontrado: "); vga_puts(name); vga_putchar('\n'); }
     else if (err == FAT_ERR_EXISTS) { vga_puts("Ja existe: "); vga_puts(name); vga_putchar('\n'); }
     else if (err == FAT_ERR_NOTDIR) vga_puts("Nao e diretorio\n");
     else if (err == FAT_ERR_NOSPACE) vga_puts("Disco cheio\n");
     else if (err == FAT_ERR_IO) vga_puts("Erro de E/S\n");
     else { vga_puts("Erro "); vga_putchar('0' + (-err)); vga_putchar('\n'); }
+    set_vga_color(C_OUTPUT);
 }
 
 void cmd_help(void) {
+    set_vga_color(C_HEADER);
+    vga_puts("Comandos disponiveis:\n");
+    set_vga_color(C_OUTPUT);
     vga_puts("help  clear  echo  about  shutdown\n");
     vga_puts("ls    touch  rm    cat    edit\n");
     vga_puts("mkdir cd     pwd   exec\n");
@@ -37,25 +56,44 @@ void cmd_echo(const char *args) {
 }
 
 void cmd_about(void) {
+    set_vga_color(C_HEADER);
     vga_puts("OvsbMkM - Micro Kernel\n");
+    set_vga_color(C_OUTPUT);
 }
 
 void cmd_shutdown(void) {
+    sync_fs();
+    set_vga_color(C_ERROR);
     vga_puts("Desligando...\n");
+    __asm__ volatile ("cli; hlt");
+}
+
+void cmd_reboot(void) {
+    sync_fs();
+    set_vga_color(C_ERROR);
+    vga_puts("Reiniciando...\n");
+    uint8_t g;
+    do { g = inb(0x64); } while (g & 0x02);
+    outb(0x64, 0xFE);
     __asm__ volatile ("cli; hlt");
 }
 
 void cmd_ls(void) {
     int count = fat32_list_dir();
-    if (count == 0) vga_puts("(vazio)\n");
+    if (count == 0) {
+        set_vga_color(C_OUTPUT);
+        vga_puts("(vazio)\n");
+    }
 }
 
 void cmd_touch(const char *name) {
     int r = fat32_create_file(name);
     if (r == 0) {
+        set_vga_color(C_SUCCESS);
         vga_puts("Criado: ");
         vga_puts(name);
         vga_putchar('\n');
+        set_vga_color(C_OUTPUT);
     } else {
         print_err(r, name);
     }
@@ -63,11 +101,15 @@ void cmd_touch(const char *name) {
 
 void cmd_rm(const char *name) {
     if (fat32_delete_file(name) == 0) {
+        set_vga_color(C_SUCCESS);
         vga_puts("Removido: ");
         vga_puts(name);
         vga_putchar('\n');
+        set_vga_color(C_OUTPUT);
     } else {
+        set_vga_color(C_ERROR);
         vga_puts("Erro\n");
+        set_vga_color(C_OUTPUT);
     }
 }
 
@@ -75,7 +117,9 @@ void cmd_cat(const char *name) {
     static uint8_t buffer[4096];
     int bytes = fat32_read_file(name, buffer, 4096);
     if (bytes < 0) {
+        set_vga_color(C_ERROR);
         vga_puts("Erro\n");
+        set_vga_color(C_OUTPUT);
     } else if (bytes == 0) {
         // empty file, no output
     } else {
@@ -84,14 +128,16 @@ void cmd_cat(const char *name) {
 }
 
 void cmd_edit(const char *name) {
+    set_vga_color(C_HEADER);
     vga_puts("Editor - ESC salva / TAB descarta:\n");
+    set_vga_color(C_OUTPUT);
     static char buf[4096];
     int pos = 0;
     int col = 0;
     while (1) {
         char c = keyboard_read();
         if (c == 27) break;
-        if (c == '\t') { vga_puts("\nCancelado\n"); return; }
+        if (c == '\t') { set_vga_color(C_ERROR); vga_puts("\nCancelado\n"); set_vga_color(C_OUTPUT); return; }
         if (c == '\b') {
             if (pos > 0) { pos--; vga_putchar('\b'); if (col > 0) col--; }
             continue;
@@ -102,18 +148,29 @@ void cmd_edit(const char *name) {
             if (col >= 80) { vga_putchar('\n'); col = 0; }
         }
     }
-    vga_puts("\nSalvando...\n");
-    if (fat32_write_file(name, (uint8_t*)buf, pos) > 0) vga_puts("OK\n");
-    else vga_puts("Erro\n");
+    vga_puts("\n");
+    set_vga_color(C_HEADER);
+    vga_puts("Salvando...\n");
+    set_vga_color(C_OUTPUT);
+    if (fat32_write_file(name, (uint8_t*)buf, pos) > 0) {
+        set_vga_color(C_SUCCESS);
+        vga_puts("OK\n");
+    } else {
+        set_vga_color(C_ERROR);
+        vga_puts("Erro\n");
+    }
+    set_vga_color(C_OUTPUT);
 }
 
 void cmd_mkdir(const char *name) {
     int r = fat32_mkdir(name);
     if (r == 0) {
+        set_vga_color(C_SUCCESS);
         vga_puts("Criado: ");
         vga_puts(name);
         vga_putchar('/');
         vga_putchar('\n');
+        set_vga_color(C_OUTPUT);
     } else {
         print_err(r, name);
     }
@@ -154,19 +211,27 @@ void cmd_exec(const char *name) {
 
     bytes = fat32_read_file(name, buf, BUF_SIZE);
     if (bytes <= 0) {
+        set_vga_color(C_ERROR);
         vga_puts("Erro: arquivo nao encontrado\n");
+        set_vga_color(C_OUTPUT);
         return;
     }
 
     entry = mach_o_load(buf, bytes);
     if (!entry) {
+        set_vga_color(C_ERROR);
         vga_puts("Erro: formato invalido\n");
+        set_vga_color(C_OUTPUT);
         return;
     }
 
+    set_vga_color(C_HEADER);
     vga_puts("---\n");
+    set_vga_color(C_OUTPUT);
     ((void (*)(void))entry)();
+    set_vga_color(C_HEADER);
     vga_puts("\n---\n");
+    set_vga_color(C_OUTPUT);
 }
 
 void cmd_mv(const char *args) {
@@ -184,7 +249,11 @@ void cmd_mv(const char *args) {
         return;
     }
     int r = fat32_rename(src, dst);
-    if (r == 0) { vga_puts("Renomeado: "); vga_puts(src); vga_puts(" -> "); vga_puts(dst); vga_putchar('\n'); }
+    if (r == 0) {
+        set_vga_color(C_SUCCESS);
+        vga_puts("Renomeado: "); vga_puts(src); vga_puts(" -> "); vga_puts(dst); vga_putchar('\n');
+        set_vga_color(C_OUTPUT);
+    }
     else print_err(r, src);
 }
 
@@ -206,17 +275,25 @@ void cmd_cp(const char *args) {
     int bytes = fat32_read_file(src, buf, 4096);
     if (bytes < 0) { print_err(FAT_ERR_NOTFOUND, src); return; }
     if (fat32_create_file(dst) != 0 && fat32_write_file(dst, buf, bytes) <= 0) {
+        set_vga_color(C_ERROR);
         vga_puts("Erro ao copiar\n");
+        set_vga_color(C_OUTPUT);
         return;
     }
     fat32_write_file(dst, buf, bytes);
+    set_vga_color(C_SUCCESS);
     vga_puts("Copiado: "); vga_puts(src); vga_puts(" -> "); vga_puts(dst); vga_putchar('\n');
+    set_vga_color(C_OUTPUT);
 }
 
 void cmd_rmdir(const char *name) {
     if (name[0] == '\0') { vga_puts("Uso: rmdir <dir>\n"); return; }
     int r = fat32_rmdir(name);
-    if (r == 0) { vga_puts("Removido: "); vga_puts(name); vga_puts("/\n"); }
+    if (r == 0) {
+        set_vga_color(C_SUCCESS);
+        vga_puts("Removido: "); vga_puts(name); vga_puts("/\n");
+        set_vga_color(C_OUTPUT);
+    }
     else print_err(r, name);
 }
 
@@ -302,7 +379,8 @@ void cmd_stat(const char *name) {
     if (name[0] == '\0') { vga_puts("Uso: stat <arquivo>\n"); return; }
     uint32_t size;
     uint8_t attr;
-    int r = fat32_stat(name, &size, &attr);
+    uint16_t mtime=0, mdate=0;
+    int r = fat32_stat(name, &size, &attr, &mtime, &mdate);
     if (r != 0) { print_err(r, name); return; }
     vga_puts(name);
     vga_puts("  tam=");
@@ -314,5 +392,33 @@ void cmd_stat(const char *name) {
     if (attr & 0x10) vga_puts("DIR");
     else if (attr & 0x20) vga_puts("ARC");
     else vga_puts("---");
+    if (mtime || mdate) {
+        // FAT32 time: hhhhhhmmmmmmsssss → hours(15-11) min(10-5) sec/2(4-0)
+        int h = (mtime >> 11) & 0x1F;
+        int m = (mtime >> 5) & 0x3F;
+        int s = (mtime & 0x1F) * 2;
+        // FAT32 date: yyyyyyymmmmddddd → year-1980(15-9) month(8-5) day(4-0)
+        int y = ((mdate >> 9) & 0x7F) + 1980;
+        int mo = (mdate >> 5) & 0x0F;
+        int d = mdate & 0x1F;
+        vga_puts("  ");
+        // date YYYY-MM-DD
+        char db[11]; int di = 0;
+        int n = y; if (n >= 1000) { db[di++] = '0' + n/1000; n %= 1000; }
+        if (n >= 100) { db[di++] = '0' + n/100; n %= 100; }
+        if (n >= 10) { db[di++] = '0' + n/10; }
+        db[di++] = '0' + n;
+        db[di++] = '-';
+        db[di++] = '0' + mo/10; db[di++] = '0' + mo%10;
+        db[di++] = '-';
+        db[di++] = '0' + d/10; db[di++] = '0' + d%10;
+        db[di++] = ' ';
+        db[di++] = '0' + h/10; db[di++] = '0' + h%10;
+        db[di++] = ':';
+        db[di++] = '0' + m/10; db[di++] = '0' + m%10;
+        db[di++] = ':';
+        db[di++] = '0' + s/10; db[di++] = '0' + s%10;
+        for (int i = 0; i < di; i++) vga_putchar(db[i]);
+    }
     vga_putchar('\n');
 }

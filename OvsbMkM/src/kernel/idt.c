@@ -51,7 +51,7 @@ void idt_init(void) {
 
 void idt_set_syscall(void) {
     idt_set_entry(0x80, (uint64_t)syscall_handler_entry, 0x08, 
-                  IDT_PRESENT | IDT_DPL_USER | IDT_INT_GATE);
+                  IDT_PRESENT | IDT_DPL_USER | IDT_TRAP_GATE);
 }
 
 void idt_set_irq1(void) {

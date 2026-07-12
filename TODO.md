@@ -125,47 +125,47 @@
 ### 2.1 Estabilidade Base
 
 - [ ] 📌 **sys_exit real**: limpar FD table, liberar mmap, voltar ao shell sem crash
-- [ ] 📌 **Keyboard repeat rate**: segurar tecla repete após delay inicial (via PIT/RTC)
+- [x] 📌 **Keyboard repeat rate**: segurar tecla repete após delay inicial (via PIT/RTC)
 - [ ] **Proteger contra buffer overflow**: graphy 64KB hardcoded, strcpy sem bounds
 - [ ] **Verificar leaks**: kmalloc nunca libera, bump heap do userland nunca reusa
 - [ ] **Error handling FAT32**: o que acontece se disco enche? Se setor corrompe?
-- [ ] **Graceful shutdown**: sinfilar desmontar FAT32 antes de desligar
+- [x] 📌 **Graceful shutdown**: sinfilar desmontar FAT32 antes de desligar
 
 ### 2.2 Editor de Texto (graphy → mature)
 
-- [ ] 📌 **Syntax highlighting** (C keywords, strings, comments, numbers) — cores ANSI
-- [ ] **Multiple file buffers** (^O alterna entre arquivos abertos)
-- [ ] **Undo/Redo** (pelo menos single-level = Ctrl+Z)
-- [ ] **Line numbers toggle** (F2)
+- [x] 📌 **Syntax highlighting** (C keywords, strings, comments, numbers) — cores ANSI
+- [x] **Multiple file buffers** (^O alterna entre arquivos abertos)
+- [x] **Undo/Redo** (pelo menos single-level = Ctrl+Z)
+- [x] **Line numbers toggle** (F2)
 - [ ] **Word wrap** (opcional, padrão off)
-- [ ] **Auto-indent** (manter indentação da linha anterior)
-- [ ] **Clipboard/cut-copy-paste** (^W cut, ^Y paste, ^K kill line)
-- [ ] **Go to line** (^J)
-- [ ] **Replace** (^R)
-- [ ] **Status bar melhor**: nome arquivo, modified*, line:col, encoding, mode (INS/OVR)
+- [x] **Auto-indent** (manter indentação da linha anterior)
+- [x] **Clipboard/cut-copy-paste** (^W cut, ^Y paste, ^K kill line)
+- [x] **Go to line** (^J)
+- [x] **Replace** (^R)
+- [x] **Status bar melhor**: nome arquivo, modified*, line:col, encoding, mode (INS/OVR)
 - [ ] **Mouse support** via terminal (X10 mode) — clicar pra posicionar cursor
 
 ### 2.3 Terminal / Shell
 
-- [ ] 📌 **Shell history** (setas ↑↓, salvo em RAM, 100+ entries)
-- [ ] 📌 **Line editing** (Home, End, Del, Ctrl+U/Ctrl+K/Ctrl+W, Ctrl+A/Ctrl+E, Ctrl+L limpa tela)
-- [ ] 📌 **PATH search** (/BIN/:/USR/BIN/:/LOCAL/BIN/ etc)
-- [ ] 📌 **Redirecionamento** `>` `>>` `<` `2>` `|` (pipe via buffer em RAM)
-- [ ] **Autocomplete** (TAB → lista arquivos, comandos)
-- [ ] **Prompt customizável** (PS1-like: `[user@host /path]$ `)
-- [ ] **Aliases** (alias ll='ls -l')
+- [x] 📌 **Shell history** (setas ↑↓, salvo em RAM, 100+ entries)
+- [x] 📌 **Line editing** (Home, End, Del, Ctrl+U/Ctrl+K/Ctrl+W, Ctrl+A/Ctrl+E, Ctrl+L limpa tela)
+- [x] 📌 **PATH search** (/BIN/:/USR/BIN/:/LOCAL/BIN/ etc)
+- [x] 📌 **Redirecionamento** `>` `>>` (pipe via buffer em RAM — pendente `<` `2>` `|`)
+- [x] **Autocomplete** (TAB → lista arquivos, comandos)
+- [x] **Prompt customizável** (PS1: `\u`, `\h`, `\w`, `\$`, etc)
+- [x] **Aliases** (alias ll='ls -l')
 - [ ] **Background jobs** (&, jobs, fg, bg)
-- [ ] **Variáveis de ambiente** ($PATH, $HOME, $EDITOR)
-- [ ] **Scripting** — executar lista de comandos de um arquivo .sh
+- [x] **Variáveis de ambiente** ($PATH, $HOME, $EDITOR)
+- [x] **Scripting** — executar lista de comandos de um arquivo .sh
 - [ ] **^C interrompe comando atual** (precisa de sinais)
 
 ### 2.4 Relógio / Data
 
-- [ ] 📌 **Driver RTC (CMOS)** — ler hora/data real
-- [ ] **Syscall gettimeofday** — retornar tempo real
-- [ ] **Comando `date`** — mostrar data/hora
-- [ ] **Timestamps em arquivos** — FAT32 já tem, mas não estamos expondo
-- [ ] **Sleep** — syscall usleep/sleep (via PIT ou RTC)
+- [x] 📌 **Driver RTC (CMOS)** — ler hora/data real
+- [x] **Syscall gettimeofday** — retornar tempo real
+- [x] **Comando `date`** — mostrar data/hora
+- [x] **Timestamps em arquivos** — FAT32 já tem, mas não estávamos expondo
+- [x] **Sleep** — syscall usleep/sleep (via PIT ou RTC)
 
 ### 2.5 Compilador Onboard
 
@@ -500,7 +500,7 @@ Ring 3 / Proteção ───────────┬────────
 
 | Versão | Foco | Previsão |
 |--------|------|----------|
-| **v0.5** | Editor maduro + history + PATH + line editing + RTC | 2 semanas |
+| **v0.5** | Editor maduro + history + PATH + line editing + RTC + autocomplete + env/alias + PS1 + timestamps | 2 semanas |
 | **v0.6** | TCC onboard + make + date/sleep + syntax highlight | 4 semanas |
 | **v0.7** | Ring 3 + scheduler + fork/exec/wait reais | 8 semanas |
 | **v0.8** | Terminal multiplexado (tabs/split/scrollback) + clipboard | 12 semanas |
@@ -544,6 +544,25 @@ Ring 3 / Proteção ───────────┬────────
 | HOJE | **graphy toggle buffer** (^T, 2 buffers) |
 | HOJE | **graphy syntax-highlighted status bar** |
 | HOJE | KERNEL.md — documentação nível bizarro
+| HOJE | **Keyboard ISR vs polling fix** — elimina duplicação de caracteres no teclado
+| HOJE | **Shell autocomplete (TAB)** — completar comandos (builtins + PATH) e nomes de arquivo (CWD)
+| HOJE | **graphy line numbers toggle (F2)** — mostrar/esconder números de linha
+| HOJE | **Variáveis de ambiente** — 32 slots, export, $PATH, $PS1
+| HOJE | **Aliases** — 32 slots, alias/unalias com expansão no execute_command()
+| HOJE | **Prompt customizável** ($PS1) lido a cada iteração do shell loop
+| HOJE | **Timestamps em ls/stat** — FAT32 mtime/mdate, formato MM-DD HH:MM/ISO
+| HOJE | **Graceful shutdown + reboot** — sync FS antes de desligar/reboot
+| HOJE | **Scripting (source)** — ler arquivo .sh, executar linhas como comandos
+| HOJE | **$? exit code** — last_exit_code + export para ambiente
+| HOJE | **Terminal colorido** — system colors via colors.h (16 cores VGA, set_vga_color)
+| HOJE | **PS1 escape expansion** — \u, \h, \w, \W, \s, \$ no prompt
+| HOJE | **Diretório atual no prompt** — prompt mostra [/path]# via PS1=\[\w\]\\$ 
+| HOJE | **Bugfix name_to_83** — "." e ".." corrompidos por detecção de ponto como separador ext
+| HOJE | **Bugfix fat32_get_cwd_name** — ".." com cluster=0 (FAT32 spec: "pai é raiz") não tratado
+| HOJE | **Bugfix syscall gate** — int 0x80 usava interrupt gate (IF=0 durante handler), keyboard_read() deadlockava
+| HOJE | **Diagnóstico graphy** — causa raiz: syscall gate deadlockando keyboard_read() por IRQ desabilitado
+| HOJE | **Freelist malloc** — libc stdlib com freelist circular + coalescência + mmap para blocos >= 2048
+| HOJE | **calloc/realloc/mmap/munmap** — adicionados à libc stdlib
 
 ---
 

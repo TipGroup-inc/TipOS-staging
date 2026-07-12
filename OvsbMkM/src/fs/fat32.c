@@ -27,11 +27,13 @@
 #include "fat32.h"
 #include "../drivers/ata.h"
 #include "../kernel/memory.h"
+#include "../kernel/kernel.h"
 #include <stdint.h>
 
 /* Funções VGA usadas para debug e saída */
 extern void vga_putchar(char c);
 extern void vga_puts(const char *s);
+extern int strncmp(const char *a, const char *b, int n);
 
 /* Estado global do driver FAT32 */
 static fat32_boot_t boot;              /* Boot sector lido no init */
@@ -66,6 +68,12 @@ static uint32_t fat_start_sector;      /* Primeiro setor da FAT */
 static uint8_t name_to_83(const char *name, uint8_t out[11]) {
     /* FAT32 exige 0x20 (espaço) para posições não preenchidas */
     for (int i = 0; i < 11; i++) out[i] = ' ';
+    /* Entradas especiais FAT32: "." e ".." */
+    if (name[0] == '.' && (name[1] == '\0' || (name[1] == '.' && name[2] == '\0'))) {
+        int i = 0;
+        while (name[i] && i < 11) { out[i] = name[i]; i++; }
+        return 0;
+    }
     /* Localiza o ponto separador nome.ext (se houver) */
     const char *dot = 0;
     const char *p = name;
@@ -306,11 +314,31 @@ static int list_dir_at(uint32_t dir_cluster) {
                 if (entries[i].name[0] == 0xE5) continue;
                 if (entries[i].attr == 0x0F) continue;
                 /* Imprime nome 8.3 pulando espaços de padding */
+                if (entries[i].attr & 0x10) set_vga_color(C_DIR);
+                else set_vga_color(C_FILE);
                 for (int j = 0; j < 11; j++) {
                     char c = entries[i].name[j];
                     if (c != ' ') vga_putchar(c);
                 }
                 if (entries[i].attr & 0x10) vga_puts("/");
+                set_vga_color(C_OUTPUT);
+                // timestamp
+                uint16_t mt = entries[i].modification_time;
+                uint16_t md = entries[i].modification_date;
+                if (md) {
+                    int hh = (mt >> 11) & 0x1F;
+                    int mm = (mt >> 5) & 0x3F;
+                    int mo = (md >> 5) & 0x0F;
+                    int dd = md & 0x1F;
+                    vga_putchar(' ');
+                    vga_putchar('0' + mo/10); vga_putchar('0' + mo%10);
+                    vga_putchar('-');
+                    vga_putchar('0' + dd/10); vga_putchar('0' + dd%10);
+                    vga_putchar(' ');
+                    vga_putchar('0' + hh/10); vga_putchar('0' + hh%10);
+                    vga_putchar(':');
+                    vga_putchar('0' + mm/10); vga_putchar('0' + mm%10);
+                }
                 vga_putchar('\n');
                 count++;
             }
@@ -318,6 +346,45 @@ static int list_dir_at(uint32_t dir_cluster) {
         cluster = fat_read_entry(cluster);
     }
 done:
+    return count;
+}
+
+/* Encontra entradas de diretório com prefixo correspondente */
+int fat32_match_prefix(const char *prefix, uint32_t dir_cluster,
+                       fat32_dirent_t *entries, int max_entries) {
+    int count = 0, plen = 0;
+    while (prefix[plen]) plen++;
+    uint32_t cluster = dir_cluster;
+    while (cluster >= 2 && cluster < 0x0FFFFFF8 && count < max_entries) {
+        uint32_t sector = cluster_to_sector(cluster);
+        for (uint32_t s = 0; s < sectors_per_cluster && count < max_entries; s++) {
+            uint8_t buf[512];
+            if (ata_read_sector(sector + s, buf) != 0) return count;
+            fat32_dir_entry_t *e = (fat32_dir_entry_t *)buf;
+            for (int i = 0; i < 16 && count < max_entries; i++) {
+                if (e[i].name[0] == 0x00) return count;
+                if (e[i].name[0] == 0xE5) continue;
+                if (e[i].attr == 0x0F) continue;
+                char name[64]; int len = 0;
+                for (int j = 0; j < 8 && e[i].name[j] != ' '; j++) name[len++] = e[i].name[j];
+                int has_ext = 0;
+                for (int j = 8; j < 11; j++) if (e[i].name[j] != ' ') has_ext = 1;
+                if (has_ext && len > 0) {
+                    // Check for common extension separators
+                    name[len++] = '.';
+                    for (int j = 8; j < 11 && e[i].name[j] != ' '; j++) name[len++] = e[i].name[j];
+                }
+                name[len] = '\0';
+                if (plen == 0 || strncmp(name, prefix, plen) == 0) {
+                    int k; for (k = 0; k < len && k < 63; k++) entries[count].name[k] = name[k];
+                    entries[count].name[k] = '\0';
+                    entries[count].attr = e[i].attr;
+                    count++;
+                }
+            }
+        }
+        cluster = fat_read_entry(cluster);
+    }
     return count;
 }
 
@@ -525,7 +592,6 @@ void fat32_get_cwd_name(char *out, int maxlen) {
     int depth = 0;
     uint32_t c = current_dir_cluster;
 
-    /* Sobe pelos diretórios pai até a raiz */
     while (c != boot.root_cluster) {
         uint32_t parent_cluster = boot.root_cluster;
         uint32_t sector_num = cluster_to_sector(c);
@@ -539,12 +605,12 @@ void fat32_get_cwd_name(char *out, int maxlen) {
                     entries[i].name[1] == '.' &&
                     entries[i].name[2] == ' ') {
                     parent_cluster = first_cluster_of(&entries[i]);
+                    if (parent_cluster == 0) parent_cluster = boot.root_cluster;
                     break;
                 }
             }
         }
 
-        /* Encontra o nome deste diretório no pai */
         uint8_t found = 0;
         uint32_t pc = parent_cluster;
         while (pc >= 2 && pc < 0x0FFFFFF8 && !found) {
@@ -571,7 +637,6 @@ void fat32_get_cwd_name(char *out, int maxlen) {
         c = parent_cluster;
     }
 
-    /* Monta o caminho da raiz até o destino */
     int pos = 0;
     out[pos++] = '/';
     for (int i = depth - 1; i >= 0; i--) {
@@ -739,10 +804,18 @@ int fat32_rmdir(const char *name) {
     return FAT_ERR_NOTFOUND;
 }
 
-int fat32_stat(const char *name, uint32_t *size, uint8_t *attr) {
+int fat32_stat(const char *name, uint32_t *size, uint8_t *attr,
+               uint16_t *mtime, uint16_t *mdate) {
     fat32_dir_entry_t e;
     if (find_entry(current_dir_cluster, name, &e) < 0) return FAT_ERR_NOTFOUND;
     if (size) *size = e.size;
     if (attr) *attr = e.attr;
+    if (mtime) *mtime = e.modification_time;
+    if (mdate) *mdate = e.modification_date;
     return 0;
+}
+
+void fat32_sync(void) {
+    // No write cache yet — writes are direct to disk.
+    // Reserved for future use when we add FAT caching.
 }

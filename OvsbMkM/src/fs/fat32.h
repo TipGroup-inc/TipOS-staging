@@ -75,6 +75,19 @@ uint32_t fat32_get_cwd(void);
 int fat32_mkdir(const char *name);
 int fat32_rename(const char *oldname, const char *newname);
 int fat32_rmdir(const char *name);
-int fat32_stat(const char *name, uint32_t *size, uint8_t *attr);
+int fat32_stat(const char *name, uint32_t *size, uint8_t *attr,
+               uint16_t *mtime, uint16_t *mdate);
+void fat32_sync(void);
+
+// ── Directory entry for autocomplete ──────────────────────
+typedef struct {
+    char name[64];        // display name (null-terminated, trimmed, with ext)
+    uint8_t attr;
+} fat32_dirent_t;
+
+// Find up to max_entries files/dirs matching prefix in dir_cluster.
+// Returns number of matches found.
+int fat32_match_prefix(const char *prefix, uint32_t dir_cluster,
+                       fat32_dirent_t *entries, int max_entries);
 
 #endif

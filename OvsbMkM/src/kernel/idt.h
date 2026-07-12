@@ -26,6 +26,7 @@ void idt_set_irq1(void);
 #define IDT_PRESENT     0x80
 #define IDT_DPL_USER    0x60
 #define IDT_INT_GATE    0x0E
+#define IDT_TRAP_GATE   0x0F
 #define IRQ0  32
 #define IRQ1  33
 

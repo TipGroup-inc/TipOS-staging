@@ -1,7 +1,11 @@
-v0.5.0.0
+v0.5.3.0
 
 Format: v0.STAGE.RELEASE.FEATURE
   STAGE  = 5 = Editor maduro + RTC + timer + repeat rate + shell line editing + 
                 history + PATH + redirection + syntax highlight + undo + clipboard
-  RELEASE = 0 = first release with all new features
+  RELEASE = 3 = autocomplete (TAB), line numbers toggle (F2), keyboard ISR fix,
+                env vars, aliases, PS1 prompt, timestamps in ls/stat, 
+                graceful shutdown + reboot, scripting (source), $? exit code,
+                terminal colorido (colors.h), PS1 escape expansion (\w, \W, \u, \h, \s, \$),
+                diretório atual no prompt, cd .. / cd . suporte documentado
   FEATURE = 0 = initial feature set

@@ -29,6 +29,7 @@ static int  overwrite;
 static char msg[80];
 static int  msg_age;
 static int  show_help;
+static int  show_linenos = 1;
 
 static void ins(int off, char c);
 static void del(int off);
@@ -289,22 +290,33 @@ static int is_c_keyword(const char *s, int len) {
 
 static void screen(void) {
     write(1, "\x1b[H", 3);
+    int gutter = 0;
+    if (show_linenos) {
+        int t = nlns > 1 ? nlns : 1;
+        int w = 1;
+        while (t >= 10) { w++; t /= 10; }
+        gutter = w + 1;
+    }
     for (int r = 0; r < ROWS; r++) {
         int li = top + r;
         if (li >= nlns) { write(1, "\x1b[K\n", 4); continue; }
         int st = lns[li];
         int en = (li + 1 < nlns) ? lns[li + 1] - 1 : sz;
         // Line number
-        char lbuf[12]; int lw = 0, lt = li;
-        if (lt == 0) lbuf[lw++] = '0';
-        else do { lbuf[lw++] = '0' + (lt % 10); lt /= 10; } while (lt);
-        write(1, "\x1b[37m", 4); // gray line numbers
-        for (int i = lw - 1; i >= 0; i--) write(1, &lbuf[i], 1);
-        write(1, "\x1b[m ", 3);
-        int col = lw + 1;
+        int col = 0;
+        if (show_linenos) {
+            char lbuf[12]; int lw = 0, lt = li;
+            if (lt == 0) lbuf[lw++] = '0';
+            else do { lbuf[lw++] = '0' + (lt % 10); lt /= 10; } while (lt);
+            write(1, "\x1b[37m", 4);
+            for (int i = lw - 1; i >= 0; i--) write(1, &lbuf[i], 1);
+            write(1, "\x1b[m ", 3);
+            col = lw + 1;
+        }
         // Syntax highlighting state machine
         int hl = 0; // 0=normal, 1=string, 2=line_cmt, 3=block_cmt, 4=preproc
         int buf_start = -1; // start of preproc or keyword
+        int content_col = col;
         for (int i = st; i <= en && col < COLS; i++) {
             char c = buf[i];
             if (c == '\t') {
@@ -326,7 +338,7 @@ static void screen(void) {
             if (c == '/' && i+1 <= en && buf[i+1] == '*') { hl = 3; wc("\x1b[31m",4); wc(&c,1); col++; continue; }
             if (hl == 2 && c == '\n') { hl = 0; wc("\x1b[m",3); wc(&c,1); col++; continue; }
             if (hl == 2) { wc(&c,1); col++; continue; }
-            if (c == '#' && col <= lw + 2) { hl = 4; wc("\x1b[36m",4); wc(&c,1); col++; continue; }
+            if (c == '#' && col <= content_col + 1) { hl = 4; wc("\x1b[36m",4); wc(&c,1); col++; continue; }
             if (hl == 4 && c == '\n') { hl = 0; wc("\x1b[m",3); wc(&c,1); col++; continue; }
             if (hl == 4) { wc(&c,1); col++; continue; }
             // Digits
@@ -405,7 +417,7 @@ static void screen(void) {
     else do { vb[vn++] = '0' + (v % 10); v /= 10; } while (v);
     while (vn > 0) esc[en++] = vb[--vn];
     esc[en++] = ';';
-    int vc = cx + 6; vn = 0;
+    int vc = cx + gutter + 1; vn = 0;
     if (vc == 0) vb[vn++] = '0';
     else do { vb[vn++] = '0' + (vc % 10); vc /= 10; } while (v);
     while (vn > 0) esc[en++] = vb[--vn];
@@ -552,6 +564,10 @@ int main(int argc, char **argv) {
             continue;
         }
         switch (k) {
+            case K_F2:
+                show_linenos = !show_linenos;
+                sts(show_linenos ? "Line numbers on" : "Line numbers off");
+                break;
             case K_UP:     if (cy > 0) { cy--; co = xy_off(cx, cy); } break;
             case K_DOWN:   if (cy + 1 < nlns) { cy++; co = xy_off(cx, cy); } break;
             case K_LEFT:   if (co > 0) { co--; off_xy(co, &cx, &cy); } break;

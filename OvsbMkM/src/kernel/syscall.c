@@ -143,7 +143,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t a1, uint64_t a2, uint64_t a3, ui
             int fd = (int)a1;
             if (fd >= 3 && fd < MAX_FDS && fds[fd].used) {
                 uint32_t size; uint8_t attr;
-                if (fat32_stat(fds[fd].name, &size, &attr) == 0) { st->st_size = size; return 0; }
+                if (fat32_stat(fds[fd].name, &size, &attr, NULL, NULL) == 0) { st->st_size = size; return 0; }
             }
             if (fd >= 0 && fd <= 2) { st->st_size = 0; return 0; }
             return -1;
@@ -154,7 +154,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t a1, uint64_t a2, uint64_t a3, ui
             struct stat *st = (struct stat *)a2;
             if (!path || !st) return -1;
             uint32_t size; uint8_t attr;
-            if (fat32_stat(path, &size, &attr) == 0) {
+            if (fat32_stat(path, &size, &attr, NULL, NULL) == 0) {
                 st->st_size = size;
                 return 0;
             }
@@ -171,7 +171,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t a1, uint64_t a2, uint64_t a3, ui
                 case 2: {
                     uint32_t size = 0;
                     uint8_t attr;
-                    if (fat32_stat(fds[fd].name, &size, &attr) == 0) fds[fd].pos = size + off;
+                    if (fat32_stat(fds[fd].name, &size, &attr, NULL, NULL) == 0) fds[fd].pos = size + off;
                     break;
                 }
                 default: return -1;

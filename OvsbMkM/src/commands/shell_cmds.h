@@ -6,6 +6,7 @@ void cmd_clear(void);
 void cmd_echo(const char *args);
 void cmd_about(void);
 void cmd_shutdown(void);
+void cmd_reboot(void);
 void cmd_ls(void);
 void cmd_touch(const char *name);
 void cmd_rm(const char *name);
