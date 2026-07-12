@@ -128,7 +128,7 @@
 
 ### 2.1 Estabilidade Base
 
-- [ ] 📌 **sys_exit real**: limpar FD table, liberar mmap, voltar ao shell sem crash
+- [x] 📌 **sys_exit real**: limpar FD table, liberar mmap, voltar ao shell sem crash
 - [x] 📌 **Keyboard repeat rate**: segurar tecla repete após delay inicial (via PIT/RTC)
 - [ ] **Proteger contra buffer overflow**: graphy 64KB hardcoded, strcpy sem bounds
 - [ ] **Verificar leaks**: kmalloc nunca libera, bump heap do userland nunca reusa
