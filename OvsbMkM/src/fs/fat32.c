@@ -510,10 +510,10 @@ int fat32_write_file(const char *name, const uint8_t *buffer, uint32_t size) {
         entry.first_cluster_high = (cluster >> 16) & 0xFFFF;
     }
 
-    entry.size = size;
     int result = write_chain(cluster, (uint8_t *)buffer, size);
+    if (result < 0) return result;
 
-    /* Atualiza entrada do diretório com novo tamanho e cluster */
+    /* Só atualiza diretório se write_chain teve sucesso */
     uint8_t name83[11];
     name_to_83(name, name83);
     uint32_t c = current_dir_cluster;
@@ -521,7 +521,7 @@ int fat32_write_file(const char *name, const uint8_t *buffer, uint32_t size) {
         uint32_t s = cluster_to_sector(c);
         for (uint32_t si = 0; si < sectors_per_cluster; si++) {
             uint8_t buf[512];
-            ata_read_sector(s + si, buf);
+            if (ata_read_sector(s + si, buf) != 0) return result;
             fat32_dir_entry_t *entries = (fat32_dir_entry_t *)buf;
             for (int i = 0; i < 16; i++) {
                 if (entries[i].name[0] == 0xE5) continue;
@@ -530,10 +530,10 @@ int fat32_write_file(const char *name, const uint8_t *buffer, uint32_t size) {
                 for (int j = 0; j < 11; j++)
                     if (entries[i].name[j] != name83[j]) { match = 0; break; }
                 if (match) {
-                    entries[i].size = size;
+                    entries[i].size = result;
                     entries[i].first_cluster_low = cluster & 0xFFFF;
                     entries[i].first_cluster_high = (cluster >> 16) & 0xFFFF;
-                    ata_write_sector(s + si, buf);
+                    if (ata_write_sector(s + si, buf) != 0) return -1;
                     return result;
                 }
             }

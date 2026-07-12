@@ -5,14 +5,13 @@
 #include <ctype.h>
 #include <sys/stat.h>
 
-#define KBUF     65536
 #define MAXLNS   4096
 #define ROWS     23
 #define COLS     80
 #define TABW     4
 
-static char buf[KBUF];
-static int  sz;
+static char *buf;
+static int  cap, sz;
 static int  lns[MAXLNS], nlns;
 static int  cx, cy, co;
 static int  top;
@@ -31,6 +30,17 @@ static tui_win_t *w_help;
 
 static void ins(int off, char c);
 static void del(int off);
+
+static int grow(int needed) {
+    if (needed <= cap) return 0;
+    int newcap = cap ? cap : 4096;
+    while (newcap < needed) newcap *= 2;
+    char *nb = realloc(buf, newcap);
+    if (!nb) return -1;
+    buf = nb;
+    cap = newcap;
+    return 0;
+}
 
 #define UNDO_MAX 512
 static struct { int pos; char ch; int is_ins; } undo_stack[UNDO_MAX];
@@ -62,7 +72,7 @@ static int undo_one(void) {
     if (undo_stack[i].is_ins) {
         if (p >= 0 && p <= sz) { del(p); return 1; }
     } else {
-        if (sz < KBUF - 1) {
+        if (grow(sz + 1) == 0) {
             for (int j = sz; j > p; j--) buf[j] = buf[j - 1];
             buf[p] = ch; sz++; return 1;
         }
@@ -84,7 +94,7 @@ static void sts(const char *s) {
 
 static void lns_build(void) {
     nlns = 0; lns[nlns++] = 0;
-    for (int i = 0; i < sz && i < KBUF; i++)
+    for (int i = 0; i < sz; i++)
         if (buf[i] == '\n') { lns[nlns++] = i + 1; if (nlns >= MAXLNS) break; }
 }
 
@@ -107,7 +117,7 @@ static int xy_off(int x, int y) {
 }
 
 static void ins(int off, char c) {
-    if (sz >= KBUF - 1) return;
+    if (grow(sz + 1) < 0) return;
     push_undo(off, c, 1);
     for (int i = sz; i > off; i--) buf[i] = buf[i - 1];
     buf[off] = c; sz++; mod = 1;
@@ -124,10 +134,11 @@ static void load(const char *fn) {
     strncpy(fname, fn, 255);
     struct stat st;
     if (stat(fn, &st) < 0) { sz = 0; mod = 0; lns_build(); return; }
+    if (grow(st.st_size + 4096) < 0) { sz = 0; mod = 0; lns_build(); return; }
     sz = 0;
     FILE *f = fopen(fn, "r");
     if (!f) sz = 0;
-    else { sz = fread(buf, 1, KBUF - 1, f); fclose(f); }
+    else { sz = fread(buf, 1, cap - 1, f); fclose(f); }
     mod = 0;
     lns_build();
 }
@@ -383,6 +394,14 @@ static void screen(void) {
     sb[l] = 0;
     tui_win_gotoxy(w_status, 0, 0);
     tui_win_addstr(w_status, sb);
+    /* Mode indicator */
+    char mode[8]; int ml = 0;
+    mode[ml++] = ' ';
+    if (overwrite) { mode[ml++] = 'O'; mode[ml++] = 'V'; mode[ml++] = 'R'; }
+    else { mode[ml++] = 'I'; mode[ml++] = 'N'; mode[ml++] = 'S'; }
+    mode[ml] = 0;
+    tui_win_gotoxy(w_status, 0, COLS - 6);
+    tui_win_addstr(w_status, mode);
 
     tui_win_fill(w_help, ' ');
     tui_win_color(w_help, TUI_WHITE, TUI_BLACK);
@@ -431,19 +450,20 @@ static int prompt(const char *q, char *out, int max) {
     }
 }
 
-static char buf2[KBUF];
-static int sz2;
+static char *buf2;
+static int cap2, sz2;
 static int lns2[MAXLNS], nlns2;
 static int cx2, cy2, co2, top2, mod2;
 static char fn2[256];
 static int active_buf = 0;
 
 static void swap_buf(void) {
-    memcpy(buf2, buf, KBUF); sz2 = sz;
+    char *tmp_buf = buf; buf = buf2; buf2 = tmp_buf;
+    int tmp_cap = cap; cap = cap2; cap2 = tmp_cap;
+    int tmp_sz = sz; sz = sz2; sz2 = tmp_sz;
     memcpy(lns2, lns, sizeof(lns)); nlns2 = nlns;
     cx2 = cx; cy2 = cy; co2 = co; top2 = top; mod2 = mod;
     strcpy(fn2, fname);
-    memcpy(buf, buf2, KBUF); sz = sz2;
     memcpy(lns, lns2, sizeof(lns)); nlns = nlns2;
     cx = cx2; cy = cy2; co = co2; top = top2; mod = mod2;
     strcpy(fname, fn2);
@@ -571,6 +591,10 @@ int main(int argc, char **argv) {
             case TUI_KEY_F2:
                 show_linenos = !show_linenos;
                 sts(show_linenos ? "Line numbers on" : "Line numbers off");
+                break;
+            case TUI_KEY_INS:
+                overwrite = !overwrite;
+                sts(overwrite ? "Overwrite" : "Insert");
                 break;
             case TUI_KEY_UP:     if (cy > 0) { cy--; co = xy_off(cx, cy); } break;
             case TUI_KEY_DOWN:   if (cy + 1 < nlns) { cy++; co = xy_off(cx, cy); } break;
