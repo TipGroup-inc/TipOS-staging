@@ -84,3 +84,41 @@ void munmap_all_user(void) {
     for (size_t i = 0; i < MAX_PAGES; i++)
         set_page_free(i);
 }
+
+uint64_t pml4_get_current(void) {
+    uint64_t cr3;
+    __asm__ volatile("mov %%cr3, %0" : "=r"(cr3));
+    return cr3;
+}
+
+static void *page_alloc(void) {
+    return mmap_user(0, 4096, 3, 0);
+}
+
+static void page_free(void *p) {
+    munmap_user(p, 4096);
+}
+
+uint64_t pml4_create(void) {
+    uint64_t *current = (uint64_t *)pml4_get_current();
+    uint64_t *new_pml4 = page_alloc();
+    if (!new_pml4) return 0;
+    // Copy all entries — shares kernel page tables.
+    // Future: copy only high-half kernel mappings and create
+    // private user page tables for full isolation.
+    for (int i = 0; i < 512; i++)
+        new_pml4[i] = current[i];
+    return (uint64_t)(uintptr_t)new_pml4;
+}
+
+void pml4_load(uint64_t pml4_pa) {
+    __asm__ volatile("mov %0, %%cr3" : : "r"(pml4_pa) : "memory");
+}
+
+void pml4_restore(uint64_t pml4_pa) {
+    pml4_load(pml4_pa);
+}
+
+void pml4_destroy(uint64_t pml4_pa) {
+    page_free((void *)pml4_pa);
+}

@@ -186,11 +186,11 @@
 ### 3.1 Proteção de Memória (RING 3) ⚠️
 
 - [x] 📌 **TSS + mudança de anel** (ring 0 → ring 3 via `iretq` com frame CS=0x1B/RPL=3; `syscall`/`sysret` pendente para performance)
-- [ ] 📌 **Pilha de kernel separada por processo**
-- [ ] 📌 **Paginação por processo** (cada processo tem seu PML4)
+- [x] 📌 **Pilha de kernel separada por processo** (TSS.RSP0 por execução, alocada/freed via page allocator)
+- [x] 📌 **Paginação por processo** (cada execução tem seu PML4 — cópia do kernel, switch cr3 na entrada/saída)
 - [ ] 📌 **Syscall gate via `syscall`/`sysret`** (mais rápido que int 0x80, já ativa ring)
 - [ ] **Isolar kernel em página alta** (0xFFFF800000000000+)
-- [ ] **TLB flush na troca de processo**
+- [x] **TLB flush na troca de processo** (implícito no `mov cr3`)
 - [ ] **Copy-on-write para fork**
 
 ### 3.2 Processos e Scheduler
@@ -591,6 +591,9 @@ Ring 3 / Proteção ───────────┬────────
 | **HOJE** | **FAT32 error handling** — checks em mkdir/write_chain/alloc_clusters/write_file, FAT_ERR_NOTEMPTY |
 | **HOJE** | **cc builtin + cc-host.sh** — `cc <arquivo>` copia fonte para /SRC/; `cc-host.sh <nome>` extrai, compila com toolchain do userland, e escreve .macho em /BIN/ |
 | **HOJE** | **make builtin** — Makefile parser, deps, timestamps, execucao de comandos via execute_command |
+| **HOJE** | **Pilha de kernel separada por processo** — TSS.RSP0 alocado por execução ring 3 |
+| **HOJE** | **Paginação por processo** — cada execução de ring 3 ganha PML4 próprio, switch cr3 na entry/exit |
+| **HOJE** | **TLB flush na troca de processo** — implícito no mov cr3 |
 
 ---
 

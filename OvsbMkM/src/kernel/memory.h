@@ -19,4 +19,10 @@ void *mmap_user(void *addr, size_t length, int prot, int flags);
 int munmap_user(void *addr, size_t length);
 void munmap_all_user(void);
 
+uint64_t pml4_get_current(void);
+uint64_t pml4_create(void);
+void pml4_load(uint64_t pml4_pa);
+void pml4_restore(uint64_t pml4_pa);
+void pml4_destroy(uint64_t pml4_pa);
+
 #endif

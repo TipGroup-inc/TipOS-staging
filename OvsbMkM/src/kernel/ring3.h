@@ -18,4 +18,6 @@ typedef struct __attribute__((packed)) {
 void tss_init(void);
 void enter_ring3(void *entry, void *user_rsp);
 
+extern volatile tss_t tss;
+
 #endif
