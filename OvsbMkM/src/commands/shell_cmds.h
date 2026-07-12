@@ -24,6 +24,7 @@ void cmd_exec(const char *name);
 void cmd_date(void);
 void cmd_uptime(void);
 void cmd_cc(const char *args);
+void cmd_make(const char *args);
 int  cmd_exec_in_dir(const char *name, const char *dir);
 
 #endif

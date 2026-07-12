@@ -11,6 +11,7 @@ extern void vga_putchar(char c);
 extern void vga_clear(void);
 extern char keyboard_read(void);
 extern volatile uint64_t timer_ticks;
+extern void execute_command(const char *cmd);
 
 static inline void outb(uint16_t port, uint8_t val) {
     __asm__ volatile ("outb %0, %1" :: "a"(val), "Nd"(port));
@@ -44,7 +45,7 @@ void cmd_help(void) {
     vga_puts("Comandos disponiveis:\n");
     set_vga_color(C_OUTPUT);
     vga_puts("help  clear  echo  about  shutdown\n");
-    vga_puts("ls    touch  rm    cat    edit   cc\n");
+    vga_puts("ls    touch  rm    cat    edit   cc     make\n");
     vga_puts("mkdir cd     pwd   exec\n");
     vga_puts("mv    cp     rmdir stat  disp\n");
 }
@@ -437,6 +438,186 @@ void cmd_cc(const char *name) {
         set_vga_color(C_OUTPUT);
     }
     fat32_change_dir("/");
+}
+
+// ─── Make (minimal) ──────────────────────────────────────
+#define MAX_RULES 16
+#define MAX_DEPS 8
+#define MAX_CMDS 8
+#define MAKE_BUF 4096
+
+struct rule {
+    char target[64];
+    char deps[MAX_DEPS][64];
+    int ndep;
+    char cmds[MAX_CMDS][128];
+    int ncmd;
+    int built; // 0=pending, 1=done, -1=in-progress (cycle detection)
+};
+
+static int parse_makefile(const uint8_t *buf, int len, struct rule *rules, int *nr) {
+    *nr = 0;
+    int i = 0;
+    while (i < len && *nr < MAX_RULES) {
+        // skip blank and comment lines
+        while (i < len) {
+            int c = buf[i];
+            if (c == ' ' || c == '\t') { i++; continue; }
+            if (c == '\n' || c == '\r') { i++; continue; }
+            if (c == '#') { while (i < len && buf[i] != '\n') i++; continue; }
+            break;
+        }
+        if (i >= len) break;
+        // read target line: "target: dep1 dep2 ..."
+        struct rule *r = &rules[*nr];
+        int pos = 0;
+        while (i < len && buf[i] != ':' && buf[i] != '\n' && pos < 63)
+            r->target[pos++] = buf[i++];
+        r->target[pos] = '\0';
+        if (i >= len || buf[i] != ':') break;
+        i++; // skip ':'
+        // trim leading spaces
+        while (i < len && (buf[i] == ' ' || buf[i] == '\t')) i++;
+        // read deps
+        int ri = 0;
+        while (i < len && buf[i] != '\n' && ri < MAX_DEPS) {
+            int di = 0;
+            while (i < len && buf[i] != ' ' && buf[i] != '\t' && buf[i] != '\n' && di < 63)
+                r->deps[ri][di++] = buf[i++];
+            r->deps[ri][di] = '\0';
+            if (di > 0) ri++;
+            while (i < len && (buf[i] == ' ' || buf[i] == '\t')) i++;
+        }
+        r->ndep = ri;
+        r->ncmd = 0;
+        r->built = 0;
+        // skip rest of target line
+        while (i < len && buf[i] != '\n') i++;
+        if (i < len) i++; // skip '\n'
+        // read commands (indented lines)
+        while (i < len && r->ncmd < MAX_CMDS) {
+            int start = i;
+            while (i < len && (buf[i] == ' ' || buf[i] == '\t')) i++;
+            if (i >= len || buf[i] == '\n' || buf[i] == '\r' || buf[i] == '#') {
+                // blank/comment after indent → skip
+                while (i < len && buf[i] != '\n') i++;
+                if (i < len) i++;
+                start = i;
+                continue;
+            }
+            // check if it's a new target (non-indented, has ':')
+            int is_target = 0;
+            int ti = i;
+            while (ti < len && buf[ti] != ':') { if (buf[ti] == '\n') break; ti++; }
+            if (ti < len && buf[ti] == ':' && buf[i] != ' ' && buf[i] != '\t') { is_target = 1; }
+            if (is_target) break; // back to top of loop = new rule
+            // actually a command - rewind to start of line (after indent)
+            i = start;
+            int ci = 0;
+            while (i < len && buf[i] != '\n' && ci < 127)
+                r->cmds[r->ncmd][ci++] = buf[i++];
+            r->cmds[r->ncmd][ci] = '\0';
+            if (ci > 0) r->ncmd++;
+            if (i < len) i++;
+        }
+        (*nr)++;
+    }
+    return 0;
+}
+
+static int fat32_mtime_cmp(const char *a, const char *b) {
+    // returns 1 if a is newer than b
+    uint32_t sa; uint8_t aa; uint16_t ma, da, mb, db;
+    int ra = fat32_stat(a, &sa, &aa, &ma, &da);
+    int rb = fat32_stat(b, &sa, &aa, &mb, &db);
+    if (ra != 0) return 1; // a doesn't exist → needs build
+    if (rb != 0) return 0; // b doesn't exist → a is newer
+    uint32_t ta = (uint32_t)da << 16 | ma;
+    uint32_t tb = (uint32_t)db << 16 | mb;
+    return ta > tb;
+}
+
+static int build_target(struct rule *rules, int nr, const char *target) {
+    // find rule
+    int ri = -1;
+    for (int i = 0; i < nr; i++) {
+        const char *a = rules[i].target;
+        const char *b = target;
+        int ok = 1;
+        for (int j = 0; ; j++) {
+            char ca = a[j], cb = b[j];
+            if (ca >= 'a' && ca <= 'z') ca -= 32;
+            if (cb >= 'a' && cb <= 'z') cb -= 32;
+            if (ca != cb) { ok = 0; break; }
+            if (ca == '\0') break;
+        }
+        if (ok) { ri = i; break; }
+    }
+    if (ri < 0) {
+        set_vga_color(C_ERROR); vga_puts("make: "); vga_puts(target); vga_puts(": sem regra\n"); set_vga_color(C_OUTPUT);
+        return -1;
+    }
+    struct rule *r = &rules[ri];
+    if (r->built == 1) return 0; // already built
+    if (r->built == -1) {
+        set_vga_color(C_ERROR); vga_puts("make: dependencia circular em "); vga_puts(target); vga_putchar('\n'); set_vga_color(C_OUTPUT);
+        return -1;
+    }
+    r->built = -1; // in progress
+    // build deps first
+    for (int d = 0; d < r->ndep; d++) {
+        if (build_target(rules, nr, r->deps[d]) != 0) return -1;
+    }
+    // check if target needs rebuild
+    int needs_build = 0;
+    {
+        uint32_t sz; uint8_t attr; uint16_t mt, md;
+        int st = fat32_stat(target, &sz, &attr, &mt, &md);
+        if (st != 0) { needs_build = 1; } // doesn't exist
+        else {
+            for (int d = 0; d < r->ndep; d++) {
+                if (fat32_mtime_cmp(r->deps[d], target)) {
+                    needs_build = 1;
+                    break;
+                }
+            }
+        }
+    }
+    if (needs_build) {
+        set_vga_color(C_HEADER); vga_puts("make: "); vga_puts(target); vga_puts(" (desatualizado)\n"); set_vga_color(C_OUTPUT);
+        for (int c = 0; c < r->ncmd; c++) {
+            set_vga_color(C_HEADER); vga_putchar('\t'); vga_puts(r->cmds[c]); vga_putchar('\n'); set_vga_color(C_OUTPUT);
+            execute_command(r->cmds[c]);
+        }
+    } else {
+        set_vga_color(C_OUTPUT); vga_puts("make: "); vga_puts(target); vga_puts(" (atualizado)\n"); set_vga_color(C_OUTPUT);
+    }
+    r->built = 1;
+    return 0;
+}
+
+void cmd_make(const char *args) {
+    while (*args == ' ') args++;
+    char target[64]; int ti = 0;
+    while (args[ti] && args[ti] != ' ' && ti < 63) { target[ti] = args[ti]; ti++; }
+    target[ti] = '\0';
+    // try to read Makefile or makefile
+    static uint8_t buf[MAKE_BUF];
+    int len = fat32_read_file("Makefile", buf, MAKE_BUF);
+    if (len < 0) len = fat32_read_file("makefile", buf, MAKE_BUF);
+    if (len < 0) {
+        set_vga_color(C_ERROR); vga_puts("make: Makefile nao encontrado\n"); set_vga_color(C_OUTPUT);
+        return;
+    }
+    struct rule rules[MAX_RULES];
+    int nr = 0;
+    parse_makefile(buf, len, rules, &nr);
+    if (nr == 0) { set_vga_color(C_ERROR); vga_puts("make: Makefile vazio ou invalido\n"); set_vga_color(C_OUTPUT); return; }
+    // determine target
+    const char *tgt;
+    if (target[0] == '\0') tgt = rules[0].target;
+    else tgt = target;
+    build_target(rules, nr, tgt);
 }
 
 void cmd_stat(const char *name) {

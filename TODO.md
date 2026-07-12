@@ -174,7 +174,7 @@
 ### 2.5 Compilador Onboard
 
 - [x] 📌 **Bridge `cc` + `cc-host.sh`** — builtin copia .c para /SRC/, script host compila e escreve .macho em /BIN/
-- [ ] **Comando `make`** — build automation
+- [x] **Comando `make`** — build automation (Makefile parser, dependencias, timestamps, execucao de comandos)
 - [ ] **Comando `as`** — assembler básico (nasm ou as)
 
 ---
@@ -590,6 +590,7 @@ Ring 3 / Proteção ───────────┬────────
 | **HOJE** | **kfree no-op** — bump allocator não pode free, kmalloc não usado; previne corrupção do bitmap |
 | **HOJE** | **FAT32 error handling** — checks em mkdir/write_chain/alloc_clusters/write_file, FAT_ERR_NOTEMPTY |
 | **HOJE** | **cc builtin + cc-host.sh** — `cc <arquivo>` copia fonte para /SRC/; `cc-host.sh <nome>` extrai, compila com toolchain do userland, e escreve .macho em /BIN/ |
+| **HOJE** | **make builtin** — Makefile parser, deps, timestamps, execucao de comandos via execute_command |
 
 ---
 

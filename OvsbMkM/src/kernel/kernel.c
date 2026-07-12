@@ -483,6 +483,8 @@ void execute_command(const char *cmd) {
     else if (strcmp(work, "date") == 0) cmd_date();
     else if (strcmp(work, "uptime") == 0) cmd_uptime();
     else if (strncmp(work, "cc ", 3) == 0) cmd_cc(work + 3);
+    else if (strcmp(work, "make") == 0) cmd_make("");
+    else if (strncmp(work, "make ", 5) == 0) cmd_make(work + 5);
     else if (strncmp(work, "touch ", 6) == 0) cmd_touch(work + 6);
     else if (strncmp(work, "rm ", 3) == 0) cmd_rm(work + 3);
     else if (strncmp(work, "cat ", 4) == 0) cmd_cat(work + 4);
@@ -792,7 +794,7 @@ void shell_loop() {
             int nm = 0;
             if (is_first) {
                 static const char *bi[] = {"help","clear","echo","about","shutdown",
-                    "reboot","source","ls","date","uptime","cc","touch","rm","cat","edit","mkdir","cd",
+                    "reboot","source","ls","date","uptime","cc","make","touch","rm","cat","edit","mkdir","cd",
                     "pwd","mv","cp","rmdir","stat","disp","exec","sleep",NULL};
                 for (int j = 0; bi[j] && nm < 64; j++)
                     if (strncmp(bi[j], prefix, plen) == 0) {
