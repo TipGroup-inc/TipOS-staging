@@ -203,6 +203,7 @@ int cmd_exec_in_dir(const char *name, const char *dir) {
     if (!entry) { fat32_change_dir("/"); return -1; }
     void *ustack = mmap_user(0, 4096, 3, 0);
     if (!ustack) { fat32_change_dir("/"); return -1; }
+    sigint_pending = 0;
     enter_ring3(entry, (char *)ustack + 4096);
     munmap_all_user();
     fds_cleanup();
@@ -248,9 +249,11 @@ void cmd_exec(const char *name) {
     set_vga_color(C_OUTPUT);
     void *ustack = mmap_user(0, 4096, 3, 0);
     if (ustack) {
+        sigint_pending = 0;
         enter_ring3(entry, (char *)ustack + 4096);
         munmap_all_user();
     } else {
+        sigint_pending = 0;
         ((void (*)(void))entry)();
     }
     fds_cleanup();

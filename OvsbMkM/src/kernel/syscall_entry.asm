@@ -2,6 +2,7 @@ bits 64
 global syscall_handler_entry
 extern syscall_handler
 extern ring3_exit_rsp_saved
+extern sigint_pending
 
 syscall_handler_entry:
     push rbp
@@ -23,6 +24,9 @@ syscall_handler_entry:
     mov r15, rdi    ; save syscall number (r15 is callee-saved in C ABI, preserved by syscall_handler)
     call syscall_handler
 
+    cmp dword [sigint_pending], 0
+    jne .exit
+
     cmp r15, 1      ; SYS_exit?
     je .exit
 
@@ -39,5 +43,6 @@ syscall_handler_entry:
     iretq
 
 .exit:
+    mov dword [sigint_pending], 0
     mov rsp, [ring3_exit_rsp_saved]
     ret

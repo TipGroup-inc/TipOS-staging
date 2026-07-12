@@ -15,9 +15,11 @@ static inline void outb(uint16_t port, uint8_t val) {
 }
 
 static volatile char kb_buffer[KB_BUFFER_SIZE];
+extern volatile int sigint_pending;
 static volatile int kb_head = 0;
 static volatile int kb_tail = 0;
 static volatile int shift_pressed = 0;
+static volatile int ctrl_pressed = 0;
 static volatile int ext_flag = 0;
 
 // ─── Keyboard repeat ────────────────────────────────────
@@ -79,8 +81,8 @@ static int handle_extended(uint8_t sc) {
     for (int i = 0; i < (int)(sizeof(ext)/sizeof(ext[0])); i++) {
         if (sc == ext[i].sc) { kbuf_put_seq(ext[i].seq, ext[i].len); return 1; }
     }
-    if (sc == 0x1D) { shift_pressed = 2; return 1; }
-    if (sc == 0x9D) { shift_pressed = 0; return 1; }
+    if (sc == 0x1D) { ctrl_pressed = 1; return 1; }
+    if (sc == 0x9D) { ctrl_pressed = 0; return 1; }
     if (sc == 0x38) { shift_pressed = 2; return 1; }
     if (sc == 0xB8) { shift_pressed = 0; return 1; }
     if (sc == 0x35) { kbuf_put('/'); return 1; }
@@ -94,8 +96,8 @@ static int process_scancode(uint8_t sc) {
     // shift keys
     if (sc == 0x2A || sc == 0x36) { shift_pressed = 1; return 1; }
     if (sc == 0xAA || sc == 0xB6) { shift_pressed = 0; return 1; }
-    if (sc == 0x1D) { shift_pressed = 1; return 1; }
-    if (sc == 0x9D) { shift_pressed = 0; return 1; }
+    if (sc == 0x1D) { ctrl_pressed = 1; return 1; }
+    if (sc == 0x9D) { ctrl_pressed = 0; return 1; }
     if (sc == 0x38) { shift_pressed = 1; return 1; }
     if (sc == 0xB8) { shift_pressed = 0; return 1; }
     // break code → key released
@@ -110,6 +112,8 @@ static int process_scancode(uint8_t sc) {
     // make code
     if (sc < sizeof(norm)) {
         char c = scancode_to_ascii(sc);
+        if (ctrl_pressed && c >= 'a' && c <= 'z') c = c - 'a' + 1;
+        if (ctrl_pressed && c >= 'A' && c <= 'Z') c = c - 'A' + 1;
         if (c) {
             kbuf_put(c);
             last_make_sc = sc;
@@ -138,6 +142,7 @@ char keyboard_read(void) {
         if (kb_head != kb_tail) {
             char c = kb_buffer[kb_tail];
             kb_tail = (kb_tail + 1) % KB_BUFFER_SIZE;
+            if (c == 3) { sigint_pending = 1; }
             last_make_sc = 0;
             last_repeat_char = 0;
             return c;

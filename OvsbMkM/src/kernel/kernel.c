@@ -183,6 +183,9 @@ void rtc_read(rtc_time *t) {
     t->yr = cmos_bcd(read_cmos(0x09)) + 2000;
 }
 
+// ─── ^C (SIGINT) ──────────────────────────────────────
+volatile int sigint_pending = 0;
+
 // ─── PIT / Timer ───────────────────────────────────────
 volatile uint64_t timer_ticks = 0;
 

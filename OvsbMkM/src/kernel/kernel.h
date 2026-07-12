@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include "colors.h"
 
+extern volatile int sigint_pending;
+
 void vga_puts(const char *s);
 void vga_putchar(char c);
 void set_vga_color(uint8_t color);
