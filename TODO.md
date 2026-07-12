@@ -130,9 +130,9 @@
 
 - [x] 📌 **sys_exit real**: limpar FD table, liberar mmap, voltar ao shell sem crash
 - [x] 📌 **Keyboard repeat rate**: segurar tecla repete após delay inicial (via PIT/RTC)
-- [ ] **Proteger contra buffer overflow**: graphy 64KB hardcoded, strcpy sem bounds
-- [ ] **Verificar leaks**: kmalloc nunca libera, bump heap do userland nunca reusa
-- [ ] **Error handling FAT32**: o que acontece se disco enche? Se setor corrompe?
+- [x] **Proteger contra buffer overflow**: graphy 64KB hardcoded, strcpy sem bounds
+- [x] **Verificar leaks**: kmalloc nunca libera, bump heap do userland nunca reusa
+- [x] **Error handling FAT32**: o que acontece se disco enche? Se setor corrompe?
 - [x] 📌 **Graceful shutdown**: sinfilar desmontar FAT32 antes de desligar
 
 ### 2.2 Editor de Texto (graphy → mature)
@@ -587,6 +587,9 @@ Ring 3 / Proteção ───────────┬────────
 | **HOJE** | **READMEs atualizados** — raiz, OvsbMkM/, userland/ com ring3, graphy, 30 syscalls |
 | **HOJE** | **^C (SIGINT) interrompe ring 3** — sigint_pending flag, abort via syscall_entry.asm |
 | **HOJE** | **Ctrl modifier no keyboard** — ctrl_pressed separado de shift, Ctrl+letra → control codes |
+| **HOJE** | **graphy buffer overflow protection** — strncpy+null, clamp memcpy to COLS, grow overflow check, file size limit |
+| **HOJE** | **kfree no-op** — bump allocator não pode free, kmalloc não usado; previne corrupção do bitmap |
+| **HOJE** | **FAT32 error handling** — checks em mkdir/write_chain/alloc_clusters/write_file, FAT_ERR_NOTEMPTY |
 
 ---
 
