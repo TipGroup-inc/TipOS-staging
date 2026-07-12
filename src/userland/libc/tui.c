@@ -240,6 +240,15 @@ void tui_win_addch(tui_win_t *w, char ch) {
     w->cx++;
 }
 
+void tui_win_addch_attr(tui_win_t *w, char ch, int fg, int bg) {
+    if (!w || w->cx >= w->w || w->cy >= w->h) return;
+    int idx = w->cy * w->w + w->cx;
+    w->buf[idx].ch = ch;
+    w->buf[idx].attr = make_attr(fg, bg);
+    mark_line(w, w->cy);
+    w->cx++;
+}
+
 void tui_win_addstr(tui_win_t *w, const char *s) {
     if (!w || !s) return;
     while (*s) {

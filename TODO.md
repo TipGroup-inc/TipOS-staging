@@ -563,6 +563,55 @@ Ring 3 / Proteção ───────────┬────────
 | HOJE | **Diagnóstico graphy** — causa raiz: syscall gate deadlockando keyboard_read() por IRQ desabilitado
 | HOJE | **Freelist malloc** — libc stdlib com freelist circular + coalescência + mmap para blocos >= 2048
 | HOJE | **calloc/realloc/mmap/munmap** — adicionados à libc stdlib
+| HOJE | **TUI library** — tui.h/tui.c: double buffer, dirty tracking, refresh parcial, overlapped windows
+| HOJE | **TUI widgets** — dialog, msgbox, prompt integrados à TUI lib
+| HOJE | **vsnprintf/sprintf** reais na libc (antes stubs vazios)
+| HOJE | **strdup** adicionado à libc
+| HOJE | **graphy refatorado** — agora usa TUI library (sem flicker, refresh parcial)
+
+---
+
+## 🔮 12. VISÃO DE FUTURO — TUI Estado da Arte
+
+*Recursos que dependem de melhorias futuras no kernel (ring 3, scheduler, driver de vídeo, mouse, sinais).*
+
+### 12.1 Renderização
+- **256 cores / true color** — requer VGA graphics mode ou framebuffer com suporte a 24-bit
+- **Sixel / Kitty Graphics Protocol** — exibir imagens no terminal (requer framebuffer)
+- **Alpha blending / Z-buffer** — composição com transparência (requer framebuffer + aceleração)
+- **Animação / palette fades** — transições suaves entre estados
+
+### 12.2 Input
+- **Mouse** — click, drag, scroll wheel (requer driver PS/2 mouse + IRQ12)
+- **Toque / gestos** — multitouch (requer hardware touch + driver)
+- **Protocolo de teclado não-ambíguo** — kitty keyboard protocol (requer suporte no kernel)
+
+### 12.3 Acessibilidade
+- **Screen reader API** — anúncios contextuais para leitores de tela
+- **Modo de acessibilidade** — interface simplificada com hints para elementos
+
+### 12.4 Internacionalização
+- **Unicode / UTF-8** — requer VGA text mode com fontes customizadas ou framebuffer
+- **BiDi** — renderização de texto da direita pra esquerda (hebraico, árabe)
+- **Emojis** — requer renderização de bitmap no terminal
+
+### 12.5 Arquitetura
+- **Sinais (SIGWINCH)** — redimensionamento automático (requer signals no kernel)
+- **Multi-threading** — operações em background sem bloquear UI (requer scheduler preemptivo)
+- **Serialização de sessão** — salvar/restaurar estado completo (aberto, cursor, undo)
+- **Hot-reload de temas** — trocar cores em tempo real sem reiniciar app
+- **Reactive state management** — hooks tipo React para gerenciamento de estado
+- **Terminfo/termcap** — banco de dados de capacidades de terminal (requer FS)
+
+### 12.6 Backlog Imediato (fazer assim que possível)
+- [ ] graphy: word wrap
+- [ ] graphy: scroll horizontal (linhas > 80 col)
+- [ ] graphy: bracket matching
+- [ ] shell: background jobs (&, jobs, fg, bg)
+- [ ] shell: ^C interrompe comando atual
+- [ ] TUI lib: suporte a config file (~/.tiposrc)
+- [ ] TUI lib: menu bar widget, list selector
+- [ ] TUI lib: scrollback history buffer por janela
 
 ---
 

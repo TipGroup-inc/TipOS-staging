@@ -1,3 +1,4 @@
+#include <tui.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -9,14 +10,6 @@
 #define ROWS     23
 #define COLS     80
 #define TABW     4
-
-enum {
-    K_ESC=27, K_UP=300, K_DOWN, K_LEFT, K_RIGHT,
-    K_HOME, K_END, K_PGUP, K_PGDN, K_INS, K_DEL,
-    K_F1, K_F2, K_F3, K_F4, K_F5, K_F6,
-    K_F7, K_F8, K_F9, K_F10, K_F11, K_F12,
-    K_BS=127, K_TAB=9, K_ENTER=10
-};
 
 static char buf[KBUF];
 static int  sz;
@@ -31,10 +24,14 @@ static int  msg_age;
 static int  show_help;
 static int  show_linenos = 1;
 
+static tui_t *tui;
+static tui_win_t *w_text;
+static tui_win_t *w_status;
+static tui_win_t *w_help;
+
 static void ins(int off, char c);
 static void del(int off);
 
-// ─── Undo system ───────────────────────────────────────
 #define UNDO_MAX 512
 static struct { int pos; char ch; int is_ins; } undo_stack[UNDO_MAX];
 static int undo_head = 0;
@@ -73,7 +70,6 @@ static int undo_one(void) {
     return 0;
 }
 
-// ─── Clipboard ──────────────────────────────────────────
 static char clip[4096];
 static int clip_len = 0;
 
@@ -82,7 +78,6 @@ static void clip_set(const char *s, int n) {
     memcpy(clip, s, n); clip_len = n;
 }
 
-// ─── helpers ──────────────────────────────────────────
 static void sts(const char *s) {
     strncpy(msg, s, 79); msg[79] = 0; msg_age = 0;
 }
@@ -123,79 +118,6 @@ static void del(int off) {
     push_undo(off, buf[off], 0);
     for (int i = off; i < sz - 1; i++) buf[i] = buf[i + 1];
     sz--; mod = 1;
-}
-
-static int rd_k(void) {
-    char c = getchar();
-    if (c != '\x1b') return (unsigned char)c;
-    for (int wait = 0; wait < 50000; wait++) {
-        if (kbhit()) {
-            char s[8]; s[0] = '\x1b';
-            int n = 1;
-            while (n < 7) {
-                if (!kbhit()) break;
-                s[n++] = getchar();
-                if (s[n-1] >= 0x40 && s[n-1] <= 0x7e && s[1] != '[') break;
-                if (s[n-1] == '~') break;
-                if (n >= 2 && s[1] == '[' && s[n-1] >= 0x40 && s[n-1] <= 0x7e) break;
-                if (n >= 2 && s[1] == 'O' && s[n-1] >= 0x40 && s[n-1] <= 0x7e) break;
-            }
-            if (n == 2) {
-                if (s[1] == 'H') return K_HOME;
-                if (s[1] == 'F') return K_END;
-                if (s[1] >= 'A' && s[1] <= 'D') return K_UP + (s[1] - 'A');
-            }
-            if (n >= 3 && s[1] == '[') {
-                if (s[2] >= 'A' && s[2] <= 'D') return K_UP + (s[2] - 'A');
-                if (s[2] == 'H') return K_HOME;
-                if (s[2] == 'F') return K_END;
-                if (s[2] == '2' && s[3] == '~') return K_INS;
-                if (s[2] == '3' && s[3] == '~') return K_DEL;
-                if (s[2] == '5' && s[3] == '~') return K_PGUP;
-                if (s[2] == '6' && s[3] == '~') return K_PGDN;
-                if (s[2] == '1' && n >= 5) {
-                    if (s[3] == '5' && s[4] == '~') return K_F5;
-                    if (s[3] == '7' && s[4] == '~') return K_F6;
-                    if (s[3] == '8' && s[4] == '~') return K_F7;
-                    if (s[3] == '9' && s[4] == '~') return K_F8;
-                }
-                if (s[2] == '2' && n >= 5) {
-                    if (s[3] == '0' && s[4] == '~') return K_F9;
-                    if (s[3] == '1' && s[4] == '~') return K_F10;
-                    if (s[3] == '3' && s[4] == '~') return K_F11;
-                    if (s[3] == '4' && s[4] == '~') return K_F12;
-                }
-            }
-            if (n >= 2 && s[1] == 'O' && n >= 3) {
-                if (s[2] == 'P') return K_F1; if (s[2] == 'Q') return K_F2;
-                if (s[2] == 'R') return K_F3; if (s[2] == 'S') return K_F4;
-            }
-            return K_ESC;
-        }
-    }
-    return K_ESC;
-}
-
-static void pr_status(const char *s) {
-    write(1, "\x1b[7m", 4);
-    int sl = strlen(s); if (sl > COLS) sl = COLS;
-    write(1, s, sl);
-    for (int i = sl; i < COLS; i++) write(1, " ", 1);
-    write(1, "\x1b[m", 3);
-}
-
-static int prompt(const char *q, char *out, int max) {
-    int p = 0;
-    memset(out, 0, max);
-    while (1) {
-        pr_status(q);
-        if (p > 0) write(1, out, p);
-        int k = rd_k();
-        if (k == '\n') { out[p] = 0; return p; }
-        if (k == K_ESC) { out[0] = 0; return -1; }
-        if ((k == K_BS || k == 127) && p > 0) { p--; out[p] = 0; }
-        if (k >= 32 && k <= 126 && p < max - 1) { out[p++] = k; out[p] = 0; }
-    }
 }
 
 static void load(const char *fn) {
@@ -246,15 +168,13 @@ static int replace(const char *q, const char *r) {
             for (int j = 0; j < ql; j++) del(i);
             for (int j = 0; j < rl; j++) ins(i + j, r[j]);
             i += rl - 1;
-            count++;
-            mod = 1;
+            count++; mod = 1;
         }
     }
     lns_build();
     return count;
 }
 
-// ─── Auto-indent ──────────────────────────────────────
 static int line_indent(int line) {
     int st = lns[line];
     int en = (line + 1 < nlns) ? lns[line + 1] - 1 : sz;
@@ -267,10 +187,9 @@ static int line_indent(int line) {
     return n;
 }
 
-// ─── Syntax highlighting ──────────────────────────────
-static void wc(const char *s, int n) { write(1, s, n); }
-
-static int is_kw_start(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; }
+static int is_kw_start(char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+}
 static int is_kw_cont(char c) { return is_kw_start(c) || (c >= '0' && c <= '9'); }
 
 static int is_c_keyword(const char *s, int len) {
@@ -288,8 +207,17 @@ static int is_c_keyword(const char *s, int len) {
     return 0;
 }
 
+/* Syntax highlight colors */
+#define C_NORMAL TUI_WHITE, TUI_BLACK
+#define C_STRING TUI_GREEN, TUI_BLACK
+#define C_COMMENT TUI_RED, TUI_BLACK
+#define C_PREPROC TUI_CYAN, TUI_BLACK
+#define C_NUMBER TUI_MAGENTA, TUI_BLACK
+#define C_KEYWORD TUI_YELLOW, TUI_BLACK
+#define C_LINENO TUI_LIGHT_GRAY, TUI_BLACK
+
 static void screen(void) {
-    write(1, "\x1b[H", 3);
+    tui_win_clear(w_text);
     int gutter = 0;
     if (show_linenos) {
         int t = nlns > 1 ? nlns : 1;
@@ -299,120 +227,140 @@ static void screen(void) {
     }
     for (int r = 0; r < ROWS; r++) {
         int li = top + r;
-        if (li >= nlns) { write(1, "\x1b[K\n", 4); continue; }
+        if (li >= nlns) continue;
         int st = lns[li];
         int en = (li + 1 < nlns) ? lns[li + 1] - 1 : sz;
-        // Line number
+        tui_win_gotoxy(w_text, r, 0);
         int col = 0;
         if (show_linenos) {
             char lbuf[12]; int lw = 0, lt = li;
             if (lt == 0) lbuf[lw++] = '0';
             else do { lbuf[lw++] = '0' + (lt % 10); lt /= 10; } while (lt);
-            write(1, "\x1b[37m", 4);
-            for (int i = lw - 1; i >= 0; i--) write(1, &lbuf[i], 1);
-            write(1, "\x1b[m ", 3);
-            col = lw + 1;
+            for (int i = lw - 1; i >= 0; i--) {
+                tui_win_addch_attr(w_text, lbuf[i], C_LINENO);
+                col++;
+            }
+            tui_win_addch_attr(w_text, ' ', C_LINENO);
+            col++;
         }
-        // Syntax highlighting state machine
-        int hl = 0; // 0=normal, 1=string, 2=line_cmt, 3=block_cmt, 4=preproc
-        int buf_start = -1; // start of preproc or keyword
+        int hl = 0;
         int content_col = col;
         for (int i = st; i <= en && col < COLS; i++) {
             char c = buf[i];
             if (c == '\t') {
                 int sp = TABW - (col % TABW);
-                while (sp-- > 0 && col < COLS) { write(1, " ", 1); col++; }
+                while (sp-- > 0 && col < COLS) {
+                    tui_win_addch_attr(w_text, ' ', C_NORMAL);
+                    col++;
+                }
                 continue;
             }
-            // State transitions
-            if (hl == 0 && c == '"') { hl = 1; wc("\x1b[32m",4); wc(&c,1); col++; continue; }
-            if (hl == 1 && c == '"') { wc(&c,1); col++; hl = 0; wc("\x1b[m",3); continue; }
-            if (hl == 1 && c == '\\' && i+1 <= en) { wc(&c,1); col++; i++; if (col < COLS) { wc(&buf[i],1); col++; } continue; }
-            if (hl == 1) { wc(&c,1); col++; continue; }
-            if (hl == 3 && c == '*' && i+1 <= en && buf[i+1] == '/') {
-                wc(&c,1); col++; i++; if (col < COLS) { wc(&buf[i],1); col++; }
-                hl = 0; wc("\x1b[m",3); continue;
+            if (hl == 0 && c == '"') { hl = 1; tui_win_addch_attr(w_text, c, C_STRING); col++; continue; }
+            if (hl == 1 && c == '"') { tui_win_addch_attr(w_text, c, C_STRING); col++; hl = 0; continue; }
+            if (hl == 1 && c == '\\' && i+1 <= en) {
+                tui_win_addch_attr(w_text, c, C_STRING); col++; i++;
+                if (col < COLS) { tui_win_addch_attr(w_text, buf[i], C_STRING); col++; }
+                continue;
             }
-            if (hl == 3) { wc(&c,1); col++; continue; }
-            if (c == '/' && i+1 <= en && buf[i+1] == '/') { hl = 2; wc("\x1b[31m",4); wc(&c,1); col++; continue; }
-            if (c == '/' && i+1 <= en && buf[i+1] == '*') { hl = 3; wc("\x1b[31m",4); wc(&c,1); col++; continue; }
-            if (hl == 2 && c == '\n') { hl = 0; wc("\x1b[m",3); wc(&c,1); col++; continue; }
-            if (hl == 2) { wc(&c,1); col++; continue; }
-            if (c == '#' && col <= content_col + 1) { hl = 4; wc("\x1b[36m",4); wc(&c,1); col++; continue; }
-            if (hl == 4 && c == '\n') { hl = 0; wc("\x1b[m",3); wc(&c,1); col++; continue; }
-            if (hl == 4) { wc(&c,1); col++; continue; }
-            // Digits
+            if (hl == 1) { tui_win_addch_attr(w_text, c, C_STRING); col++; continue; }
+            if (hl == 3 && c == '*' && i+1 <= en && buf[i+1] == '/') {
+                tui_win_addch_attr(w_text, c, C_COMMENT); col++; i++;
+                if (col < COLS) { tui_win_addch_attr(w_text, buf[i], C_COMMENT); col++; }
+                hl = 0; continue;
+            }
+            if (hl == 3) { tui_win_addch_attr(w_text, c, C_COMMENT); col++; continue; }
+            if (c == '/' && i+1 <= en && buf[i+1] == '/') {
+                hl = 2;
+                tui_win_addch_attr(w_text, c, C_COMMENT); col++;
+                continue;
+            }
+            if (c == '/' && i+1 <= en && buf[i+1] == '*') {
+                hl = 3;
+                tui_win_addch_attr(w_text, c, C_COMMENT); col++;
+                continue;
+            }
+            if (hl == 2) { tui_win_addch_attr(w_text, c, C_COMMENT); col++; continue; }
+            if (c == '#' && col <= content_col + 1) {
+                hl = 4;
+                tui_win_addch_attr(w_text, c, C_PREPROC); col++;
+                continue;
+            }
+            if (hl == 4) { tui_win_addch_attr(w_text, c, C_PREPROC); col++; continue; }
             if (c >= '0' && c <= '9' && !is_kw_start(c) && col < COLS) {
-                wc("\x1b[35m",4); wc(&c,1); col++;
+                tui_win_addch_attr(w_text, c, C_NUMBER); col++;
                 while (i+1 <= en && col < COLS) {
                     char nc = buf[i+1];
-                    if ((nc >= '0' && nc <= '9') || nc == 'x' || nc == 'X' || nc == 'a' || nc == 'f' || nc == 'A' || nc == 'F') {
-                        i++; wc(&buf[i],1); col++;
+                    if ((nc >= '0' && nc <= '9') || nc == 'x' || nc == 'X' ||
+                        nc == 'a' || nc == 'f' || nc == 'A' || nc == 'F') {
+                        i++; tui_win_addch_attr(w_text, buf[i], C_NUMBER); col++;
                     } else break;
                 }
-                wc("\x1b[m",3); continue;
+                continue;
             }
-            // Keyword detection: buffer letters, check at word boundary
             if (is_kw_start(c)) {
                 int ks = i;
                 while (i+1 <= en && is_kw_cont(buf[i+1]) && col + (i - ks + 1) < COLS) i++;
                 int kwlen = i - ks + 1;
-                if (is_c_keyword(&buf[ks], kwlen)) {
-                    wc("\x1b[33m",4);
-                    for (int j = 0; j < kwlen && col < COLS; j++) { wc(&buf[ks+j],1); col++; }
-                    wc("\x1b[m",3);
-                } else {
-                    for (int j = 0; j < kwlen && col < COLS; j++) { wc(&buf[ks+j],1); col++; }
+                int fg = is_c_keyword(&buf[ks], kwlen) ? C_KEYWORD : TUI_WHITE;
+                for (int j = 0; j < kwlen && col < COLS; j++) {
+                    tui_win_addch_attr(w_text, buf[ks + j], fg, TUI_BLACK);
+                    col++;
                 }
                 continue;
             }
-            wc(&c,1); col++;
+            tui_win_addch_attr(w_text, c, C_NORMAL);
+            col++;
         }
-        wc("\x1b[K\n",4);
-        if (hl == 3) wc("\x1b[m",3); // reset on newline if in block comment
     }
-    // Status bar
+
+    tui_win_clear(w_status);
+    tui_win_color(w_status, TUI_WHITE, TUI_BLUE);
     char sb[COLS + 1]; int l = 0;
     if (msg[0]) {
         strncpy(sb, msg, COLS); sb[COLS] = 0; l = strlen(sb);
     } else {
         l = strlen(fname); memcpy(sb, fname, l);
         if (mod && l < COLS) sb[l++] = '*';
-        char tmp[16]; int nl;
+        char tmp[16];
         if (l < COLS) { sb[l++] = ' '; }
-        nl = 0; int n = cx + 1;
+        int n = cx + 1, nl = 0;
         if (n == 0) tmp[nl++] = '0';
         else do { tmp[nl++] = '0' + (n % 10); n /= 10; } while (n);
         for (int i = nl - 1; i >= 0 && l < COLS; i--) sb[l++] = tmp[i];
         if (l < COLS) { sb[l++] = '/'; }
-        nl = 0; n = cy + 1;
+        n = cy + 1; nl = 0;
         if (n == 0) tmp[nl++] = '0';
         else do { tmp[nl++] = '0' + (n % 10); n /= 10; } while (n);
         for (int i = nl - 1; i >= 0 && l < COLS; i--) sb[l++] = tmp[i];
         if (l < COLS) { sb[l++] = ' '; sb[l++] = 'L'; sb[l++] = 'n'; }
-        nl = 0; n = nlns;
+        n = nlns; nl = 0;
         if (n == 0) tmp[nl++] = '0';
         else do { tmp[nl++] = '0' + (n % 10); n /= 10; } while (n);
         for (int i = nl - 1; i >= 0 && l < COLS; i--) sb[l++] = tmp[i];
         sb[l] = 0;
     }
-    while (l < COLS) sb[l++] = ' '; sb[l] = 0;
-    write(1, "\x1b[7m", 4);
-    write(1, sb, COLS);
-    write(1, "\x1b[m\n", 4);
+    while (l < COLS) sb[l++] = ' ';
+    sb[l] = 0;
+    tui_win_gotoxy(w_status, 0, 0);
+    tui_win_addstr(w_status, sb);
+
+    tui_win_fill(w_help, ' ');
+    tui_win_color(w_help, TUI_WHITE, TUI_BLACK);
+    tui_win_gotoxy(w_help, 0, 0);
     if (show_help) {
-        const char *hlp = "^O Save  ^X Exit  ^G Help  ^S Replace  ^F Find  ^C Cmd  ^Z Undo  ^J GoLn  ^W Cut  ^Y Paste  ^K Kill  F2 Ln#";
-        write(1, hlp, strlen(hlp));
+        tui_win_addstr(w_help, "^O Save  ^X Exit  ^G Help  ^S Replace  ^F Find  ^C Cmd  ^Z Undo  ^J GoLn  ^W Cut  ^Y Paste  ^K Kill  F2 Ln#");
     } else {
-        const char *scut = "^O Save  ^X Exit  ^G Help  ^F Find  ^C Cmd";
-        write(1, scut, strlen(scut));
+        tui_win_addstr(w_help, "^O Save  ^X Exit  ^G Help  ^F Find  ^C Cmd");
     }
-    for (int i = 0; i < COLS; i++) write(1, " ", 1);
-    // Cursor positioning
+
+    tui_refresh(tui);
+
+    int sr = cy - top;
+    if (sr < 0) sr = 0; if (sr >= ROWS) sr = ROWS - 1;
     char esc[16]; int en = 0;
-    int sr = cy - top; if (sr < 0) sr = 0; if (sr >= ROWS) sr = ROWS - 1;
-    esc[en++] = '\x1b'; esc[en++] = '[';
-    int v = sr + 1; char vb[8]; int vn = 0;
+    int v = sr + 1;
+    esc[en++] = 0x1B; esc[en++] = '[';
+    char vb[8]; int vn = 0;
     if (v == 0) vb[vn++] = '0';
     else do { vb[vn++] = '0' + (v % 10); v /= 10; } while (v);
     while (vn > 0) esc[en++] = vb[--vn];
@@ -425,7 +373,24 @@ static void screen(void) {
     write(1, esc, en);
 }
 
-// ─── multiple file buffers ────────────────────────────
+static int prompt(const char *q, char *out, int max) {
+    int p = 0;
+    memset(out, 0, max);
+    while (1) {
+        tui_win_clear(w_status);
+        tui_win_color(w_status, TUI_WHITE, TUI_BLUE);
+        tui_win_gotoxy(w_status, 0, 0);
+        tui_win_addstr(w_status, q);
+        if (p > 0) tui_win_addstr(w_status, out);
+        tui_refresh(tui);
+        int k = tui_getch(tui);
+        if (k == TUI_KEY_ENTER) { out[p] = 0; return p; }
+        if (k == TUI_KEY_ESC) { out[0] = 0; return -1; }
+        if ((k == TUI_KEY_BS || k == 127) && p > 0) { p--; out[p] = 0; }
+        if (k >= 32 && k <= 126 && p < max - 1) { out[p++] = k; out[p] = 0; }
+    }
+}
+
 static char buf2[KBUF];
 static int sz2;
 static int lns2[MAXLNS], nlns2;
@@ -434,29 +399,24 @@ static char fn2[256];
 static int active_buf = 0;
 
 static void swap_buf(void) {
-    // save current to buf2
     memcpy(buf2, buf, KBUF); sz2 = sz;
     memcpy(lns2, lns, sizeof(lns)); nlns2 = nlns;
     cx2 = cx; cy2 = cy; co2 = co; top2 = top; mod2 = mod;
     strcpy(fn2, fname);
-    // load from buf2
     memcpy(buf, buf2, KBUF); sz = sz2;
     memcpy(lns, lns2, sizeof(lns)); nlns = nlns2;
     cx = cx2; cy = cy2; co = co2; top = top2; mod = mod2;
     strcpy(fname, fn2);
 }
 
-// ─── kill line / yank ─────────────────────────────────
 static void kill_line(void) {
     if (cy >= nlns) return;
     int st = lns[cy];
     int en = (cy + 1 < nlns) ? lns[cy + 1] - 1 : sz;
     clip_len = 0;
-    for (int i = st; i <= en && i < sz && clip_len < 4095; i++) {
+    for (int i = st; i <= en && i < sz && clip_len < 4095; i++)
         clip[clip_len++] = buf[i];
-    }
     clip[clip_len] = 0;
-    // delete the line content
     for (int i = st; i <= en && i < sz; i++) push_undo(st, buf[st], 0);
     int n = en - st + 1;
     if (n > sz) n = sz;
@@ -467,30 +427,35 @@ static void kill_line(void) {
     if (co > sz) co = sz;
 }
 
-// ─── main ─────────────────────────────────────────────
 int main(int argc, char **argv) {
-    write(1, "\x1b[2J\x1b[?25l", 9);
+    tui = tui_init();
+    if (!tui) return 1;
+    w_text   = tui_win_new(tui, 0, 0, 80, 23, 0);
+    w_status = tui_win_new(tui, 0, 23, 80, 1, 0);
+    w_help   = tui_win_new(tui, 0, 24, 80, 1, 0);
+    if (!w_text || !w_status || !w_help) { tui_end(tui); return 1; }
+
+    write(1, "\x1b[?25l", 6);
     if (argc > 1) load(argv[1]); else { sz = 0; lns_build(); sts("New file"); }
     off_xy(co, &cx, &cy);
     while (1) {
         screen();
-        int k = rd_k();
+        int k = tui_getch(tui);
         msg_age++;
         if (msg_age > 1000000) msg[0] = 0;
-        if (k == 'X' - 64) break;           // ^X
-        if (k == 'G' - 64) {                // ^G
+        if (k == 'X' - 64) break;
+        if (k == 'G' - 64) {
             show_help = !show_help;
-            if (show_help) sts("Help shown");
-            else sts("");
+            sts(show_help ? "Help shown" : "");
             continue;
         }
         if (k == 'O' - 64) { save(); continue; }
-        if (k == 'F' - 64) {                // ^F Find
+        if (k == 'F' - 64) {
             char q[128];
             if (prompt("Find: ", q, 127) > 0) find(q, co);
             continue;
         }
-        if (k == 'R' - 64) {                // ^S Replace
+        if (k == 'R' - 64) {
             char q[128], r[128];
             if (prompt("Replace: ", q, 127) <= 0) continue;
             if (prompt("With: ", r, 127) > 0) {
@@ -501,7 +466,7 @@ int main(int argc, char **argv) {
             }
             continue;
         }
-        if (k == 'J' - 64) {                // ^J Go to line
+        if (k == 'J' - 64) {
             char q[16];
             if (prompt("Go line: ", q, 15) > 0) {
                 int n = atoi(q) - 1;
@@ -513,13 +478,12 @@ int main(int argc, char **argv) {
             }
             continue;
         }
-        if (k == 'Z' - 64) {                // ^Z Undo
+        if (k == 'Z' - 64) {
             if (undo_one()) { lns_build(); off_xy(co, &cx, &cy); sts("Undo"); }
             else sts("Nothing to undo");
             continue;
         }
-        if (k == 'W' - 64) {                // ^W Cut word (or selected text)
-            // simple: kill current word forward
+        if (k == 'W' - 64) {
             if (co < sz) {
                 int end = co;
                 while (end < sz && buf[end] == ' ') end++;
@@ -532,26 +496,26 @@ int main(int argc, char **argv) {
             }
             continue;
         }
-        if (k == 'Y' - 64) {                // ^Y Paste clipboard
+        if (k == 'Y' - 64) {
             for (int i = 0; i < clip_len; i++) ins(co + i, clip[i]);
             co += clip_len; cx += clip_len;
             lns_build();
             if (cx >= COLS) { cx = 0; cy++; }
             continue;
         }
-        if (k == 'K' - 64) {                // ^K Kill line
+        if (k == 'K' - 64) {
             kill_line();
             if (cy >= nlns && cy > 0) cy--;
             if (co > sz) co = sz;
             continue;
         }
-        if (k == 'T' - 64) {                // ^T Toggle buffer
+        if (k == 'T' - 64) {
             swap_buf();
             sts(active_buf ? "Buffer 1" : "Buffer 2");
             active_buf = !active_buf;
             continue;
         }
-        if (k == 'C' - 64) {                // ^C Command
+        if (k == 'C' - 64) {
             char cmd[128];
             if (prompt("Cmd: ", cmd, 127) > 0) {
                 if (strcmp(cmd, "q") == 0) break;
@@ -564,40 +528,39 @@ int main(int argc, char **argv) {
             continue;
         }
         switch (k) {
-            case K_F2:
+            case TUI_KEY_F2:
                 show_linenos = !show_linenos;
                 sts(show_linenos ? "Line numbers on" : "Line numbers off");
                 break;
-            case K_UP:     if (cy > 0) { cy--; co = xy_off(cx, cy); } break;
-            case K_DOWN:   if (cy + 1 < nlns) { cy++; co = xy_off(cx, cy); } break;
-            case K_LEFT:   if (co > 0) { co--; off_xy(co, &cx, &cy); } break;
-            case K_RIGHT:  if (co < sz) { co++; off_xy(co, &cx, &cy); } break;
-            case K_HOME:   cx = 0; co = lns[cy]; break;
-            case K_END:
+            case TUI_KEY_UP:     if (cy > 0) { cy--; co = xy_off(cx, cy); } break;
+            case TUI_KEY_DOWN:   if (cy + 1 < nlns) { cy++; co = xy_off(cx, cy); } break;
+            case TUI_KEY_LEFT:   if (co > 0) { co--; off_xy(co, &cx, &cy); } break;
+            case TUI_KEY_RIGHT:  if (co < sz) { co++; off_xy(co, &cx, &cy); } break;
+            case TUI_KEY_HOME:   cx = 0; co = lns[cy]; break;
+            case TUI_KEY_END:
                 co = (cy + 1 < nlns) ? lns[cy + 1] - 1 : sz;
                 if (co < lns[cy]) co = lns[cy];
                 off_xy(co, &cx, &cy);
                 break;
-            case K_PGUP:
+            case TUI_KEY_PGUP:
                 top -= ROWS; if (top < 0) top = 0;
                 cy -= ROWS; if (cy < 0) cy = 0;
                 co = xy_off(cx, cy);
                 break;
-            case K_PGDN:
+            case TUI_KEY_PGDN:
                 top += ROWS; if (top + ROWS > nlns) top = nlns < ROWS ? 0 : nlns - ROWS;
                 if (top < 0) top = 0;
                 cy += ROWS; if (cy >= nlns) cy = nlns - 1;
                 co = xy_off(cx, cy);
                 break;
-            case K_DEL:
+            case TUI_KEY_DEL:
                 if (co < sz) { del(co); lns_build(); co = xy_off(cx, cy); }
                 break;
-            case K_BS:
+            case TUI_KEY_BS:
                 if (co > 0) { del(co - 1); co--; lns_build(); off_xy(co, &cx, &cy); }
                 break;
-            case K_ENTER: {
+            case TUI_KEY_ENTER: {
                 ins(co, '\n');
-                // auto-indent
                 int ind = 0;
                 if (cy + 1 < nlns) ind = line_indent(cy);
                 for (int i = 0; i < ind; i++) ins(co + 1 + i, ' ');
@@ -608,7 +571,7 @@ int main(int argc, char **argv) {
                 if (cy >= top + ROWS) top = cy - ROWS + 1;
                 break;
             }
-            case K_TAB: {
+            case TUI_KEY_TAB: {
                 int sp = TABW - (cx % TABW);
                 if (sp <= 0) sp = TABW;
                 for (int i = 0; i < sp; i++) ins(co + i, ' ');
@@ -633,6 +596,6 @@ int main(int argc, char **argv) {
         }
         if (co > sz) co = sz; if (co < 0) co = 0;
     }
-    write(1, "\x1b[2J\x1b[H\x1b[?25h", 10);
+    tui_end(tui);
     return 0;
 }

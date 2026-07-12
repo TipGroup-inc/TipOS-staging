@@ -92,6 +92,7 @@ void      tui_win_title(tui_win_t *w, const char *s);
 /* ── Drawing ───────────────────────────────────────── */
 void tui_win_gotoxy(tui_win_t *w, int y, int x);
 void tui_win_addch(tui_win_t *w, char ch);
+void tui_win_addch_attr(tui_win_t *w, char ch, int fg, int bg);
 void tui_win_addstr(tui_win_t *w, const char *s);
 void tui_win_printf(tui_win_t *w, const char *fmt, ...);
 void tui_win_color(tui_win_t *w, int fg, int bg);
