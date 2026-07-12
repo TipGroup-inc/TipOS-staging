@@ -38,6 +38,10 @@
 | Bump allocator kmalloc (4MB heap @ 0x900000) | ✅ | `memory.c` |
 | Page allocator (bitmap, 4096-byte pages, 1024 pages) | ✅ | `memory.c` |
 | Memory map user pages (mmap_user/munmap_user) | ✅ | `memory.c` |
+| TSS + enter_ring3() via iretq (ring 0 → ring 3) | ✅ | `ring3.c`, `ring3.h` |
+| GDT: ring 3 code (0x18, DPL=3) + data (0x20, DPL=3) + TSS slot (0x28) | ✅ | `boot64.asm` |
+| Paginação com User bit em PML4E/PDPTE/PDE (0x87) | ✅ | `boot64.asm` |
+| SYS_exit detectado no handler, pula iretq, retorna | ✅ | `syscall_entry.asm` |
 | Mach-O 64-bit loader (MH_MAGIC_64, LC_SEGMENT_64, LC_MAIN) | ✅ | `mach_o.c` |
 | Dynamic linker (dyld: resolve, bind, load dylibs) | ✅ | `dyld.c` |
 | SMC stub, NVRAM stub | 🔸 | `smc.c`, `nvram.c` |
@@ -76,8 +80,8 @@
 | `rmdir` | ✅ | `cmd_rmdir` |
 | `stat` | ✅ | `cmd_stat` |
 | `disp` (VGA graphics mode) | ✅ | `cmd_disp` |
-| `exec` (Mach-O loader) | ✅ | `cmd_exec` |
-| Auto-search /BIN/ for executables | ✅ | `cmd_exec_in_dir` |
+| `exec` (Mach-O loader + PATH search) | ✅ | `cmd_exec` |
+| Auto-search /BIN/ for executables | ✅ | `cmd_exec` (PATH: "", BIN, APPS) |
 
 ### 1.4 Userland / libc
 
@@ -182,7 +186,7 @@
 
 ### 3.1 Proteção de Memória (RING 3) ⚠️
 
-- [ ] 📌 **TSS + mudança de anel** (ring 0 → ring 3 em syscall)
+- [x] 📌 **TSS + mudança de anel** (ring 0 → ring 3 via `iretq` com frame CS=0x1B/RPL=3; `syscall`/`sysret` pendente para performance)
 - [ ] 📌 **Pilha de kernel separada por processo**
 - [ ] 📌 **Paginação por processo** (cada processo tem seu PML4)
 - [ ] 📌 **Syscall gate via `syscall`/`sysret`** (mais rápido que int 0x80, já ativa ring)
@@ -568,6 +572,15 @@ Ring 3 / Proteção ───────────┬────────
 | HOJE | **vsnprintf/sprintf** reais na libc (antes stubs vazios)
 | HOJE | **strdup** adicionado à libc
 | HOJE | **graphy refatorado** — agora usa TUI library (sem flicker, refresh parcial)
+| **HOJE** | **Ring 3 funcional** — GDT com segmentos ring3 (0x18 code, 0x20 data), TSS slot (0x28), enter_ring3() via iretq |
+| **HOJE** | **User bit na paginação** — PML4E/PDPTE com +7 (User), PDE com 0x87, ring 3 acessa VGA/text |
+| **HOJE** | **SYS_exit real** — syscall handler pula iretq se r15==1, retorna ao ring 0 com rsp salvo |
+| **HOJE** | **TUI userland com syscalls** — graphy em ring 3 usa write/read/exit via int 0x80 |
+| **HOJE** | **PATH search no exec** — cmd_exec busca "", "BIN", "APPS" automaticamente |
+| **HOJE** | **ATA timeout** — polling loop com 100k iterações, não trava se primary master vazio |
+| **HOJE** | **Makefile corrigido** — disk.img como ATA primary master (`-drive file=... -boot order=d`) |
+| **HOJE** | **crt0 exit** — _start() chama exit(ret) no final (syscall SYS_exit) |
+| **HOJE** | **Commit + push GitHub** — d1741b0 no TipGroup-inc/TipOS-staging.git |
 
 ---
 
@@ -606,7 +619,7 @@ Ring 3 / Proteção ───────────┬────────
 ### 12.6 Backlog Imediato (fazer assim que possível)
 - [ ] graphy: word wrap
 - [ ] graphy: scroll horizontal (linhas > 80 col)
-- [ ] graphy: bracket matching
+- [x] graphy: bracket matching
 - [ ] shell: background jobs (&, jobs, fg, bg)
 - [ ] shell: ^C interrompe comando atual
 - [ ] TUI lib: suporte a config file (~/.tiposrc)

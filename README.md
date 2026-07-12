@@ -1,75 +1,81 @@
-# TipOS v0.1.0.0
+# TipOS
 
-Sistema operacional minimalista com userland MIT, kernel OvsbMkM,
-libc própria e programas TUI (editor, etc.).
+Sistema operacional TUI-first com kernel OvsbMkM, libc própria, ring 3,
+e editor gráfico TUI (graphy). Boota em QEMU, hardware real via GRUB.
 
 ```
-Versão: v0.STAGE.RELEASE.FEATURE
-         STAGE  = 5 (Editor maduro + RTC + timer + repeat + shell editing + history + PATH + redirect + syntax highlight + undo + clipboard)
+Versão: v0.7.0.0
+         STAGE  = 7 (Ring 3 + proteção de memória)
          RELEASE = 0
          FEATURE = 0
 ```
 
-## Estrutura do projeto
+## O que tem de legal
+
+- **Ring 3 funcional**: programas userland rodam em CPL=3 com TSS, iretq,
+  segmentos ring 3 (0x18/0x20), bit User na paginação
+- **Editor graphy**: TUI text mode com syntax highlight C, undo/redo (512),
+  clipboard (cut/copy/paste), replace, go-to-line, auto-indent, line numbers,
+  busca, bracket matching, 2 buffers simultâneos
+- **Shell completo**: 20+ comandos, PATH search (CWD → BIN → APPS), history
+  (128), line editing (Home/End/Del/^A/^E/^K/^U/^W), autocomplete (TAB),
+  redirection `>` / `>>`, aliases, env vars, PS1 customizável, scripting (source)
+- **FAT32 completo**: mkdir, rmdir, rm, mv, cp, cat, edit, stat, timestamps
+- **30 syscalls** via int 0x80 (convenção XNU): read/write/open/close/mmap/
+  stat/fstat/lseek/kbhit/gettimeofday/sleep/exit
+- **Mach-O 64-bit loader**: carrega userland programs em 0x2000000
+- **RTC real**: gettimeofday, date, sleep
+- **Keyboard repeat**: 500ms delay, 33Hz rate
+- **Compositor gráfico**: 320x200x256, 8 janelas, cursor software
+
+## Estrutura
 
 ```
 TipOS/
-├── Makefile              # Build principal
-├── VERSION               # Versão atual
+├── Makefile              # Build principal (kernel + ISO)
 ├── README.md
-├── disk.img              # FAT32 (gerado, gitignored)
-├── TipOS.iso             # ISO bootável (gerado, gitignored)
+├── disk.img              # FAT32 (gitignored)
+├── OvsbMkM.iso           # ISO bootável (gitignored)
 │
-├── OvsbMkM/              # Kernel
-│   ├── src/kernel/       #   kmain, IDT, syscalls, Mach-O loader
-│   ├── src/drivers/      #   ATA, PS/2 keyboard, VGA
+├── OvsbMkM/              # Kernel (ring 0)
+│   ├── src/kernel/       #   kmain, IDT, syscalls, ring3, Mach-O
+│   ├── src/drivers/      #   ATA, PS/2 keyboard, VGA text/gfx
 │   ├── src/fs/           #   FAT32
-│   └── src/commands/     #   Shell + builtins
+│   └── src/commands/     #   Shell + builtins + compositor
 │
-├── src/userland/         # Userland TipOS (MIT)
-│   ├── Makefile          #   Compila .c -> .macho -> instala no disco
-│   ├── include/          #   Headers da libc (stdio.h, stdlib.h, ...)
-│   ├── libc/             #   stdio.c, stdlib.c, string.c, crt0.c
-│   ├── progs/            #   Programas exemplo (graphy.c, ...)
+├── src/userland/         # Userland MIT
+│   ├── Makefile          #   .c → .macho → disk.img
+│   ├── include/          #   libc headers
+│   ├── libc/             #   stdio, stdlib, string, crt0, tui
+│   ├── progs/            #   graphy.c e outros
 │   └── tools/            #   macho_pack.py
 │
 ├── docs/                 # Documentação
-│   ├── tipos-tutorial.md #   Tutorial: como fazer programas
-│   └── ...
-│
-└── build/                # Artefatos de compilação
+└── build/                # Artefatos
 ```
 
 ## Build & Run
 
 ```bash
-make              # kernel + userland + ISO + disco (tudo)
-make run          # tudo + QEMU com serial (-serial stdio)
-make run-curses   # tudo + QEMU no terminal (-display curses)
-make clean        # limpa artefatos
-```
+# Tudo de uma vez
+make                     # kernel + ISO
+make -C src/userland install  # userland → disk.img
+make run                 # QEMU
 
-Os targets `run` e `run-curses` sobem QEMU com o ISO e o disco FAT32
-automaticamente.
+# Ou separado
+make -C OvsbMkM          # só kernel .elf
+make -C OvsbMkM iso      # gera OvsbMkM.iso
+make -C src/userland install  # compila + mcopy pro disk.img
 
-Rodagem manual (útil quando já tem o ISO):
-
-```bash
+# QEMU manual
 qemu-system-x86_64 \
+    -cdrom OvsbMkM/OvsbMkM.iso \
+    -drive file=disk.img,format=raw,index=0 \
     -boot order=d \
-    -cdrom TipOS.iso \
-    -m 256M \
-    -drive file=disk.img,format=raw,if=ide
+    -m 256M
 ```
 
-Com KVM (mais rápido):
-
-```bash
-qemu-system-x86_64 -enable-kvm -boot order=d -cdrom TipOS.iso \
-    -m 256M -drive file=disk.img,format=raw,if=ide
-```
-
-## Comandos do shell (MkM>
+## Shell (MkM)
 
 | Comando   | Descrição                     |
 |-----------|-------------------------------|
@@ -77,12 +83,11 @@ qemu-system-x86_64 -enable-kvm -boot order=d -cdrom TipOS.iso \
 | `clear`   | Limpa a tela                  |
 | `echo`    | Imprime texto                 |
 | `about`   | Sobre o sistema               |
-| `shutdown`| Desliga                       |
-| `ls`      | Lista diretório atual         |
+| `ls`      | Lista diretório               |
 | `touch`   | Cria arquivo                  |
 | `rm`      | Remove arquivo                |
 | `cat`     | Exibe arquivo                 |
-| `edit`    | Edita arquivo                 |
+| `edit`    | Edita arquivo (line editor)   |
 | `mkdir`   | Cria diretório                |
 | `cd`      | Muda diretório                |
 | `pwd`     | Caminho atual                 |
@@ -90,63 +95,95 @@ qemu-system-x86_64 -enable-kvm -boot order=d -cdrom TipOS.iso \
 | `cp`      | Copia                        |
 | `rmdir`   | Remove diretório              |
 | `stat`    | Info do arquivo               |
-| `exec`    | Executa programa (caminho completo) |
+| `date`    | Data/hora                     |
+| `exec`    | Executa programa (PATH search)|
+| `source`  | Executa script .sh            |
+| `export`  | Define variável de ambiente   |
+| `alias`   | Define alias                  |
 
-**Auto-busca**: se o comando não for builtin, o shell procura em `/BIN/`
-automaticamente. `GRAPHY` funciona sem `exec /BIN/GRAPHY`.
+**PATH search**: `exec graphy` busca em CWD, depois BIN, depois APPS.
 
-## Syscalls (int 0x80, estilo XNU)
+## Syscalls (int 0x80, XNU convention)
 
-| Nº   | Nome      | Descrição                          |
-|------|-----------|------------------------------------|
-| 1    | exit      | Retorna ao shell                   |
-| 3    | read      | Lê teclado (fd=0, blocking)        |
-| 4    | write     | Escreve no VGA (fd=1,2)            |
-| 5    | open      | Abre arquivo                       |
-| 6    | close     | Fecha fd                           |
-| 10   | unlink    | Remove arquivo                     |
-| 33   | access    | Verifica acesso                    |
-| 136  | mkdir     | Cria diretório                     |
-| 137  | rmdir     | Remove diretório                   |
-| 188  | stat      | Info do arquivo (path)             |
-| 189  | fstat     | Info do arquivo (fd)               |
-| 198  | kbhit     | Tecla disponível? (0/1)            |
-| 200  | lseek     | Posiciona em fd                    |
+| Nº | Nome      | rax | rdi        | rsi        | rdx         | Descrição            |
+|----|-----------|-----|------------|------------|-------------|----------------------|
+| 1  | exit      | 1   | code       | -          | -           | Retorna ao shell     |
+| 3  | read      | 3   | fd         | buffer     | count       | Teclado (fd=0)      |
+| 4  | write     | 4   | fd         | buf        | count       | VGA (fd=1,2)        |
+| 5  | open      | 5   | path       | flags      | mode        | Arquivo             |
+| 6  | close     | 6   | fd         | -          | -           | Fecha fd            |
+| 10 | unlink    | 10  | path       | -          | -           | Remove arquivo      |
+| 20 | getpid    | 20  | -          | -          | -           | PID (sempre 1)      |
+| 33 | access    | 33  | path       | mode       | -           | Verifica acesso     |
+| 47 | getgid    | 47  | -          | -          | -           | GID (sempre 0)      |
+| 54 | ioctl     | 54  | fd         | request    | -           | Stub (ret 0)        |
+| 73 | munmap    | 73  | addr       | length     | -           | Libera mmap         |
+| 74 | mprotect  | 74  | addr       | length     | prot        | Stub (ret 0)        |
+| 116| gettimeofday|116| tv         | -          | -           | Timestamp           |
+| 134| sigaction | 134 | signum     | act        | oldact      | Stub                |
+| 136| mkdir     | 136 | path       | mode       | -           | Cria diretório      |
+| 137| rmdir     | 137 | path       | -          | -           | Remove diretório    |
+| 173| sigreturn | 173 | -          | -          | -           | Stub                |
+| 188| stat      | 188 | path       | stat buf   | -           | Info arquivo        |
+| 189| fstat     | 189 | fd         | stat buf   | -           | Info por fd         |
+| 197| mmap      | 197 | addr       | length     | prot        | Aloca páginas       |
+| 198| kbhit     | 198 | -          | -          | -           | Tecla disponível?   |
+| 199| lstat     | 199 | path       | stat buf   | -           | Stub (igual stat)   |
+| 200| lseek     | 200 | fd         | offset     | whence      | Posiciona em fd     |
 
-Chamada: `rax=número, rdi=a1, rsi=a2, rdx=a3, rcx=a4; int $0x80`
+Registradores preservados: `rbx, rbp, r12-r15`.
 
 ## Userland (MIT)
 
 Programas em `src/userland/progs/` usam a libc TipOS:
-- `stdio.h` — printf, fopen/fclose/fread/fwrite, getchar/putchar, kbhit
-- `stdlib.h` — malloc, free, atoi, exit
-- `string.h` — memset, memcpy, strlen, strcmp, strncpy, strncmp, strchr, strstr, strtok, strtol
-- `ctype.h` — isdigit, isspace, etc.
-- `sys/stat.h` — struct stat, stat(), fstat()
 
-O linker script (`libc/link.ld`) posiciona o código em `0x2000000`
-e o `macho_pack.py` empacota como Mach-O 64-bit minimal.
-O loader do kernel copia o binário para `0x2000000` e salta
-para o entry point (`_start` em `crt0.c`).
+- **stdio**: printf, fopen/fclose/fread/fwrite, getchar/putchar, kbhit, sprintf
+- **stdlib**: malloc (freelist), calloc, realloc, free, atoi, itoa, exit
+- **string**: memset, memcpy, memmove, strlen, strcmp, strncmp, strcpy, strncpy,
+  strcat, strchr, strrchr, strstr, strtok, strdup, strtol
+- **ctype**: isdigit, isspace, isalpha, isprint, etc.
+- **tui**: TUI library com double buffer, refresh parcial, janelas sobrepostas,
+  widgets (dialog, msgbox, prompt), cores 16 VGA, teclas estendidas
+
+### graphy — TUI Text Editor
+
+Editor de texto no terminal com sintaxe highlight para C, 4096 linhas,
+64KB de buffer, dois buffers simultâneos (^T alterna).
+
+| Atalho   | Função                    |
+|----------|---------------------------|
+| ^O       | Salvar                    |
+| ^X       | Sair                      |
+| ^G       | Help toggle               |
+| ^F       | Buscar                    |
+| ^R       | Substituir                |
+| ^J       | Ir para linha             |
+| ^Z       | Undo                      |
+| ^W       | Cut word                  |
+| ^Y       | Paste                     |
+| ^K       | Kill line                 |
+| ^C       | Comando (:w, :q)          |
+| ^T       | Alterna buffer            |
+| F2       | Line numbers toggle       |
+| INS      | Insert/Overwrite toggle   |
+| Setas    | Navegação                 |
+| Home/End | Início/fim da linha       |
+| PgUp/Dn  | Rolagem                   |
 
 ## Teclas estendidas
 
-O driver de teclado emite sequências VT100 para setas e
-teclas especiais, interpretadas pela libc de programas como
-`graphy` via `getchar()` + `kbhit()`:
-
-| Tecla        | Sequência     |
-|--------------|---------------|
-| ↑ ↓ ← →     | `\x1b[A-D`    |
-| Home         | `\x1b[H`      |
-| End          | `\x1b[F`      |
-| PgUp         | `\x1b[5~`     |
-| PgDn         | `\x1b[6~`     |
-| Insert       | `\x1b[2~`     |
-| Delete       | `\x1b[3~`     |
-| F1-F4        | `\x1bOP-S`    |
-| F5-F8        | `\x1b[15~-18~`|
-| F9-F12       | `\x1b[20~-24~`|
+| Tecla      | Sequência     |
+|------------|---------------|
+| ↑ ↓ ← →   | `\x1b[A-D`   |
+| Home       | `\x1b[H`      |
+| End        | `\x1b[F`      |
+| PgUp       | `\x1b[5~`    |
+| PgDn       | `\x1b[6~`    |
+| Insert     | `\x1b[2~`    |
+| Delete     | `\x1b[3~`    |
+| F1-F4      | `\x1bOP-S`   |
+| F5-F8      | `\x1b[15~-18~`|
+| F9-F12     | `\x1b[20~-24~`|
 
 ## Licença
 
