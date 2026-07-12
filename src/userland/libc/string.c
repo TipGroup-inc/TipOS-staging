@@ -1,3 +1,5 @@
+#include <stdlib.h>
+
 int strlen(const char *s) {
     int n = 0;
     while (s[n]) n++;
@@ -85,4 +87,13 @@ void *memmove(void *dst, const void *src, int n) {
         for (int i = n - 1; i >= 0; i--) ((char *)dst)[i] = ((const char *)src)[i];
     }
     return dst;
+}
+
+char *strdup(const char *s) {
+    if (!s) return 0;
+    int n = strlen(s);
+    char *p = malloc(n + 1);
+    if (!p) return 0;
+    for (int i = 0; i <= n; i++) p[i] = s[i];
+    return p;
 }

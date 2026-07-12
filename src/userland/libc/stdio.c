@@ -191,13 +191,71 @@ static void _print_hex(unsigned long n) {
 }
 
 int vsnprintf(char *buf, int n, const char *fmt, va_list ap) {
-    (void)buf; (void)n; (void)fmt; (void)ap;
-    return 0;
+    if (!buf || n <= 0) return 0;
+    int p = 0;
+    for (const char *f = fmt; *f && p < n - 1; f++) {
+        if (*f != '%') { buf[p++] = *f; continue; }
+        f++;
+        int lflag = 0;
+        while (*f == 'l') { lflag = 1; f++; }
+        switch (*f) {
+            case 'd': {
+                long v = lflag ? va_arg(ap, long) : (long)va_arg(ap, int);
+                if (v < 0) { buf[p++] = '-'; v = -v; }
+                char tmp[24], *t = tmp;
+                unsigned long uv = (unsigned long)v;
+                do { *t++ = '0' + (uv % 10); uv /= 10; } while (uv);
+                while (t > tmp && p < n - 1) buf[p++] = *--t;
+                break;
+            }
+            case 'u': {
+                unsigned long v = lflag ? va_arg(ap, unsigned long)
+                                        : (unsigned long)va_arg(ap, unsigned);
+                char tmp[24], *t = tmp;
+                do { *t++ = '0' + (v % 10); v /= 10; } while (v);
+                while (t > tmp && p < n - 1) buf[p++] = *--t;
+                break;
+            }
+            case 'x':
+            case 'X': {
+                unsigned long v = lflag ? va_arg(ap, unsigned long)
+                                        : (unsigned long)va_arg(ap, unsigned);
+                const char *hex = "0123456789abcdef";
+                char tmp[24], *t = tmp;
+                do { *t++ = hex[v & 0xF]; v >>= 4; } while (v);
+                while (t > tmp && p < n - 1) buf[p++] = *--t;
+                break;
+            }
+            case 's': {
+                const char *s = va_arg(ap, const char *);
+                if (!s) s = "(null)";
+                while (*s && p < n - 1) buf[p++] = *s++;
+                break;
+            }
+            case 'c': {
+                int c = va_arg(ap, int);
+                buf[p++] = c;
+                break;
+            }
+            case '%':
+                buf[p++] = '%';
+                break;
+            default:
+                buf[p++] = '%';
+                if (*f) buf[p++] = *f;
+                break;
+        }
+    }
+    buf[p] = '\0';
+    return p;
 }
 
 int sprintf(char *buf, const char *fmt, ...) {
-    (void)buf; (void)fmt;
-    return 0;
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(buf, 4096, fmt, ap);
+    va_end(ap);
+    return n;
 }
 
 int fprintf(FILE *f, const char *fmt, ...) {

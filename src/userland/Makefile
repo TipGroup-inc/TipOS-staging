@@ -8,7 +8,7 @@ LDFLAGS = -e _start -T libc/link.ld
 OBJCOPY = objcopy
 PACKER = python3 tools/macho_pack.py
 MCOPY = mcopy -o -i ../../disk.img
-LIBC_SRC = libc/crt0.c libc/stdio.c libc/stdlib.c libc/string.c
+LIBC_SRC = libc/crt0.c libc/stdio.c libc/stdlib.c libc/string.c libc/tui.c
 
 PROGS = graphy
 PROGS_SRC = $(addsuffix .c, $(addprefix progs/, $(PROGS)))

@@ -14,5 +14,6 @@ char *strtok(char *str, const char *delim);
 void *memset(void *s, int c, int n);
 void *memcpy(void *dst, const void *src, int n);
 void *memmove(void *dst, const void *src, int n);
+char *strdup(const char *s);
 
 #endif

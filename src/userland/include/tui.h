@@ -1,60 +1,123 @@
 #ifndef TUI_H
 #define TUI_H
-#include <stdint.h>
 
-static inline void tui_putchar(char c) {
-    __asm__ volatile (
-        "mov $4, %%rax\n\t"
-        "mov $1, %%rdi\n\t"
-        "lea %0, %%rsi\n\t"
-        "mov $1, %%rdx\n\t"
-        "int $0x80"
-        :: "m"(c) : "rax", "rdi", "rsi", "rdx", "rcx", "r11");
-}
+#define TUI_COLS 80
+#define TUI_ROWS 25
 
-static inline void tui_puts(const char *s) {
-    int len = 0;
-    while (s[len]) len++;
-    __asm__ volatile (
-        "mov $4, %%rax\n\t"
-        "mov $1, %%rdi\n\t"
-        "mov %0, %%rsi\n\t"
-        "mov %1, %%rdx\n\t"
-        "int $0x80"
-        :: "r"(s), "r"((long)len) : "rax", "rdi", "rsi", "rdx", "rcx", "r11");
-}
+/* ── Cores VGA (16 cores) ──────────────────────────── */
+#define TUI_BLACK       0
+#define TUI_BLUE        1
+#define TUI_GREEN       2
+#define TUI_CYAN        3
+#define TUI_RED         4
+#define TUI_MAGENTA     5
+#define TUI_BROWN       6
+#define TUI_LIGHT_GRAY  7
+#define TUI_DARK_GRAY   8
+#define TUI_LIGHT_BLUE  9
+#define TUI_LIGHT_GREEN 10
+#define TUI_LIGHT_CYAN  11
+#define TUI_LIGHT_RED   12
+#define TUI_LIGHT_MAGENTA 13
+#define TUI_YELLOW      14
+#define TUI_WHITE       15
 
-static inline char tui_getchar(void) {
-    char c;
-    __asm__ volatile (
-        "mov $3, %%rax\n\t"
-        "mov $0, %%rdi\n\t"
-        "lea %0, %%rsi\n\t"
-        "mov $1, %%rdx\n\t"
-        "int $0x80"
-        : "=m"(c) :: "rax", "rdi", "rsi", "rdx", "rcx", "r11");
-    return c;
-}
+/* ── Cores de sistema (match colors.h) ─────────────── */
+#define TUI_C_PROMPT     TUI_LIGHT_GRAY
+#define TUI_C_BG_PROMPT  TUI_BLACK
+#define TUI_C_ERROR      TUI_LIGHT_RED
+#define TUI_C_BG_ERROR   TUI_BLACK
+#define TUI_C_SUCCESS    TUI_LIGHT_GREEN
+#define TUI_C_BG_SUCCESS TUI_BLACK
 
-static inline void tui_gotoxy(int x, int y) {
-    unsigned short pos = y * 80 + x;
-    __asm__ volatile ("outb %0, %1" :: "a"((uint8_t)0x0F), "Nd"((uint16_t)0x3D4));
-    __asm__ volatile ("outb %0, %1" :: "a"((uint8_t)(pos & 0xFF)), "Nd"((uint16_t)0x3D5));
-    __asm__ volatile ("outb %0, %1" :: "a"((uint8_t)0x0E), "Nd"((uint16_t)0x3D4));
-    __asm__ volatile ("outb %0, %1" :: "a"((uint8_t)((pos >> 8) & 0xFF)), "Nd"((uint16_t)0x3D5));
-}
+/* ── Keys ──────────────────────────────────────────── */
+#define TUI_KEY_ESC     27
+#define TUI_KEY_BS      127
+#define TUI_KEY_TAB     9
+#define TUI_KEY_ENTER   10
 
-static inline void tui_clear(void) {
-    volatile unsigned short *vga = (volatile unsigned short *)0xB8000;
-    for (int i = 0; i < 80 * 25; i++) vga[i] = (0x0A << 8) | ' ';
-    tui_gotoxy(0, 0);
-}
+#define TUI_KEY_UP      300
+#define TUI_KEY_DOWN    301
+#define TUI_KEY_LEFT    302
+#define TUI_KEY_RIGHT   303
+#define TUI_KEY_HOME    304
+#define TUI_KEY_END     305
+#define TUI_KEY_PGUP    306
+#define TUI_KEY_PGDN    307
+#define TUI_KEY_INS     308
+#define TUI_KEY_DEL     309
+#define TUI_KEY_F1      310
+#define TUI_KEY_F2      311
+#define TUI_KEY_F3      312
+#define TUI_KEY_F4      313
+#define TUI_KEY_F5      314
+#define TUI_KEY_F6      315
+#define TUI_KEY_F7      316
+#define TUI_KEY_F8      317
+#define TUI_KEY_F9      318
+#define TUI_KEY_F10     319
+#define TUI_KEY_F11     320
+#define TUI_KEY_F12     321
 
-static inline void tui_printnum(int n) {
-    char buf[12], *p = buf;
-    if (n < 0) { tui_putchar('-'); n = -n; }
-    do { *p++ = '0' + (n % 10); n /= 10; } while (n);
-    while (p > buf) tui_putchar(*--p);
-}
+/* ── Window flags ──────────────────────────────────── */
+#define TUI_BORDER   1
+#define TUI_SCROLL   4
+
+/* ── Event types ───────────────────────────────────── */
+#define TUI_EV_KEY   1
+#define TUI_EV_IDLE  2
+
+typedef struct {
+    int type;
+    int key;
+} tui_event_t;
+
+/* ── Opaque handle ─────────────────────────────────── */
+typedef struct tui_s tui_t;
+typedef struct tui_win_s tui_win_t;
+
+/* ── Screen management ─────────────────────────────── */
+tui_t *tui_init(void);
+void   tui_end(tui_t *t);
+void   tui_refresh(tui_t *t);
+
+/* ── Window management ─────────────────────────────── */
+tui_win_t *tui_win_new(tui_t *t, int x, int y, int w, int h, int flags);
+void      tui_win_close(tui_t *t, tui_win_t *w);
+void      tui_win_move(tui_win_t *w, int x, int y);
+void      tui_win_resize(tui_win_t *w, int nw, int nh);
+void      tui_win_raise(tui_t *t, tui_win_t *w);
+void      tui_win_title(tui_win_t *w, const char *s);
+
+/* ── Drawing ───────────────────────────────────────── */
+void tui_win_gotoxy(tui_win_t *w, int y, int x);
+void tui_win_addch(tui_win_t *w, char ch);
+void tui_win_addstr(tui_win_t *w, const char *s);
+void tui_win_printf(tui_win_t *w, const char *fmt, ...);
+void tui_win_color(tui_win_t *w, int fg, int bg);
+void tui_win_bold(tui_win_t *w, int on);
+void tui_win_clear(tui_win_t *w);
+void tui_win_clrtoeol(tui_win_t *w);
+void tui_win_box(tui_win_t *w, const char *title);
+void tui_win_fill(tui_win_t *w, char ch);
+
+/* ── Scrolling ─────────────────────────────────────── */
+void tui_win_scroll(tui_win_t *w, int lines);
+void tui_win_scroll_ok(tui_win_t *w, int on);
+
+/* ── Input ─────────────────────────────────────────── */
+int tui_getch(tui_t *t);
+int tui_poll_event(tui_t *t, tui_event_t *ev);
+
+/* ── Utilities ─────────────────────────────────────── */
+int tui_width(tui_t *t);
+int tui_height(tui_t *t);
+int tui_win_width(tui_win_t *w);
+int tui_win_height(tui_win_t *w);
+
+/* ── High-level widgets ────────────────────────────── */
+int  tui_dialog(tui_t *t, const char *title, const char *msg, const char *buttons);
+int  tui_prompt(tui_t *t, const char *label, char *out, int max);
+void tui_msgbox(tui_t *t, const char *title, const char *msg);
 
 #endif
