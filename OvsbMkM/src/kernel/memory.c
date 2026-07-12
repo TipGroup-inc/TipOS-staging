@@ -23,12 +23,9 @@ static void set_page_used(size_t idx) { page_bitmap[idx/8] |= (1 << (idx&7)); }
 static void set_page_free(size_t idx) { page_bitmap[idx/8] &= ~(1 << (idx&7)); }
 static int page_is_free(size_t idx) { return !(page_bitmap[idx/8] & (1 << (idx&7))); }
 
-// protótipos internos
-static void *get_free_page(void);
 static void free_page(void *addr);
 
 void *kmalloc(size_t size) {
-    // alinhamento 8
     size = (size + 7) & ~7UL;
     uint8_t *p = heap_ptr;
     heap_ptr += size;
@@ -37,19 +34,8 @@ void *kmalloc(size_t size) {
 }
 
 void kfree(void *ptr) {
-    // marcar página como livre se pertencer ao heap
     if (!ptr) return;
     free_page(ptr);
-}
-
-static void *get_free_page(void) {
-    for (size_t i = 0; i < MAX_PAGES; i++) {
-        if (page_is_free(i)) {
-            set_page_used(i);
-            return (void*)(HEAP_START + i * PAGE_SIZE);
-        }
-    }
-    return NULL;
 }
 
 static void free_page(void *addr) {
@@ -62,22 +48,32 @@ static void free_page(void *addr) {
 
 void *mmap_user(void *addr, size_t length, int prot, int flags) {
     (void)addr; (void)prot; (void)flags;
-    size_t pages = (length + PAGE_SIZE -1)/PAGE_SIZE;
-    uint8_t *base = NULL;
-    for (size_t i=0;i<pages;i++) {
-        void *p = get_free_page();
-        if (!p) { // rollback
-            for (size_t j=0;j<i;j++) free_page(base + j*PAGE_SIZE);
-            return NULL;
+    size_t pages = (length + PAGE_SIZE - 1) / PAGE_SIZE;
+    /* Find a contiguous run of free pages */
+    size_t run_start = 0;
+    size_t run_len = 0;
+    for (size_t i = 0; i < MAX_PAGES; i++) {
+        if (page_is_free(i)) {
+            if (run_len == 0) run_start = i;
+            run_len++;
+            if (run_len >= pages) {
+                uint8_t *base = HEAP_START + run_start * PAGE_SIZE;
+                for (size_t j = 0; j < pages; j++)
+                    set_page_used(run_start + j);
+                return base;
+            }
+        } else {
+            run_len = 0;
         }
-        if (i==0) base = p;
     }
-    return base;
+    return NULL;
 }
 
 int munmap_user(void *addr, size_t length) {
-    size_t pages = (length + PAGE_SIZE -1)/PAGE_SIZE;
+    size_t pages = (length + PAGE_SIZE - 1) / PAGE_SIZE;
     uint8_t *b = addr;
-    for (size_t i=0;i<pages;i++) free_page(b + i*PAGE_SIZE);
+    size_t start_idx = ((uintptr_t)b - (uintptr_t)HEAP_START) / PAGE_SIZE;
+    for (size_t i = 0; i < pages; i++)
+        set_page_free(start_idx + i);
     return 0;
 }
