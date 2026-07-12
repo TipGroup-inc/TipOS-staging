@@ -653,6 +653,10 @@ uint32_t fat32_get_cwd(void) {
     return current_dir_cluster;
 }
 
+void fat32_set_cwd(uint32_t cluster) {
+    current_dir_cluster = cluster;
+}
+
 /*
  * Cria um novo diretório.
  *

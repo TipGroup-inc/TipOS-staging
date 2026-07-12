@@ -72,6 +72,7 @@ int fat32_list_dir(void);
 int fat32_change_dir(const char *name);
 void fat32_get_cwd_name(char *out, int maxlen);
 uint32_t fat32_get_cwd(void);
+void fat32_set_cwd(uint32_t cluster);
 int fat32_mkdir(const char *name);
 int fat32_rename(const char *oldname, const char *newname);
 int fat32_rmdir(const char *name);

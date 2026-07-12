@@ -1,9 +1,9 @@
 bits 64
 global syscall_handler_entry
 extern syscall_handler
+extern ring3_exit_rsp_saved
 
 syscall_handler_entry:
-    ; Salvar registradores
     push rbp
     push rbx
     push rcx
@@ -14,17 +14,18 @@ syscall_handler_entry:
     push r9
     push r10
     push r11
-    
-    ; Passar argumentos para C
-    ; XNU: rax=syscall num, rdi=arg1, rsi=arg2, rdx=arg3, rcx=arg4
+
     mov r8,  rcx    ; arg4
     mov rcx, rdx    ; arg3
     mov rdx, rsi    ; arg2
     mov rsi, rdi    ; arg1
     mov rdi, rax    ; syscall number
+    mov r15, rdi    ; save syscall number (r15 is callee-saved in C ABI, preserved by syscall_handler)
     call syscall_handler
-    
-    ; Restaurar registradores
+
+    cmp r15, 1      ; SYS_exit?
+    je .exit
+
     pop r11
     pop r10
     pop r9
@@ -35,5 +36,8 @@ syscall_handler_entry:
     pop rcx
     pop rbx
     pop rbp
-    
     iretq
+
+.exit:
+    mov rsp, [ring3_exit_rsp_saved]
+    ret

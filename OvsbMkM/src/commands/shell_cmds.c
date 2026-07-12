@@ -2,6 +2,8 @@
 #include "../kernel/idt.h"
 #include "../kernel/mach_o.h"
 #include "../kernel/kernel.h"
+#include "../kernel/ring3.h"
+#include "../kernel/memory.h"
 #include "../fs/fat32.h"
 
 extern void vga_puts(const char *s);
@@ -199,7 +201,10 @@ int cmd_exec_in_dir(const char *name, const char *dir) {
     if (bytes <= 0) { fat32_change_dir("/"); return -1; }
     void *entry = mach_o_load(buf, bytes);
     if (!entry) { fat32_change_dir("/"); return -1; }
-    ((void (*)(void))entry)();
+    void *ustack = mmap_user(0, 4096, 3, 0);
+    if (!ustack) { fat32_change_dir("/"); return -1; }
+    enter_ring3(entry, (char *)ustack + 4096);
+    munmap_user(ustack, 4096);
     fds_cleanup();
     fat32_change_dir("/");
     return 0;
@@ -209,8 +214,20 @@ void cmd_exec(const char *name) {
     static uint8_t buf[BUF_SIZE];
     void *entry = 0;
     int bytes;
+    static const char *search_dirs[] = {"", "BIN", "APPS", 0};
 
-    bytes = fat32_read_file(name, buf, BUF_SIZE);
+    bytes = 0;
+    for (int i = 0; search_dirs[i]; i++) {
+        if (search_dirs[i][0]) {
+            uint32_t saved = fat32_get_cwd();
+            if (fat32_change_dir(search_dirs[i]) != 0) continue;
+            bytes = fat32_read_file(name, buf, BUF_SIZE);
+            fat32_set_cwd(saved);
+        } else {
+            bytes = fat32_read_file(name, buf, BUF_SIZE);
+        }
+        if (bytes > 0) break;
+    }
     if (bytes <= 0) {
         set_vga_color(C_ERROR);
         vga_puts("Erro: arquivo nao encontrado\n");
@@ -229,7 +246,13 @@ void cmd_exec(const char *name) {
     set_vga_color(C_HEADER);
     vga_puts("---\n");
     set_vga_color(C_OUTPUT);
-    ((void (*)(void))entry)();
+    void *ustack = mmap_user(0, 4096, 3, 0);
+    if (ustack) {
+        enter_ring3(entry, (char *)ustack + 4096);
+        munmap_user(ustack, 4096);
+    } else {
+        ((void (*)(void))entry)();
+    }
     fds_cleanup();
     set_vga_color(C_HEADER);
     vga_puts("\n---\n");

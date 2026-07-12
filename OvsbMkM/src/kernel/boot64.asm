@@ -58,30 +58,38 @@ start64:
 
 section .data
 align 16
+global gdt64
+global gdt_tss_slot
 gdt64:
-    dq 0
-    dq 0x0020980000000000   ; code 64-bit
-    dq 0x0000920000000000   ; data
+    dq 0                         ; 0x00: null
+    dq 0x0020980000000000        ; 0x08: ring 0 code
+    dq 0x0000920000000000        ; 0x10: ring 0 data
+    dq 0x0020FA0000000000        ; 0x18: ring 3 code (0xFA = P,DPL=3,S,code,exec/read)
+    dq 0x0000F20000000000        ; 0x20: ring 3 data (0xF2 = P,DPL=3,S,data,read/write)
+gdt_tss_slot:
+    dq 0, 0                      ; 0x28: TSS descriptor (16 bytes, filled by C)
+gdt64_end:
 gdt64_ptr:
-    dw $ - gdt64 - 1
+    dw gdt64_end - gdt64 - 1
     dq gdt64
 
 section .paging
 align 4096
 pml4_table:
-    dq pdp_table + 3
+    dq pdp_table + 7
     times 511 dq 0
 pdp_table:
-    dq pd_table + 3
+    dq pd_table + 7
     times 511 dq 0
 pd_table:
     %assign i 0
     %rep 512
-        dq (i * 0x200000) + 0x83
+        dq (i * 0x200000) + 0x87    ; 0x87 = Present, R/W, User, 2MB page
         %assign i i+1
     %endrep
 
 section .bss
 align 16
 stack_bottom: resb 16384
+global stack_top
 stack_top:

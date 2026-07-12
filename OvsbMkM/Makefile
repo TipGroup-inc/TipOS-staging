@@ -24,7 +24,8 @@ SRCS := \
     src/kernel/bash_bin.c \
     src/kernel/dyld.c \
     src/kernel/libsystem_bin.c \
-    src/kernel/ls_bin.c
+    src/kernel/ls_bin.c \
+    src/kernel/ring3.c
 
 SRCS += src/drivers/keyboard.c
 SRCS += src/drivers/ata.c
@@ -89,7 +90,7 @@ iso: $(BUILD_DIR)/kernel.elf
 	$(GRUB) -o $(ISO) iso 2>/dev/null || true
 
 run: iso
-	$(QEMU) -cdrom $(ISO) -m 256M
+	$(QEMU) -cdrom $(ISO) -drive file=../disk.img,format=raw,index=0 -boot order=d -m 256M
 
 clean:
 	rm -rf $(BUILD_DIR) $(ISO)
