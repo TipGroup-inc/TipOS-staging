@@ -1,6 +1,7 @@
 #include "idt.h"
 #include "memory.h"
 #include "fat32.h"
+#include "process.h"
 #include <stdint.h>
 
 // Syscall numbers
@@ -77,7 +78,8 @@ uint64_t syscall_handler(uint64_t num, uint64_t a1, uint64_t a2, uint64_t a3, ui
     vga[2] = (0x0E << 8) | ('0' + (num % 10));
     switch (num) {
         case SYS_exit:
-            return 0;
+            proc_exit((int)a1);
+            return 0; // never reached
         case SYS_write: {
             int fd = (int)a1;
             const char *buf = (const char *)a2;

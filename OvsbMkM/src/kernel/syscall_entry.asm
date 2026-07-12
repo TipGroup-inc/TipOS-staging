@@ -1,8 +1,8 @@
 bits 64
 global syscall_handler_entry
 extern syscall_handler
-extern ring3_exit_rsp_saved
 extern sigint_pending
+extern proc_exit
 
 syscall_handler_entry:
     push rbp
@@ -21,14 +21,13 @@ syscall_handler_entry:
     mov rdx, rsi    ; arg2
     mov rsi, rdi    ; arg1
     mov rdi, rax    ; syscall number
-    mov r15, rdi    ; save syscall number (r15 is callee-saved in C ABI, preserved by syscall_handler)
     call syscall_handler
 
+    ; After syscall_handler returns (SYS_exit doesn't return;
+    ; proc_exit is called and never returns).
+    ; Check sigint_pending (^C was pressed during a syscall)
     cmp dword [sigint_pending], 0
-    jne .exit
-
-    cmp r15, 1      ; SYS_exit?
-    je .exit
+    jne .sigint_kill
 
     pop r11
     pop r10
@@ -42,7 +41,7 @@ syscall_handler_entry:
     pop rbp
     iretq
 
-.exit:
+.sigint_kill:
     mov dword [sigint_pending], 0
-    mov rsp, [ring3_exit_rsp_saved]
-    ret
+    mov rdi, -1      ; exit code = killed by ^C
+    call proc_exit   ; never returns

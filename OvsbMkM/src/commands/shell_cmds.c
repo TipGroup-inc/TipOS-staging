@@ -4,6 +4,7 @@
 #include "../kernel/kernel.h"
 #include "../kernel/ring3.h"
 #include "../kernel/memory.h"
+#include "../kernel/process.h"
 #include "../fs/fat32.h"
 
 extern void vga_puts(const char *s);
@@ -205,21 +206,17 @@ int cmd_exec_in_dir(const char *name, const char *dir) {
     if (!entry) { fat32_change_dir("/"); return -1; }
     void *ustack = mmap_user(0, 4096, 3, 0);
     if (!ustack) { fat32_change_dir("/"); return -1; }
-    void *kstack = mmap_user(0, 4096, 3, 0);
-    if (!kstack) { munmap_all_user(); fat32_change_dir("/"); return -1; }
-    uint64_t old_rsp0 = tss.rsp0;
-    tss.rsp0 = (uint64_t)kstack + 4096;
-    uint64_t old_pml4 = pml4_get_current();
-    uint64_t proc_pml4 = pml4_create();
-    if (proc_pml4) pml4_load(proc_pml4);
     sigint_pending = 0;
-    enter_ring3(entry, (char *)ustack + 4096);
-    if (proc_pml4) { pml4_restore(old_pml4); pml4_destroy(proc_pml4); }
-    tss.rsp0 = old_rsp0;
+    int pid = proc_spawn(name, entry, (char *)ustack + 4096);
+    if (pid < 0) { munmap_all_user(); fat32_change_dir("/"); return -1; }
+    int code;
+    proc_waitpid(pid, &code);
+    // NB: proc_waitpid frees process resources (kstack, pml4)
+    // But munmap_all_user still needed for any other user pages
     munmap_all_user();
     fds_cleanup();
     fat32_change_dir("/");
-    return 0;
+    return code;
 }
 
 void cmd_exec(const char *name) {
@@ -260,17 +257,12 @@ void cmd_exec(const char *name) {
     set_vga_color(C_OUTPUT);
     void *ustack = mmap_user(0, 4096, 3, 0);
     if (ustack) {
-        void *kstack = mmap_user(0, 4096, 3, 0);
-        if (!kstack) { munmap_all_user(); return; }
-        uint64_t old_rsp0 = tss.rsp0;
-        tss.rsp0 = (uint64_t)kstack + 4096;
-        uint64_t old_pml4 = pml4_get_current();
-        uint64_t proc_pml4 = pml4_create();
-        if (proc_pml4) pml4_load(proc_pml4);
         sigint_pending = 0;
-        enter_ring3(entry, (char *)ustack + 4096);
-        if (proc_pml4) { pml4_restore(old_pml4); pml4_destroy(proc_pml4); }
-        tss.rsp0 = old_rsp0;
+        int pid = proc_spawn(name, entry, (char *)ustack + 4096);
+        if (pid >= 0) {
+            int code;
+            proc_waitpid(pid, &code);
+        }
         munmap_all_user();
     } else {
         sigint_pending = 0;

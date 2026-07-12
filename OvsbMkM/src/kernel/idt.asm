@@ -60,6 +60,7 @@ ISR_NOERR 31
 ; Timer IRQ handler (goes to C function directly)
 global irq0
 extern timer_tick_handler
+extern schedule
 
 irq0:
     push rax
@@ -71,8 +72,19 @@ irq0:
     push r9
     push r10
     push r11
+    push rbx
+    push rbp
+    push r12
+    push r13
+    push r14
+    push r15
     cld
     call timer_tick_handler
+    call schedule
+    pop r15
+    pop r14
+    pop r13
+    pop r12
     pop r11
     pop r10
     pop r9
@@ -81,6 +93,7 @@ irq0:
     pop rsi
     pop rdx
     pop rcx
+    pop rbx
     pop rax
     iretq
 

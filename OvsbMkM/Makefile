@@ -34,6 +34,7 @@ SRCS += src/fs/fat32.c
 SRCS += src/commands/shell_cmds.c
 SRCS += src/kernel/pic.c
 SRCS += src/commands/compositor.c
+SRCS += src/kernel/process.c
 
 OBJS := $(patsubst %.c,$(BUILD_DIR)/%.o,$(SRCS))
 
@@ -80,9 +81,14 @@ KEYBOARD_OBJ := $(BUILD_DIR)/keyboard_asm.o
 $(KEYBOARD_OBJ): $(KEYBOARD_ASM) | $(BUILD_DIR)
 	$(NASM) -f elf64 -o $@ $<
 
+SWITCH_ASM := src/kernel/switch.asm
+SWITCH_OBJ := $(BUILD_DIR)/switch_asm.o
+$(SWITCH_OBJ): $(SWITCH_ASM) | $(BUILD_DIR)
+	$(NASM) -f elf64 -o $@ $<
 
-$(BUILD_DIR)/kernel.elf: $(BUILD_DIR)/boot64.o $(IDT_OBJ) $(SYSCALL_OBJ) $(KEYBOARD_OBJ) $(OBJS) src/kernel/linker.ld | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -nostdlib -no-pie -o $@ $(BUILD_DIR)/boot64.o $(IDT_OBJ) $(SYSCALL_OBJ) $(KEYBOARD_OBJ) $(OBJS) -Wl,$(LDFLAGS)
+
+$(BUILD_DIR)/kernel.elf: $(BUILD_DIR)/boot64.o $(IDT_OBJ) $(SYSCALL_OBJ) $(KEYBOARD_OBJ) $(SWITCH_OBJ) $(OBJS) src/kernel/linker.ld | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -nostdlib -no-pie -o $@ $(BUILD_DIR)/boot64.o $(IDT_OBJ) $(SYSCALL_OBJ) $(KEYBOARD_OBJ) $(SWITCH_OBJ) $(OBJS) -Wl,$(LDFLAGS)
 
 iso: $(BUILD_DIR)/kernel.elf
 	mkdir -p $(ISO_DIR)

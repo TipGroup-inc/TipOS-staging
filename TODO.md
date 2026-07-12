@@ -193,19 +193,26 @@
 - [x] **TLB flush na troca de processo** (implícito no `mov cr3`)
 - [ ] **Copy-on-write para fork**
 
+- [ ] 📌 **Pilha de kernel separada por processo** — cada execução de ring 3 ganha kernel stack via page allocator, TSS.RSP0 setado por processo ← agora gerenciado pelo scheduler
+- [x] 📌 **Paginação por processo** (cada execução tem seu PML4 — cópia do kernel, switch cr3 na entrada/saída)
+- [ ] 📌 **Syscall gate via `syscall`/`sysret`** (mais rápido que int 0x80, já ativa ring)
+- [ ] **Isolar kernel em página alta** (0xFFFF800000000000+)
+- [x] **TLB flush na troca de processo** (implícito no `mov cr3`)
+- [ ] **Copy-on-write para fork**
+
 ### 3.2 Processos e Scheduler
 
-- [ ] 📌 **PCB (Process Control Block)** — struct com registradores, estado, páginas, FDs
-- [ ] 📌 **Tabela de processos** (PID real, slot livre, no mínimo 64)
-- [ ] 📌 **Scheduler preemptivo** (round-robin com time-slice via PIT/APIC timer)
+- [x] 📌 **PCB (Process Control Block)** — struct com PID, estado, kernel stack, PML4, registradores salvos
+- [x] 📌 **Tabela de processos** (64 slots, alocação linear de PID)
+- [x] 📌 **Scheduler preemptivo** (round-robin via PIT IRQ0, context_switch assembly, pop+iretq)
+- [x] 📌 **Syscall `exit` real** — `proc_exit()` define ZOMBIE, acorda parent, schedule()
+- [x] 📌 **Syscall `waitpid`** — `proc_waitpid()` bloqueia até child ZOMBIE, limpa recursos
 - [ ] 📌 **Syscall `fork`** — duplicar processo
-- [ ] 📌 **Syscall `execve`** — substituir processo por novo binário (vs exec atual que é só "roda e volta")
-- [ ] 📌 **Syscall `wait`/`waitpid`** — aguardar filho terminar, capturar exit code
+- [ ] 📌 **Syscall `execve`** — substituir processo por novo binário
 - [ ] **Syscall `yield`** — voluntariamente ceder CPU
 - [ ] **Syscall `getpid`** — retornar PID real
 - [ ] **Syscall `kill`** — enviar sinal para processo
 - [ ] **Prioridades** — nice, scheduling classes
-- [ ] **Process states** — RUNNING, READY, BLOCKED, ZOMBIE
 
 ### 3.3 Terminais Múltiplos (TUI Multiplexado 💡)
 
@@ -594,6 +601,12 @@ Ring 3 / Proteção ───────────┬────────
 | **HOJE** | **Pilha de kernel separada por processo** — TSS.RSP0 alocado por execução ring 3 |
 | **HOJE** | **Paginação por processo** — cada execução de ring 3 ganha PML4 próprio, switch cr3 na entry/exit |
 | **HOJE** | **TLB flush na troca de processo** — implícito no mov cr3 |
+| **HOJE** | **PCB + tabela de processos** — 64 slots, PID, estado, kernel_rsp, pml4, regs |
+| **HOJE** | **Scheduler preemptivo** — PIT IRQ0 chama schedule(), context_switch em switch.asm, pop+iretq |
+| **HOJE** | **proc_spawn + proc_exit + proc_waitpid** — criação, termino e espera de processos |
+| **HOJE** | **syscall exit → proc_exit** — SYS_exit chama proc_exit(), não retorna ao kernel |
+| **HOJE** | **^C chama proc_exit(-1)** — sigint_pending no handler mata o processo |
+| **HOJE** | **cmd_exec usa processo** — exec ring 3 via proc_spawn + proc_waitpid, não mais enter_ring3 direto |
 
 ---
 

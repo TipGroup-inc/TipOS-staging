@@ -4,6 +4,7 @@
 #include "fat32.h"
 #include "../commands/shell_cmds.h"
 #include "ring3.h"
+#include "process.h"
 #include "kernel.h"
 
 void keyboard_init(void);
@@ -1045,6 +1046,7 @@ void kmain(void) {
     keyboard_init();
     pit_init();         // Program PIT to 100Hz
     memory_init();
+    proc_init();
     tss_init();
     __asm__ volatile ("sti");
     smc_init();
