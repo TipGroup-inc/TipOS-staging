@@ -170,9 +170,6 @@ int munmap(void *addr, int length) {
 }
 
 void exit(int code) {
-    __asm__ volatile (
-        "mov $1, %%rax; mov %0, %%rdi; int $0x80"
-        :: "r"((long)code) : "rax", "rdi"
-    );
-    __builtin_unreachable();
+    _syscall(1, code, 0, 0, 0);
+    for (;;) __asm__("hlt");
 }

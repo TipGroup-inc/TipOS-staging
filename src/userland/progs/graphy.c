@@ -187,6 +187,29 @@ static int line_indent(int line) {
     return n;
 }
 
+static int find_match(int pos) {
+    if (pos < 0 || pos >= sz) return -1;
+    char c = buf[pos];
+    char open, close;
+    int dir;
+    if (c == '(') { open = '('; close = ')'; dir = 1; }
+    else if (c == ')') { open = '('; close = ')'; dir = -1; }
+    else if (c == '[') { open = '['; close = ']'; dir = 1; }
+    else if (c == ']') { open = '['; close = ']'; dir = -1; }
+    else if (c == '{') { open = '{'; close = '}'; dir = 1; }
+    else if (c == '}') { open = '{'; close = '}'; dir = -1; }
+    else return -1;
+    int depth = 1;
+    int i = pos + dir;
+    while (i >= 0 && i < sz) {
+        if (buf[i] == open) depth++;
+        if (buf[i] == close) depth--;
+        if (depth == 0) return i;
+        i += dir;
+    }
+    return -1;
+}
+
 static int is_kw_start(char c) {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
 }
@@ -225,6 +248,7 @@ static void screen(void) {
         while (t >= 10) { w++; t /= 10; }
         gutter = w + 1;
     }
+    int match_pos = find_match(co);
     for (int r = 0; r < ROWS; r++) {
         int li = top + r;
         if (li >= nlns) continue;
@@ -310,6 +334,22 @@ static void screen(void) {
             }
             tui_win_addch_attr(w_text, c, C_NORMAL);
             col++;
+        }
+    }
+
+    if (match_pos >= 0) {
+        int mx, my;
+        off_xy(co, &mx, &my);
+        int sr = my - top;
+        if (sr >= 0 && sr < ROWS) {
+            tui_win_gotoxy(w_text, sr, mx + gutter);
+            tui_win_addch_attr(w_text, buf[co], TUI_WHITE, TUI_BLUE);
+        }
+        off_xy(match_pos, &mx, &my);
+        sr = my - top;
+        if (sr >= 0 && sr < ROWS) {
+            tui_win_gotoxy(w_text, sr, mx + gutter);
+            tui_win_addch_attr(w_text, buf[match_pos], TUI_WHITE, TUI_BLUE);
         }
     }
 
