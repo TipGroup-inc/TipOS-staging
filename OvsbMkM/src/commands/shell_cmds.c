@@ -204,7 +204,7 @@ int cmd_exec_in_dir(const char *name, const char *dir) {
     void *ustack = mmap_user(0, 4096, 3, 0);
     if (!ustack) { fat32_change_dir("/"); return -1; }
     enter_ring3(entry, (char *)ustack + 4096);
-    munmap_user(ustack, 4096);
+    munmap_all_user();
     fds_cleanup();
     fat32_change_dir("/");
     return 0;
@@ -249,7 +249,7 @@ void cmd_exec(const char *name) {
     void *ustack = mmap_user(0, 4096, 3, 0);
     if (ustack) {
         enter_ring3(entry, (char *)ustack + 4096);
-        munmap_user(ustack, 4096);
+        munmap_all_user();
     } else {
         ((void (*)(void))entry)();
     }

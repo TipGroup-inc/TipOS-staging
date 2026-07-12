@@ -77,3 +77,8 @@ int munmap_user(void *addr, size_t length) {
         set_page_free(start_idx + i);
     return 0;
 }
+
+void munmap_all_user(void) {
+    for (size_t i = 0; i < MAX_PAGES; i++)
+        set_page_free(i);
+}

@@ -267,6 +267,45 @@ static int hist_count = 0;
 void execute_command(const char *cmd);
 static int last_exit_code = 0;
 
+// ─── Job Table (background jobs) ───────────────────────
+#define MAX_JOBS 16
+#define JOB_CMD_MAX 64
+static struct {
+    int used;
+    int jid;
+    char cmd[JOB_CMD_MAX];
+    int pid;
+} job_table[MAX_JOBS];
+static int next_pid = 100;
+
+static int job_add(const char *cmd) {
+    for (int i = 0; i < MAX_JOBS; i++) {
+        if (!job_table[i].used) {
+            job_table[i].used = 1;
+            job_table[i].jid = i + 1;
+            int j = 0;
+            while (cmd[j] && j < JOB_CMD_MAX-1) { job_table[i].cmd[j] = cmd[j]; j++; }
+            job_table[i].cmd[j] = 0;
+            job_table[i].pid = next_pid++;
+            return job_table[i].jid;
+        }
+    }
+    return -1;
+}
+
+static void job_remove(int jid) {
+    for (int i = 0; i < MAX_JOBS; i++)
+        if (job_table[i].used && job_table[i].jid == jid)
+            { job_table[i].used = 0; return; }
+}
+
+static int job_find(int jid) {
+    for (int i = 0; i < MAX_JOBS; i++)
+        if (job_table[i].used && job_table[i].jid == jid)
+            return i;
+    return -1;
+}
+
 // ─── Environment Variables ──────────────────────────────
 #define ENV_MAX 32
 static char env_name[ENV_MAX][32];
@@ -397,6 +436,13 @@ void execute_command(const char *cmd) {
         }
     }
 
+    // ── parse & (background job) ─────────────────────────
+    int bg_job = 0;
+    if (wi > 0 && work[wi-1] == '&') {
+        work[--wi] = 0;
+        bg_job = 1;
+    }
+
     // ── handle < input redirection ───────────────────────
     if (redir_in) {
         static uint8_t ibuf[512];
@@ -446,7 +492,27 @@ void execute_command(const char *cmd) {
     else if (strncmp(work, "rmdir ", 6) == 0) cmd_rmdir(work + 6);
     else if (strncmp(work, "stat ", 5) == 0) cmd_stat(work + 5);
     else if (strcmp(work, "disp") == 0) cmd_disp();
-    else if (strncmp(work, "exec ", 5) == 0) cmd_exec(work + 5);
+    else if (strncmp(work, "exec ", 5) == 0) {
+        if (bg_job) {
+            int jid = job_add(work + 5);
+            set_vga_color(C_OUTPUT);
+            vga_puts("["); vga_putchar('0' + jid); vga_puts("] Running\n");
+            set_vga_color(C_OUTPUT);
+            cmd_exec(work + 5);
+            for (int i = 0; i < MAX_JOBS; i++) {
+                if (job_table[i].used && job_table[i].jid == jid) {
+                    set_vga_color(C_OUTPUT);
+                    vga_puts("["); vga_putchar('0' + jid); vga_puts("]+ Done       ");
+                    vga_puts(job_table[i].cmd); vga_putchar('\n');
+                    set_vga_color(C_OUTPUT);
+                    job_table[i].used = 0;
+                    break;
+                }
+            }
+        } else {
+            cmd_exec(work + 5);
+        }
+    }
     else if (strcmp(work, "sleep") == 0) sleep_ms(1000);
     else if (strncmp(work, "sleep ", 6) == 0) {
         uint32_t ms = 0; int si = 6;
@@ -534,6 +600,50 @@ void execute_command(const char *cmd) {
             vga_puts("Nao encontrado: "); vga_puts(fn); vga_putchar('\n');
             set_vga_color(C_OUTPUT);
         }
+    }
+    // jobs
+    else if (strcmp(work, "jobs") == 0) {
+        int any = 0;
+        for (int i = 0; i < MAX_JOBS; i++) {
+            if (job_table[i].used) {
+                set_vga_color(C_OUTPUT);
+                vga_puts("["); vga_putchar('0' + job_table[i].jid);
+                vga_puts("]+ Running    "); vga_puts(job_table[i].cmd);
+                vga_putchar('\n'); set_vga_color(C_OUTPUT);
+                any = 1;
+            }
+        }
+        if (!any) { set_vga_color(C_OUTPUT); vga_puts("(nenhum job)\n"); set_vga_color(C_OUTPUT); }
+    }
+    // fg <jid> — retoma job em foreground
+    else if (strncmp(work, "fg ", 3) == 0) {
+        int jid = work[3] - '0';
+        int idx = job_find(jid);
+        if (idx < 0) {
+            set_vga_color(C_ERROR); vga_puts("Job nao encontrado\n"); set_vga_color(C_OUTPUT);
+        } else {
+            set_vga_color(C_OUTPUT);
+            vga_puts("fg: "); vga_puts(job_table[idx].cmd); vga_putchar('\n');
+            set_vga_color(C_OUTPUT);
+        }
+    }
+    else if (strcmp(work, "fg") == 0) {
+        set_vga_color(C_ERROR); vga_puts("Uso: fg <job>\n"); set_vga_color(C_OUTPUT);
+    }
+    // bg <jid> — continua job em background (stub, sem scheduler)
+    else if (strncmp(work, "bg ", 3) == 0) {
+        int jid = work[3] - '0';
+        int idx = job_find(jid);
+        if (idx < 0) {
+            set_vga_color(C_ERROR); vga_puts("Job nao encontrado\n"); set_vga_color(C_OUTPUT);
+        } else {
+            set_vga_color(C_OUTPUT);
+            vga_puts("bg: "); vga_puts(job_table[idx].cmd); vga_putchar('\n');
+            set_vga_color(C_OUTPUT);
+        }
+    }
+    else if (strcmp(work, "bg") == 0) {
+        set_vga_color(C_ERROR); vga_puts("Uso: bg <job>\n"); set_vga_color(C_OUTPUT);
     }
     // PATH search
     else if (*work != '\0') {

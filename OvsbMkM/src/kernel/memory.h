@@ -17,5 +17,6 @@ void kfree(void *ptr);
 void *kcalloc(size_t count, size_t size);
 void *mmap_user(void *addr, size_t length, int prot, int flags);
 int munmap_user(void *addr, size_t length);
+void munmap_all_user(void);
 
 #endif
