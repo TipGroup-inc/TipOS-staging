@@ -11,6 +11,7 @@ extern uint8_t vga_attr;
 void memory_init(void);
 void smc_init(void);
 void nvram_init(void);
+void fds_cleanup(void);
 
 typedef struct { int yr, mo, dy, h, m, s; } rtc_time;
 void rtc_read(rtc_time *t);

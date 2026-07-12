@@ -65,6 +65,10 @@ static void close_fd(int fd) {
     if (fd >= 3 && fd < MAX_FDS) fds[fd].used = 0;
 }
 
+void fds_cleanup(void) {
+    for (int i = 3; i < MAX_FDS; i++) fds[i].used = 0;
+}
+
 uint64_t syscall_handler(uint64_t num, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4) {
     (void)a4;
     volatile unsigned short *vga = (unsigned short *)0xB8000;

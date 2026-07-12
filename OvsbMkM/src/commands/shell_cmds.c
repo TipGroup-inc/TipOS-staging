@@ -200,6 +200,7 @@ int cmd_exec_in_dir(const char *name, const char *dir) {
     void *entry = mach_o_load(buf, bytes);
     if (!entry) { fat32_change_dir("/"); return -1; }
     ((void (*)(void))entry)();
+    fds_cleanup();
     fat32_change_dir("/");
     return 0;
 }
@@ -229,6 +230,7 @@ void cmd_exec(const char *name) {
     vga_puts("---\n");
     set_vga_color(C_OUTPUT);
     ((void (*)(void))entry)();
+    fds_cleanup();
     set_vga_color(C_HEADER);
     vga_puts("\n---\n");
     set_vga_color(C_OUTPUT);
