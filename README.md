@@ -4,9 +4,9 @@ Sistema operacional TUI-first com kernel OvsbMkM, libc própria, ring 3,
 e editor gráfico TUI (graphy). Boota em QEMU, hardware real via GRUB.
 
 ```
-Versão: v0.7.1.0
+Versão: v0.7.2.0
          STAGE  = 7 (Ring 3 + VESA framebuffer)
-         RELEASE = 1 (VESA nativo + terminal fb + compositor VESA)
+         RELEASE = 2 (backbuffer VESA + panel + multi-janela + Ctrl atalhos)
          FEATURE = 0
 ```
 

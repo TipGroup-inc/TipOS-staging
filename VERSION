@@ -1,8 +1,9 @@
-v0.7.1.0
+v0.7.2.0
 
 Format: v0.STAGE.RELEASE.FEATURE
   STAGE  = 7 = Ring 3 + proteção de memória + scheduler preemptivo +
                 VESA framebuffer 1024x768 32-bit
-  RELEASE = 1 = VESA framebuffer + terminal nativo framebuffer +
-                compositor VESA + renderização atômica sem flicker
+  RELEASE = 2 = backbuffer VESA (flicker-free), panel + botão [+],
+                multi-janela (drag, close, focus), Ctrl+N/Ctrl+Q,
+                HEAP 64MB, RAM 512MB
   FEATURE = 0 = initial feature set

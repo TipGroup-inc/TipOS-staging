@@ -309,7 +309,7 @@ void disp_init(void) {
     stride = g_fb.pitch / 4;
     size_t bbsize = (size_t)scr_w * scr_h * 4;
     if (gfx_mode) {
-        backbuf = (uint32_t *)(uintptr_t)kmalloc(bbsize);
+        backbuf = (uint32_t *)mmap_user(0, bbsize, 3, 0);
         vesa_set_backbuffer(backbuf);
     }
     mouse_x = scr_w / 2;
