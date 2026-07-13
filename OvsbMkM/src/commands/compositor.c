@@ -5,6 +5,7 @@
 #define TITLE_H 16
 #define CLOSE_W 14
 #define PANEL_H 24
+#define NEW_BTN_W 20
 
 static int scr_w = 1024;
 static int scr_h = 768;
@@ -18,7 +19,6 @@ typedef struct {
     int x, y, w, h;
     uint8_t focused;
     char title[32];
-    int dirty;
 } window_t;
 
 static window_t windows[MAX_WINDOWS];
@@ -32,18 +32,31 @@ static int drag_state = DRAG_NONE;
 static int drag_win = -1;
 static int drag_off_x, drag_off_y;
 
+static int next_cascade = 30;
+
 int disp_create_window(int x, int y, int w, int h, const char *title) {
     if (win_count >= MAX_WINDOWS) return -1;
     window_t *w2 = &windows[win_count];
     w2->x = x; w2->y = y; w2->w = w; w2->h = h;
     w2->focused = 0;
-    w2->dirty = 1;
     int i = 0;
     while (*title && i < 31) w2->title[i++] = *title++;
     w2->title[i] = '\0';
     focused_win = win_count;
     win_count++;
     return win_count - 1;
+}
+
+int disp_new_window(const char *title) {
+    int w = scr_w * 3 / 5;
+    int h = scr_h * 2 / 3 - PANEL_H;
+    if (h < 100) h = 100;
+    int x = next_cascade;
+    int y = next_cascade;
+    next_cascade = (next_cascade + 30) % (scr_w / 2);
+    if (x + w > scr_w) x = 0;
+    if (y + h > scr_h - PANEL_H) y = 0;
+    return disp_create_window(x, y, w, h, title);
 }
 
 void disp_update_mouse(int dx, int dy) {
@@ -60,7 +73,6 @@ static void raise_window(int idx) {
     for (int i = idx; i < win_count - 1; i++) windows[i] = windows[i + 1];
     windows[win_count - 1] = tmp;
     focused_win = win_count - 1;
-    for (int i = 0; i < win_count; i++) windows[i].dirty = 1;
     windows[focused_win].focused = 1;
 }
 
@@ -70,14 +82,14 @@ static void close_window(int idx) {
     win_count--;
     focused_win = win_count - 1;
     if (focused_win >= 0) windows[focused_win].focused = 1;
-    old_mx = -1;
 }
 
-enum { HIT_NONE, HIT_TITLE, HIT_CLOSE, HIT_CLIENT, HIT_PANEL };
+enum { HIT_NONE, HIT_TITLE, HIT_CLOSE, HIT_CLIENT, HIT_PANEL, HIT_NEW_BTN };
 
 static int hit_test(int mx, int my, int *out_idx) {
     if (my >= scr_h - PANEL_H) {
         *out_idx = -1;
+        if (mx >= scr_w - NEW_BTN_W - 4) return HIT_NEW_BTN;
         return HIT_PANEL;
     }
     for (int i = win_count - 1; i >= 0; i--) {
@@ -116,8 +128,7 @@ void disp_drag_move(int dx, int dy) {
     if (w->y < 0) w->y = 0;
     if (w->x + w->w > scr_w) w->x = scr_w - w->w;
     if (w->y + w->h > scr_h - PANEL_H) w->y = scr_h - PANEL_H - w->h;
-    w->dirty = 1;
-    old_mx = -1;
+    disp_update_mouse(dx, dy);
 }
 
 void disp_handle_click(void) {
@@ -130,6 +141,10 @@ void disp_handle_click(void) {
     int ht = hit_test(mouse_x, mouse_y, &wi);
     if (ht == HIT_CLOSE) {
         close_window(wi);
+        return;
+    }
+    if (ht == HIT_NEW_BTN) {
+        disp_new_window("Terminal");
         return;
     }
     if (ht == HIT_TITLE) {
@@ -148,7 +163,6 @@ void disp_handle_click(void) {
         int pwi;
         if (panel_btn_hit(mouse_x, &pwi)) {
             raise_window(pwi);
-            old_mx = -1;
         }
         return;
     }
@@ -163,7 +177,6 @@ void disp_cycle_focus(void) {
     int idx = focused_win;
     if (idx < 0) idx = 0;
     int next = (idx + 1) % win_count;
-    for (int i = 0; i < win_count; i++) windows[i].dirty = 1;
     windows[idx].focused = 0;
     windows[next].focused = 1;
     focused_win = next;
@@ -210,7 +223,7 @@ static void draw_panel(void) {
         int bw = 8;
         for (int j = 0; w->title[j]; j++) bw += 8;
         if (bw > 200) bw = 200;
-        uint32_t btn = (w->focused || i == focused_win) ? 0x00335599 : 0x00223355;
+        uint32_t btn = (i == focused_win) ? 0x00335599 : 0x00223355;
         vesa_draw_rect(x, scr_h - PANEL_H + 3, bw, PANEL_H - 6, btn);
         vesa_draw_rect(x, scr_h - PANEL_H + 3, bw, 1, 0x004466AA);
         int tx = x + 4;
@@ -219,6 +232,9 @@ static void draw_panel(void) {
             vesa_draw_char(tx, scr_h - PANEL_H + 6, w->title[ti], 0x00CCCCCC);
         x += bw + 4;
     }
+    int bx = scr_w - NEW_BTN_W - 4;
+    vesa_draw_rect(bx, scr_h - PANEL_H + 3, NEW_BTN_W, PANEL_H - 6, 0x00225533);
+    vesa_draw_char(bx + 6, scr_h - PANEL_H + 5, '+', 0x00AAFFAA);
 }
 
 static uint32_t cur_bg[8][8];
@@ -255,27 +271,13 @@ void disp_render(void) {
         vga_gfx_putpixel(mouse_x + 3, mouse_y + 3, 0x0F);
         return;
     }
-    if (old_mx < 0) {
-        for (int y = 0; y < scr_h; y++) {
-            uint32_t c = 0x00001030 | ((y * 28 / scr_h) << 16) | ((y * 12 / scr_h) << 8);
-            vesa_draw_rect(0, y, scr_w, 1, c);
-        }
-        for (int i = 0; i < win_count; i++) {
-            draw_titlebar(&windows[i]);
-            draw_client(&windows[i]);
-        }
-        draw_panel();
-    } else {
-        cur_restore(old_mx, old_my);
-        for (int i = 0; i < win_count; i++) {
-            window_t *w = &windows[i];
-            if (!w->dirty) continue;
-            draw_titlebar(w);
-            draw_client(w);
-            w->dirty = 0;
-        }
-        draw_panel();
+    if (old_mx >= 0) cur_restore(old_mx, old_my);
+    vesa_fill_screen(0x00001030);
+    for (int i = 0; i < win_count; i++) {
+        draw_titlebar(&windows[i]);
+        draw_client(&windows[i]);
     }
+    draw_panel();
     cur_save(mouse_x, mouse_y);
     cur_draw(mouse_x, mouse_y);
     old_mx = mouse_x;
@@ -290,6 +292,7 @@ void disp_init(void) {
     drag_state = DRAG_NONE;
     drag_win = -1;
     old_mx = -1;
+    next_cascade = 30;
     extern int g_fb_active;
     if (g_fb_active) {
         extern framebuffer_t g_fb;
@@ -303,5 +306,5 @@ void disp_init(void) {
     }
     mouse_x = scr_w / 2;
     mouse_y = scr_h / 2;
-    disp_create_window(scr_w / 5, scr_h / 6, scr_w * 3 / 5, scr_h * 2 / 3, "Terminal");
+    disp_create_window(30, 30, scr_w * 3 / 5, scr_h * 2 / 3 - PANEL_H, "Terminal");
 }

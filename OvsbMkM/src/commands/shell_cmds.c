@@ -340,7 +340,7 @@ void cmd_rmdir(const char *name) {
 extern int g_fb_active;
 
 void cmd_disp(void) {
-    vga_puts("Compositor: WASD=cursor SPACE=click TAB=cycle Q=close ESC=exit\n");
+    vga_puts("Compositor: WASD=cursor SPACE=click TAB=cycle N=new Q=close ESC=exit\n");
     extern void vga_gfx_init(void);
     extern void vga_gfx_restore_text(void);
     extern void disp_init(void);
@@ -352,6 +352,7 @@ void cmd_disp(void) {
     extern int disp_drag_state(void);
     extern int disp_drag_win(void);
     extern void disp_drag_move(int,int);
+    extern int disp_new_window(const char*);
     extern char keyboard_read(void);
     int was_fb = g_fb_active;
     if (!was_fb) vga_gfx_init();
@@ -365,6 +366,8 @@ void cmd_disp(void) {
             case 27: running = 0; break;
             case ' ': disp_handle_click(); break;
             case '\t': disp_cycle_focus(); break;
+            case 'n':
+            case 'N': disp_new_window("Terminal"); break;
             case 'q':
             case 'Q': disp_close_focused(); break;
             case 'w':
