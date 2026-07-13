@@ -74,27 +74,61 @@ static void draw_client(window_t *w) {
     }
 }
 
+static int old_mx = -1, old_my = -1;
+static uint32_t cur_bg[8][8];
+
+static void cur_save(int mx, int my) {
+    extern framebuffer_t g_fb;
+    uint32_t *fb = (uint32_t *)(uintptr_t)g_fb.addr;
+    uint32_t stride = g_fb.pitch / 4;
+    for (int y = 0; y < 8 && my + y < scr_h; y++)
+        for (int x = 0; x < 8 && mx + x < scr_w; x++)
+            cur_bg[y][x] = fb[(my + y) * stride + (mx + x)];
+}
+
+static void cur_restore(int mx, int my) {
+    for (int y = 0; y < 8 && my + y < scr_h; y++)
+        for (int x = 0; x < 8 && mx + x < scr_w; x++)
+            vesa_draw_pixel(mx + x, my + y, cur_bg[y][x]);
+}
+
+static void cur_draw(int mx, int my) {
+    vesa_draw_rect(mx, my, 8, 8, 0x00FFFFFF);
+    vesa_draw_rect(mx + 2, my + 2, 4, 4, 0x00000000);
+}
+
 void disp_render(void) {
-    if (gfx_mode) {
-        vesa_fill_screen(0x00224466);
-    } else {
+    if (!gfx_mode) {
         vga_gfx_clear(0x01);
-    }
-    for (int i = 0; i < win_count; i++) {
-        window_t *w = &windows[i];
-        if (!w->dirty && i != focused_win) continue;
-        draw_titlebar(w);
-        draw_client(w);
-        w->dirty = 0;
-    }
-    if (gfx_mode) {
-        vesa_draw_rect(mouse_x, mouse_y, 8, 8, 0x00FFFFFF);
-        vesa_draw_rect(mouse_x + 2, mouse_y + 2, 4, 4, 0x00000000);
-    } else {
+        for (int i = 0; i < win_count; i++) {
+            draw_titlebar(&windows[i]);
+            draw_client(&windows[i]);
+        }
         vga_gfx_fillrect(mouse_x, mouse_y, 7, 7, 0x0F);
         vga_gfx_fillrect(mouse_x + 1, mouse_y + 1, 5, 5, 0x00);
         vga_gfx_putpixel(mouse_x + 3, mouse_y + 3, 0x0F);
+        return;
     }
+    if (old_mx < 0) {
+        vesa_fill_screen(0x00224466);
+        for (int i = 0; i < win_count; i++) {
+            draw_titlebar(&windows[i]);
+            draw_client(&windows[i]);
+        }
+    } else {
+        cur_restore(old_mx, old_my);
+        for (int i = 0; i < win_count; i++) {
+            window_t *w = &windows[i];
+            if (!w->dirty) continue;
+            draw_titlebar(w);
+            draw_client(w);
+            w->dirty = 0;
+        }
+    }
+    cur_save(mouse_x, mouse_y);
+    cur_draw(mouse_x, mouse_y);
+    old_mx = mouse_x;
+    old_my = mouse_y;
 }
 
 void disp_init(void) {

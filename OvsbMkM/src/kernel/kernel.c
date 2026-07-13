@@ -59,12 +59,6 @@ static uint8_t fb_attr = 0x07;
 static int fb_cur_visible = 1;
 static struct { char ch; uint8_t attr; } fb_buf[FB_MAX_ROWS][FB_MAX_COLS];
 
-// Backbuffer: pixel-perfect copy of terminal area in system RAM
-// Sized for max possible (FB_MAX_COLS*8 × FB_MAX_ROWS*16 pixels)
-#define BB_STRIDE (FB_MAX_COLS * 8)
-#define BB_HEIGHT (FB_MAX_ROWS * 16)
-static uint32_t fb_bb[BB_HEIGHT][BB_STRIDE];
-
 static uint32_t vga_to_rgb(uint8_t attr) {
     static const uint32_t pal[16] = {
         0x000000, 0x0000AA, 0x00AA00, 0x00AAAA,
@@ -75,38 +69,10 @@ static uint32_t vga_to_rgb(uint8_t attr) {
     return pal[attr & 0x0F];
 }
 
-static void fb_flush_cell(int col, int row) {
-    uint32_t *fb = (uint32_t *)(uintptr_t)g_fb.addr;
-    uint32_t fb_stride = g_fb.pitch / 4;
-    int x0 = col * 8, y0 = row * 16;
-    for (int r = 0; r < 16; r++) {
-        uint32_t *src = fb_bb[y0 + r];
-        uint32_t *dst = fb + (y0 + r) * fb_stride + x0;
-        dst[0] = src[0]; dst[1] = src[1]; dst[2] = src[2]; dst[3] = src[3];
-        dst[4] = src[4]; dst[5] = src[5]; dst[6] = src[6]; dst[7] = src[7];
-    }
-}
-
 static void fb_render_cell(int col, int row) {
     char c = fb_buf[row][col].ch;
-    uint32_t fg = vga_to_rgb(fb_buf[row][col].attr);
-    int x0 = col * 8, y0 = row * 16;
-    for (int r = 0; r < 16; r++)
-        for (int x = 0; x < 8; x++)
-            fb_bb[y0 + r][x0 + x] = 0x000000;
-    if (c >= 32 && c <= 126) {
-        extern const uint8_t font8x8[95][8];
-        const uint8_t *glyph = font8x8[(unsigned char)c - 32];
-        for (int r = 0; r < 8; r++) {
-            uint8_t bits = glyph[r];
-            for (int x = 0; x < 8; x++)
-                if (bits & (1 << x)) {
-                    fb_bb[y0 + r*2][x0 + x] = fg;
-                    fb_bb[y0 + r*2 + 1][x0 + x] = fg;
-                }
-        }
-    }
-    fb_flush_cell(col, row);
+    uint32_t color = vga_to_rgb(fb_buf[row][col].attr);
+    vesa_draw_cell(col * 8, row * 16, c, color, 0x000000);
 }
 
 static void fb_redraw_all(void) {
@@ -125,33 +91,7 @@ static void fb_scroll(void) {
         fb_buf[fb_rows-1][c].ch = ' ';
         fb_buf[fb_rows-1][c].attr = fb_attr;
     }
-    int row_px = 16, col_px = fb_cols * 8;
-    uint32_t *bb = (uint32_t *)fb_bb;
-    int bb_stride = BB_STRIDE;
-    for (int r = 0; r < (fb_rows - 1) * 16; r++)
-        for (int x = 0; x < col_px; x++)
-            bb[r * bb_stride + x] = bb[(r + 16) * bb_stride + x];
-    for (int r = (fb_rows - 1) * 16; r < fb_rows * 16; r++)
-        for (int x = 0; x < col_px; x++)
-            bb[r * bb_stride + x] = 0;
-    for (int c = 0; c < fb_cols; c++) {
-        extern const uint8_t font8x8[95][8];
-        char ch = fb_buf[fb_rows-1][c].ch;
-        uint32_t fg = vga_to_rgb(fb_buf[fb_rows-1][c].attr);
-        int y0 = (fb_rows-1) * 16, x0 = c * 8;
-        if (ch >= 32 && ch <= 126) {
-            const uint8_t *glyph = font8x8[(unsigned char)ch - 32];
-            for (int r = 0; r < 8; r++) {
-                uint8_t bits = glyph[r];
-                for (int x = 0; x < 8; x++)
-                    if (bits & (1 << x)) {
-                        fb_bb[y0 + r*2][x0 + x] = fg;
-                        fb_bb[y0 + r*2 + 1][x0 + x] = fg;
-                    }
-            }
-        }
-        fb_flush_cell(c, fb_rows - 1);
-    }
+    fb_redraw_all();
 }
 
 static void fb_reset(void) {
