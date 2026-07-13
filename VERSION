@@ -1,11 +1,8 @@
-v0.5.3.0
+v0.7.1.0
 
 Format: v0.STAGE.RELEASE.FEATURE
-  STAGE  = 5 = Editor maduro + RTC + timer + repeat rate + shell line editing + 
-                history + PATH + redirection + syntax highlight + undo + clipboard
-  RELEASE = 3 = autocomplete (TAB), line numbers toggle (F2), keyboard ISR fix,
-                env vars, aliases, PS1 prompt, timestamps in ls/stat, 
-                graceful shutdown + reboot, scripting (source), $? exit code,
-                terminal colorido (colors.h), PS1 escape expansion (\w, \W, \u, \h, \s, \$),
-                diretório atual no prompt, cd .. / cd . suporte documentado
+  STAGE  = 7 = Ring 3 + proteção de memória + scheduler preemptivo +
+                VESA framebuffer 1024x768 32-bit
+  RELEASE = 1 = VESA framebuffer + terminal nativo framebuffer +
+                compositor VESA + renderização atômica sem flicker
   FEATURE = 0 = initial feature set
