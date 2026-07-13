@@ -21,8 +21,8 @@ void nvram_init(void);
 #define VGA_WIDTH  80
 #define VGA_HEIGHT 25
 
-static framebuffer_t g_fb = {0};
-static int g_fb_active = 0;
+framebuffer_t g_fb = {0};
+int g_fb_active = 0;
 
 static void parse_multiboot2(uint32_t magic, uint32_t addr) {
     if (magic != 0x36D76289) return;

@@ -337,17 +337,18 @@ void cmd_rmdir(const char *name) {
     else print_err(r, name);
 }
 
+extern int g_fb_active;
+
 void cmd_disp(void) {
     vga_puts("Iniciando modo grafico (ESC para sair)...\n");
     extern void vga_gfx_init(void);
     extern void vga_gfx_restore_text(void);
-    extern void vga_gfx_clear(uint8_t);
-    extern void vga_gfx_fillrect(int,int,int,int,uint8_t);
     extern void disp_init(void);
     extern void disp_render(void);
     extern void disp_update_mouse(int,int);
     extern char keyboard_read(void);
-    vga_gfx_init();
+    int was_fb = g_fb_active;
+    if (!was_fb) vga_gfx_init();
     disp_init();
     disp_render();
     int running = 1;
@@ -362,7 +363,7 @@ void cmd_disp(void) {
         }
         disp_render();
     }
-    vga_gfx_restore_text();
+    if (!was_fb) vga_gfx_restore_text();
     vga_clear();
     vga_puts("Modo texto restaurado.\n");
 }
