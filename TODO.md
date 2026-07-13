@@ -55,7 +55,10 @@
 | PS/2 keyboard (scancode→ASCII, shift, extended arrows/Fn) | ✅ | `keyboard.c` |
 | Keyboard circular buffer + blocking read + polling fallback | ✅ | `keyboard.c` |
 | VGA graphics 320x200x256 (mode 13h-style) | ✅ | `vga_gfx.c` |
-| Compositor (8 windows, title bar, software cursor 7x7) | 🔸 | `compositor.c` |
+| VESA framebuffer (1024×768 32-bit, init via Multiboot2 tag) | ✅ | `vesa.c` |
+| Termina framebuffer nativo (fb_buf, fb_render_cell, scroll atômico) | ✅ | `kernel.c`, `vesa.c` |
+| Renderização atômica (temp buffer + memcpy, sem flicker por célula) | ✅ | `vesa.c` (vesa_draw_cell) |
+| Compositor (8 windows, title bar, software cursor 7x7, VESA+VGA fallback) | ✅ | `compositor.c` |
 
 ### 1.3 Shell & Comandos
 

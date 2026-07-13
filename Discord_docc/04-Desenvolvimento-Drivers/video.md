@@ -23,10 +23,16 @@ State machine com 4 variáveis: `esc_state` (0=normal, 1=ESC, 2=CSI, 3=params), 
 
 ---
 
+**Implementado:**
+- **VESA framebuffer 1024×768 32-bit** via Multiboot2 tag (type 5) — driver em `src/lib/libgui/vesa.c`
+- **Terminal nativo framebuffer** — `vga_putchar()` renderiza no VESA FB em vez de 0xB8000, com `fb_buf[][]` dinâmico e scroll atômico
+- **Compositor VESA** — `disp` usa `vesa_draw_*` com resolução real, 8 janelas, cursor software, fundo azul escuro
+- **Renderização atômica** — `vesa_draw_cell()` usa buffer local + memcpy para evitar flicker
+- **VGA fallback** — modo 13h (320×200×256) via `vga_gfx.c` quando framebuffer inativo
+
 **Em aberto / planejado:**
-- VGA graphics 320x200x256 (modo 13h-style) — driver existe (`vga_gfx.c`) mas ainda não integrado ao fluxo principal
-- Compositor (8 janelas, title bar, cursor por software) — protótipo em `src/userland/disp/compositor.c`
-- Framebuffer via VESA — futuro
+- Double buffering (backbuffer em RAM para eliminar tearing de scroll completamente)
+- VSYNC wait (eliminar tearing residual)
 - Aceleração gráfica (i915 / Mesa / Vulkan) — bem no futuro (Fase 7 do roadmap em equipe)
 
 Prints e vídeos do compositor ou do modo gráfico rodando também valem post em #apresentações!

@@ -16,21 +16,22 @@
 4. [IDT — Interrupt Descriptor Table](#4-idt)
 5. [Syscalls](#5-syscalls)
 6. [VGA Text Mode + ANSI Parser](#6-vga)
-7. [Teclado PS/2](#7-teclado)
-8. [ATA PIO](#8-ata)
-9. [FAT32](#9-fat32)
-10. [PIT — Timer Programável](#10-pit)
-11. [RTC — Relógio de Tempo Real](#11-rtc)
-12. [Shell](#12-shell)
-13. [Redirecionamento e Pipes](#13-redirecionamento)
-14. [Comandos](#14-comandos)
-15. [Userland e Libc](#15-userland)
-16. [Graphy — Editor TUI](#16-graphy)
-17. [Como Adicionar um Syscall](#17-como-adicionar-uma-syscall)
-18. [Como Adicionar um Comando](#18-como-adicionar-um-comando)
-19. [Como Adicionar uma Função Libc](#19-como-adicionar-uma-função-libc)
-20. [Debugging](#20-debugging)
-21. [Problemas Comuns](#21-problemas-comuns)
+7. [VESA Framebuffer (VBE)](#7-vesa-framebuffer-vbe)
+8. [Teclado PS/2](#8-teclado)
+9. [ATA PIO](#9-ata)
+10. [FAT32](#10-fat32)
+11. [PIT — Timer Programável](#11-pit)
+12. [RTC — Relógio de Tempo Real](#12-rtc)
+13. [Shell](#13-shell)
+14. [Redirecionamento e Pipes](#14-redirecionamento)
+15. [Comandos](#15-comandos)
+16. [Userland e Libc](#16-userland)
+17. [Graphy — Editor TUI](#17-graphy)
+18. [Como Adicionar um Syscall](#18-como-adicionar-uma-syscall)
+19. [Como Adicionar um Comando](#19-como-adicionar-um-comando)
+20. [Como Adicionar uma Função Libc](#20-como-adicionar-uma-função-libc)
+21. [Debugging](#21-debugging)
+22. [Problemas Comuns](#22-problemas-comuns)
 
 ---
 
@@ -346,14 +347,113 @@ Portas VGA: `0x3D4` (index), `0x3D5` (data)
 
 ---
 
-## 7. Teclado
+## 7. VESA Framebuffer (VBE)
 
-### 7.1 Hardware
+### 7.1 Visão Geral
+
+O kernel suporta VESA BIOS Extensions (VBE) via **Multiboot2 framebuffer tag (type 5)**.
+GRUB alterna o modo gráfico antes de passar controle ao kernel, e a tag no header
+multiboot2 informa endereço, pitch, largura, altura e BPP.
+
+**Funções do driver:**
+
+- `vesa_init()` — mapeia framebuffer físico na paginação (via `pml4_map_phys`)
+- `vesa_draw_pixel(x, y, color)` — escreve 1 pixel 32-bit com bounds check
+- `vesa_draw_rect(x, y, w, h, color)` — preenche retângulo (com bounds check)
+- `vesa_draw_char(x, y, c, color)` — desenha glyph 8x8 (dobre altura = 16px)
+- `vesa_draw_cell(x, y, c, fg, bg)` — bg + glyph em buffer local, depois memcpy atômico
+- `vesa_draw_text(x, y, text, color)` — string simples
+- `vesa_fill_screen(color)` — preenche tela toda (unrolled 8x)
+
+### 7.2 Framebuffer Terminal
+
+Quando o framebuffer está ativo (`g_fb_active == 1`), o terminal nativo
+`vga_putchar()` **ignora o buffer VGA text 0xB8000** e usa:
+
+```
+fb_buf[fb_rows][fb_cols]   → buffer de caracteres (RAM)
+fb_render_cell(col, row)    → vesa_draw_cell() → temp buffer + memcpy
+fb_scroll()                 → shift character buffer + redraw all
+fb_reset()                  → clear + set dimensions from framebuffer
+```
+
+### 7.3 Inicialização (kmain)
+
+```c
+parse_multiboot2(magic, mb_info);   // lê tag type 8 (framebuffer)
+if (g_fb.addr && g_fb.bpp == 32) {
+    vesa_init(&g_fb);               // mapeia FB na paginação
+    g_fb_active = 1;
+    fb_reset();                     // ajusta cols/rows, limpa tela
+}
+```
+
+Dimensões calculadas: `fb_cols = width / 8`, `fb_rows = height / 16`.
+
+### 7.4 Terminal nativo framebuffer vs VGA text
+
+| Característica | VGA text (0xB8000) | VESA framebuffer |
+|---|---|---|
+| Buffer | 80×25 words, fixo | fb_buf[][] dinâmico (até 160×64) |
+| Scroll | memcpy words | shift buffer + fb_redraw_all() |
+| Cursor | hardware (0x3D4/0x3D5) | software (via fb_buf) |
+| Cores | 16 VGA indexadas | 32-bit RGB mapeadas via paleta |
+| Fonte | BIOS (9×16) | bitmap 8×8 (doblada para 8×16) |
+
+### 7.5 Controle de Flicker (Renderização Atômica)
+
+O framebuffer é memória uncacheable (PCI). Escrever pixel a pixel causa tearing
+visível. Solução:
+
+1. **`vesa_draw_cell()`** — preenche um buffer `cell[16][8]` na stack (RAM cacheada),
+   depois copia os 512 bytes para o FB com 8 writes desenrolados por linha.
+   Nenhum pixel aparece parcialmente (célula atômica).
+
+2. **`fb_scroll()`** — em vez de copiar pixels no FB (que causava "estática descendo"),
+   só mexe no character buffer (RAM) e redesenha todas as células atomicamente.
+
+### 7.6 Compositor (`disp`)
+
+O comando `disp` ativa o modo gráfico com janelas sobrepostas:
+
+- **VESA ativo** (`g_fb_active == 1`): fundo azul escuro (`0x00224466`),
+  janelas com título em `vesa_draw_char()`, cursor branco WASD,
+  resolução real do framebuffer (ex: 1024×768)
+- **Fallback VGA**: modo 13h (320×200×256) via `vga_gfx.c`
+
+```c
+void disp_init(void) {
+    if (g_fb_active) {
+        scr_w = g_fb.width;   // 1024
+        scr_h = g_fb.height;  // 768
+        gfx_mode = 1;
+    } else {
+        scr_w = 320; scr_h = 200;
+        gfx_mode = 0;
+    }
+}
+```
+
+### 7.7 Arquivos
+
+| Arquivo | Função |
+|---------|--------|
+| `src/lib/libgui/vesa.c` | Driver VESA + font 8×8 |
+| `src/lib/libgui/vesa.h` | Struct framebuffer_t, declarações |
+| `src/lib/libgui/gui.c` | GUI helpers (futuro) |
+| `src/kernel/boot64.asm` | Header Multiboot2 com tag framebuffer type 5 |
+| `src/commands/compositor.c` | Compositor VESA/VGA |
+
+---
+
+## 8. Teclado PS/2
+
+### 8.1 Hardware
 
 - Controlador PS/2, porta de dados `0x60`, porta de status `0x64`.
 - IRQ1 (vetor 33) dispara quando uma tecla é pressionada/solta.
 
-### 7.2 Keyboard Handler (keyboard_asm.asm + keyboard.c)
+### 8.2 Keyboard Handler (keyboard_asm.asm + keyboard.c)
 
 ```
 IRQ1 → keyboard_irq_handler (asm) → keyboard_handler() (C)
@@ -364,14 +464,14 @@ IRQ1 → keyboard_irq_handler (asm) → keyboard_handler() (C)
   → iretq
 ```
 
-### 7.3 Scancode → ASCII (Set 1)
+### 8.3 Scancode → ASCII (Set 1)
 
 Array `norm[]` (sem shift) e `shf[]` (com shift):
 - Scancode é usado como índice no array.
 - `0x2A` e `0x36` = shift pressionado, `0xAA` e `0xB6` = shift solto.
 - Teclas estendidas (prefixo `0xE0`): setas, Home/End, etc. → emitem sequências VT100 (`\x1b[A`, etc.).
 
-### 7.4 Keyboard Repeat System
+### 8.4 Keyboard Repeat System
 
 ```c
 // Variáveis de estado
@@ -394,7 +494,7 @@ static volatile uint64_t last_repeat_tick; // timer_ticks do último repeat emit
 
 **Para ajustar:** mude `REPEAT_DELAY` (ticks) e `REPEAT_RATE` (tick interval) em `keyboard.c`.
 
-### 7.5 keyboard_read() — Bloqueante (buffer-only)
+### 8.5 keyboard_read() — Bloqueante (buffer-only)
 
 ```c
 char keyboard_read(void) {
@@ -414,9 +514,9 @@ char keyboard_read(void) {
 
 ---
 
-## 8. ATA
+## 9. ATA PIO
 
-### 8.1 Driver PIO (ata.c)
+### 9.1 Driver PIO (ata.c)
 
 - **Portas:** 0x1F0–0x1F7 (primary IDE, master).
 - **LBA28:** setor de 512 bytes, endereçamento linear de 28 bits.
@@ -425,7 +525,7 @@ char keyboard_read(void) {
   - `ata_write_sector(uint32_t lba, uint8_t *buf)` — espera DRQ, escreve 256 words.
 - **Init:** `ata_init()` — espera 1 segundo (busy loop), seleciona drive 0.
 
-### 8.2 Curiosidade GCC 15+
+### 9.2 Curiosidade GCC 15+
 
 O compilador GCC 15+ gera `inw %edx` em vez de `inw %dx`. O Makefile aplica um `sed` para corrigir o assembly gerado por GCC:
 
@@ -438,9 +538,9 @@ OvsbMkM/build/src/drivers/ata.o: OvsbMkM/src/drivers/ata.c
 
 ---
 
-## 9. FAT32
+## 10. FAT32
 
-### 9.1 Inicialização (fat32_init)
+### 10.1 Inicialização (fat32_init)
 
 ```c
 int fat32_init(void) {
@@ -452,7 +552,7 @@ int fat32_init(void) {
 }
 ```
 
-### 9.2 API Completa
+### 10.2 API Completa
 
 | Função | Descrição | Código de erro |
 |--------|-----------|----------------|
@@ -468,7 +568,7 @@ int fat32_init(void) {
 | `fat32_rename(old, new)` | Renomeia | 0 ou <0 |
 | `fat32_stat(name, &size, &attr)` | Info arquivo | 0 ou <0 |
 
-### 9.3 Arquitetura Interna
+### 10.3 Arquitetura Interna
 
 ```
 fat32_boot_t (boot sector struct) → lê do setor 0
@@ -481,14 +581,14 @@ fat32_boot_t (boot sector struct) → lê do setor 0
   → fat_find_free() → encontra cluster livre na FAT
 ```
 
-### 9.4 Nomes de Arquivo
+### 10.4 Nomes de Arquivo
 
 - Conversão para 8.3 (uppercase, remove extensão longa):
   - `name_to_83("hello.c", out)` → `"HELLO   C  "` (8+3, padding com espaços)
   - `name_to_83("Makefile", out)` → `"MAKEFILE   "` (sem extensão)
   - `name_to_83("file.txt.bak", out)` → `"FILE~1  BAK"` (8.3 truncado)
 
-### 9.5 Estrutura de Diretório no Disco
+### 10.5 Estrutura de Diretório no Disco
 
 ```
 TipOS usa disk.img de 64MB FAT32.
@@ -500,9 +600,9 @@ Partições:
 
 ---
 
-## 10. PIT
+## 11. PIT
 
-### 10.1 Inicialização (pit_init)
+### 11.1 Inicialização (pit_init)
 
 ```c
 static void pit_init(void) {
@@ -513,7 +613,7 @@ static void pit_init(void) {
 }
 ```
 
-### 10.2 Timer Tick Handler
+### 11.2 Timer Tick Handler
 
 ```c
 volatile uint64_t timer_ticks = 0;  // incrementado a cada IRQ0 (~100Hz)
@@ -526,7 +626,7 @@ void timer_tick_handler(void) {
 
 Chamado pelo entry point `irq0` em `idt.asm`, que salva registradores, chama `timer_tick_handler()`, restaura e executa `iretq`.
 
-### 10.3 Funções Utilitárias
+### 11.3 Funções Utilitárias
 
 ```c
 static void sleep_ms(uint64_t ms) {
@@ -539,9 +639,9 @@ static void sleep_ms(uint64_t ms) {
 
 ---
 
-## 11. RTC
+## 12. RTC
 
-### 11.1 CMOS Ports
+### 12.1 CMOS Ports
 
 ```
 Porta 0x70: índice do registrador CMOS
@@ -561,7 +661,7 @@ Bit 7 de 0x70: NMI (Non-Maskable Interrupt) — deve ser preservado
 | 0x09 | Ano (0-99) | BCD |
 | 0x0B | Status B | bit 2=0 → BCD, bit 2=1 → binary |
 
-### 11.2 Leitura (rtc_read)
+### 12.2 Leitura (rtc_read)
 
 ```c
 static uint8_t read_cmos(uint8_t reg) {
@@ -583,16 +683,16 @@ void rtc_read(rtc_time *t) {
 }
 ```
 
-### 11.3 Comandos `date` e `uptime`
+### 12.3 Comandos `date` e `uptime`
 
 `date` → lê RTC, formata `YYYY-MM-DD HH:MM:SS`.
 `uptime` → lê `timer_ticks / 100`, formata `Xd HH:MM`.
 
 ---
 
-## 12. Shell
+## 13. Shell
 
-### 12.1 Arquitetura
+### 13.1 Arquitetura
 
 O shell roda inline no kernel, dentro de `shell_loop()` (kernel.c). É um loop infinito que lê teclas e executa comandos.
 
@@ -608,7 +708,7 @@ shell_loop():
   8. Volta para 2
 ```
 
-### 12.2 Shell History
+### 13.2 Shell History
 
 ```c
 #define HIST_MAX 128
@@ -622,7 +722,7 @@ static int hist_count = 0;
 - **↑:** ativa navegação, mostra entry anterior.
 - **↓:** próxima entry, ou volta à linha original.
 
-### 12.3 Line Editing
+### 13.3 Line Editing
 
 | Tecla | Ação |
 |-------|------|
@@ -643,7 +743,7 @@ static int hist_count = 0;
 3. Escreve `"MkM> " + cmd`
 4. `len - pos` backspaces para posicionar cursor
 
-### 12.4 Redirecionamento
+### 13.4 Redirecionamento
 
 Analisado em `execute_command()` antes de despachar:
 
@@ -666,7 +766,7 @@ cmd1 | cmd2              → executa cmd1, depois cmd2 (pipe via buffer)
 2. Concatena com buffer de saída
 3. Escreve tudo de volta com `fat32_write_file()`
 
-### 12.5 PATH Search
+### 13.5 PATH Search
 
 ```c
 static const char *paths[] = {"/BIN", "/USR/BIN", "/LOCAL/BIN", NULL};
@@ -681,7 +781,7 @@ if (cmd_exec_in_dir(work, "/BIN") != 0 &&
 
 `cmd_exec_in_dir()` muda para o diretório, tenta ler o arquivo, carrega Mach-O e executa.
 
-### 12.6 Autocomplete (TAB)
+### 13.6 Autocomplete (TAB)
 
 O TAB handler no `shell_loop()` implementa autocomplete:
 
@@ -709,7 +809,7 @@ if k == TAB:
 
 A função `fat32_match_prefix()` (fat32.c) itera sobre as entradas de um diretório FAT32 e retorna entradas cujo nome começa com o prefixo dado.
 
-### 12.7 Variáveis de Ambiente
+### 13.7 Variáveis de Ambiente
 
 ```c
 #define ENV_MAX 32
@@ -729,7 +829,7 @@ static int env_count = 0;
 - `$PS1` é lido a cada iteração do shell loop para o prompt.
 - `$?` é exportado automaticamente após cada comando (0 = sucesso, 1 = erro).
 
-### 12.8 Aliases
+### 13.8 Aliases
 
 ```c
 #define ALIAS_MAX 32
@@ -746,7 +846,7 @@ static int alias_count = 0;
 - Expansão não-recursiva (expande uma vez no início de `execute_command()`).
 - A expansão preserva o resto da linha (argumentos após o nome do alias).
 
-### 12.9 Prompt Customizável (PS1)
+### 13.9 Prompt Customizável (PS1)
 
 O prompt é construído a cada iteração pela função `build_prompt()`, que lê a variável `$PS1` e expande sequências de escape:
 
@@ -791,7 +891,7 @@ A função é chamada:
 
 Isso significa que se você digitar `cd /APPS`, o prompt muda automaticamente para `[/APPS]# `.
 
-### 12.10 Navegação de Diretório (cd / pwd)
+### 13.10 Navegação de Diretório (cd / pwd)
 
 O diretório atual é armazenado em `current_dir_cluster` (fat32.c). As funções de navegação:
 
@@ -812,7 +912,7 @@ A entrada `..` existe em TODO diretório FAT32 (criada por `fat32_mkdir()`). A r
 
 > **Bug corrigido (v0.5.3):** `fat32_get_cwd_name()` não tratava `..` com cluster=0 (convenção FAT32 que significa "pai é a raiz"). `parent_cluster` virava 0 e a busca no pai não executava, resultando em `depth=0` → saída `/`. Corrigido com `if (parent_cluster == 0) parent_cluster = boot.root_cluster`.
 
-### 12.11 Scripting (source)
+### 13.11 Scripting (source)
 
 O comando `source <arquivo>` lê até 4096 bytes de um arquivo, divide por `\n`, e executa cada linha como um comando via `execute_command()`:
 
@@ -833,7 +933,7 @@ else if (strncmp(work, "source ", 7) == 0) {
 }
 ```
 
-### 12.12 Exit Code ($?)
+### 13.12 Exit Code ($?)
 
 Após cada comando, a variável `$?` é automaticamente exportada:
 
@@ -852,7 +952,7 @@ Valores:
 - `0` — comando executado com sucesso
 - `1` — comando não encontrado
 
-### 12.12 Terminal Colorido (colors.h)
+### 13.12 Terminal Colorido (colors.h)
 
 O sistema de cores VGA foi extraído de `#define COLOR (0x0A)` fixo para um esquema dinâmico:
 
@@ -885,11 +985,11 @@ Onde aplicado:
 
 A cor padrão (`vga_attr`) é `C_OUTPUT` (gray on black), definida em startup.
 
-## 13. Redirecionamento
+## 14. Redirecionamento
 
 O redirecionamento é implementado no kernel e funciona interceptando a saída de `vga_putchar()`.
 
-### 13.1 Globais
+### 14.1 Globais
 
 ```c
 static int redir_active = 0;      // 0=normal, 1=coletando para arquivo
@@ -897,7 +997,7 @@ static char redir_buf[16384];     // buffer de saída
 static int redir_len = 0;        // bytes no buffer
 ```
 
-### 13.2 Fluxo
+### 14.2 Fluxo
 
 ```
 Comando: "echo hello > file.txt"
@@ -913,7 +1013,7 @@ execute_command("echo hello > file.txt"):
      fat32_write_file("file.txt", redir_buf, 6)
 ```
 
-### 13.3 Pipe (|)
+### 14.3 Pipe (|)
 
 Atualmente mostra `[pipe not fully implemented yet]`. Para implementar:
 - Coletar saída do primeiro comando em `redir_buf`
@@ -922,9 +1022,9 @@ Atualmente mostra `[pipe not fully implemented yet]`. Para implementar:
 
 ---
 
-## 14. Comandos
+## 15. Comandos
 
-### 14.1 Builtins Atuais
+### 15.1 Builtins Atuais
 
 | Comando | Função | Descrição |
 |---------|--------|-----------|
@@ -957,7 +1057,7 @@ Atualmente mostra `[pipe not fully implemented yet]`. Para implementar:
 | `uptime` | `cmd_uptime()` | Tempo desde boot |
 | `sleep` | `sleep_ms()` | Espera N segundos |
 
-### 14.2 Como Adicionar Comando
+### 15.2 Como Adicionar Comando
 
 1. **shell_cmds.h:** declare `void cmd_meucomando(void);`
 2. **shell_cmds.c:** implemente a função
@@ -969,16 +1069,16 @@ Atualmente mostra `[pipe not fully implemented yet]`. Para implementar:
 
 ---
 
-## 15. Userland
+## 16. Userland
 
-### 15.1 Pipeline de Compilação
+### 16.1 Pipeline de Compilação
 
 ```
 .c → gcc -ffreestanding -nostdlib → .elf → objcopy -O binary → .bin
   → macho_pack.py → .macho → mcopy → disk.img:/BIN/
 ```
 
-### 15.2 CRT0 (crt0.c)
+### 16.2 CRT0 (crt0.c)
 
 ```c
 __attribute__((naked)) void _start(void) {
@@ -989,7 +1089,7 @@ __attribute__((naked)) void _start(void) {
 }
 ```
 
-### 15.3 Libc
+### 16.3 Libc
 
 **stdio.c** — funções via int 0x80:
 - `int 0x80` inline asm com XNU convention (RAX=num, RDI/RSI/RDX/RCX=args)
@@ -1001,7 +1101,7 @@ __attribute__((naked)) void _start(void) {
 
 **string.c** — `strlen`, `strcmp`, `strcpy`, `strcat`, `strtok`, `memset`, `memcpy`, etc.
 
-### 15.4 Inclusões
+### 16.4 Inclusões
 
 Userland inclui headers de:
 - `include/stdio.h`, `stdlib.h`, `string.h`, `ctype.h`
@@ -1009,9 +1109,9 @@ Userland inclui headers de:
 
 ---
 
-## 16. Graphy
+## 17. Graphy
 
-### 16.1 Arquitetura
+### 17.1 Arquitetura
 
 Graphy é um editor de texto TUI full-screen de ~620 linhas. Roda como Mach-O userland.
 
@@ -1023,7 +1123,7 @@ main():
   4. Sai com ^X, restaura cursor
 ```
 
-### 16.2 Novas Funcionalidades
+### 17.2 Novas Funcionalidades
 
 | Tecla | Ação |
 |-------|------|
@@ -1041,7 +1141,7 @@ main():
 | ^C | Command mode |
 | F2 | Line numbers toggle |
 
-### 16.3 Syntax Highlighting
+### 17.3 Syntax Highlighting
 
 A função `screen()` implementa um state machine de highlighting:
 
@@ -1066,7 +1166,7 @@ Cores ANSI:
 - Line numbers: cinza (\x1b[37m)
 ```
 
-### 16.4 Undo/Redo
+### 17.4 Undo/Redo
 
 ```c
 #define UNDO_MAX 512
@@ -1077,7 +1177,7 @@ static struct { int pos; char ch; int is_ins; } undo_stack[UNDO_MAX];
 - `undo_one()` — desfaz última operação
 - Buffer circular: quando cheio, sobrescreve mais antigo
 
-### 16.5 Auto-indent
+### 17.5 Auto-indent
 
 ```c
 // Ao pressionar Enter:
@@ -1088,7 +1188,7 @@ for (int i = 0; i < ind; i++) ins(co + 1 + i, ' ');
 
 ---
 
-## 17. Como Adicionar uma Syscall
+## 18. Como Adicionar uma Syscall
 
 ### Passo 1: Defina o número
 
@@ -1123,7 +1223,7 @@ static inline int64_t minha_syscall(int a1, int a2) {
 
 ---
 
-## 18. Como Adicionar um Comando
+## 19. Como Adicionar um Comando
 
 ### Passo 1: shell_cmds.h
 
@@ -1152,7 +1252,7 @@ vga_puts("hello   ...\n");
 
 ---
 
-## 19. Como Adicionar uma Função na Libc
+## 20. Como Adicionar uma Função na Libc
 
 ### Exemplo: Adicionar `strdup`
 
@@ -1174,9 +1274,9 @@ vga_puts("hello   ...\n");
 
 ---
 
-## 20. Debugging
+## 21. Debugging
 
-### 20.1 QEMU + Serial
+### 21.1 QEMU + Serial
 
 ```bash
 make run  # mostra VGA + serial no terminal
@@ -1187,7 +1287,7 @@ O kernel envia logs para porta serial COM1 (`0x3F8`). Para capturar:
 qemu-system-x86_64 -cdrom TipOS.iso -drive file=disk.img,format=raw -serial stdio
 ```
 
-### 20.2 QEMU + GDB
+### 21.2 QEMU + GDB
 
 ```bash
 # Terminal 1:
@@ -1200,7 +1300,7 @@ gdb -ex "target remote :1234" \
     -ex "continue"
 ```
 
-### 20.3 Mensagens de Debug no Kernel
+### 21.3 Mensagens de Debug no Kernel
 
 ```c
 debug_puts("aqui chegou\n");  // escreve no VGA + serial
@@ -1208,7 +1308,7 @@ serial_puts("debug\n");        // só no serial
 vga_puts("visivel\n");         // só no VGA
 ```
 
-### 20.4 VGA como Debug
+### 21.4 VGA como Debug
 
 O syscall handler escreve o número da syscall nos primeiros pixels do VGA:
 ```c
@@ -1219,7 +1319,7 @@ vga[2] = (0x0E << 8) | ('0' + (num % 10));
 
 ---
 
-## 21. Problemas Comuns
+## 22. Problemas Comuns
 
 ### "Kernel panic: no working init found"
 - FAT32 não foi inicializado. Verifique `fat32_init()` > 0.

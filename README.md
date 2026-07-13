@@ -26,7 +26,7 @@ Versão: v0.7.0.0
 - **Mach-O 64-bit loader**: carrega userland programs em 0x2000000
 - **RTC real**: gettimeofday, date, sleep
 - **Keyboard repeat**: 500ms delay, 33Hz rate
-- **Compositor gráfico**: 320x200x256, 8 janelas, cursor software
+- **Compositor gráfico**: 1024x768 32-bit via VESA framebuffer (fallback 320x200x256 VGA), 8 janelas, cursor software
 
 ## Estrutura
 

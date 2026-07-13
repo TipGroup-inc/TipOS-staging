@@ -25,9 +25,9 @@ Dependências: `nasm`, `gcc`, `grub-mkrescue`, `qemu-system-x86_64`.
 
 ## Arquitetura rápida
 
-1. GRUB carrega `build/kernel.elf` via Multiboot2
+1. GRUB carrega `build/kernel.elf` via Multiboot2 (tag framebuffer type 5 no header)
 2. `boot64.asm`: long mode, PML4 identity, GDT (ring 0 + ring 3 + TSS)
-3. `kmain()`: VGA, IDT (trap gate int 0x80 DPL=3), PIC, FAT32, TSS
+3. `kmain()`: VESA init, terminal framebuffer nativo, IDT, PIC, FAT32, TSS
 4. Shell loop lê teclado, executa builtins ou `exec` com PATH search
 5. `cmd_exec`: fat32_read_file → mach_o_load → mmap_user → enter_ring3
 6. `enter_ring3`: salva RSP, monta frame iret (SS=0x23, CS=0x1B, RFLAGS=0x202), iretq
@@ -52,6 +52,9 @@ Dependências: `nasm`, `gcc`, `grub-mkrescue`, `qemu-system-x86_64`.
 | `src/drivers/keyboard.c` | PS/2 scancode → ASCII, shift, extended keys |
 | `src/fs/fat32.c` | FAT32 completo (read, write, mkdir, rmdir, rename, stat, cd) |
 | `src/commands/shell_cmds.c` | Builtins: help, ls, cat, exec (PATH search), edit... |
+| `src/lib/libgui/vesa.c` | Driver VESA framebuffer (init, pixel/rect/char/text, draw_cell) |
+| `src/lib/libgui/vesa.h` | Declarações VESA + struct framebuffer_t |
+| `src/commands/compositor.c` | Compositor gráfico VESA 1024x768 32-bit (fallback VGA 320x200) |
 
 ## Syscalls
 
@@ -75,6 +78,8 @@ O disco FAT32 é passado como `-drive file=disk.img,format=raw,index=0`.
 
 ## Limitações conhecidas
 
+- Framebuffer sem double-buffer (flicker ao renderizar célula por célula; mitigado com temp buffer + memcpy)
+- VESA sem VSYNC (tearing visível durante scroll)
 - Sem scheduler preemptivo (round-robin via PIT pendente)
 - Sem fork/execve reais (exec atual roda no mesmo processo)
 - Paginação identidade (kernel + user no mesmo espaço 1:1)
