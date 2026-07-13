@@ -11,6 +11,8 @@ typedef struct {
     uint8_t  bpp;
 } framebuffer_t;
 
+extern const uint8_t font8x8[95][8];
+
 int  vesa_init(framebuffer_t *fb);
 void vesa_fill_screen(uint32_t color);
 void vesa_draw_pixel(int x, int y, uint32_t color);
