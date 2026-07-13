@@ -4,6 +4,7 @@
 #define MAX_WINDOWS 8
 #define TITLE_H 16
 #define CLOSE_W 14
+#define PANEL_H 24
 
 static int scr_w = 1024;
 static int scr_h = 768;
@@ -26,13 +27,11 @@ static int focused_win = -1;
 static int mouse_x, mouse_y;
 static int old_mx = -1, old_my = -1;
 
-// ─── drag state ──────────────────────────────────────────
 enum { DRAG_NONE, DRAG_MOVE };
 static int drag_state = DRAG_NONE;
 static int drag_win = -1;
 static int drag_off_x, drag_off_y;
 
-// ─── window API ──────────────────────────────────────────
 int disp_create_window(int x, int y, int w, int h, const char *title) {
     if (win_count >= MAX_WINDOWS) return -1;
     window_t *w2 = &windows[win_count];
@@ -71,13 +70,16 @@ static void close_window(int idx) {
     win_count--;
     focused_win = win_count - 1;
     if (focused_win >= 0) windows[focused_win].focused = 1;
-    old_mx = -1; // force full redraw next frame
+    old_mx = -1;
 }
 
-// ─── hit testing ─────────────────────────────────────────
-enum { HIT_NONE, HIT_TITLE, HIT_CLOSE, HIT_CLIENT };
+enum { HIT_NONE, HIT_TITLE, HIT_CLOSE, HIT_CLIENT, HIT_PANEL };
 
 static int hit_test(int mx, int my, int *out_idx) {
+    if (my >= scr_h - PANEL_H) {
+        *out_idx = -1;
+        return HIT_PANEL;
+    }
     for (int i = win_count - 1; i >= 0; i--) {
         window_t *w = &windows[i];
         if (mx < w->x || mx >= w->x + w->w || my < w->y || my >= w->y + w->h)
@@ -92,7 +94,18 @@ static int hit_test(int mx, int my, int *out_idx) {
     return HIT_NONE;
 }
 
-// ─── drag API ────────────────────────────────────────────
+static int panel_btn_hit(int mx, int *out_win) {
+    int x = 4;
+    for (int i = 0; i < win_count; i++) {
+        int bw = 8;
+        for (int j = 0; windows[i].title[j]; j++) bw += 8;
+        if (bw > 200) bw = 200;
+        if (mx >= x && mx < x + bw) { *out_win = i; return 1; }
+        x += bw + 4;
+    }
+    return 0;
+}
+
 int disp_drag_state(void) { return drag_state; }
 int disp_drag_win(void) { return drag_win; }
 void disp_drag_move(int dx, int dy) {
@@ -102,12 +115,11 @@ void disp_drag_move(int dx, int dy) {
     if (w->x < 0) w->x = 0;
     if (w->y < 0) w->y = 0;
     if (w->x + w->w > scr_w) w->x = scr_w - w->w;
-    if (w->y + w->h > scr_h) w->y = scr_h - w->h;
+    if (w->y + w->h > scr_h - PANEL_H) w->y = scr_h - PANEL_H - w->h;
     w->dirty = 1;
     old_mx = -1;
 }
 
-// ─── click handling ──────────────────────────────────────
 void disp_handle_click(void) {
     if (drag_state == DRAG_MOVE) {
         drag_state = DRAG_NONE;
@@ -132,6 +144,14 @@ void disp_handle_click(void) {
         raise_window(wi);
         return;
     }
+    if (ht == HIT_PANEL) {
+        int pwi;
+        if (panel_btn_hit(mouse_x, &pwi)) {
+            raise_window(pwi);
+            old_mx = -1;
+        }
+        return;
+    }
 }
 
 void disp_close_focused(void) {
@@ -149,7 +169,6 @@ void disp_cycle_focus(void) {
     focused_win = next;
 }
 
-// ─── drawing ─────────────────────────────────────────────
 static void draw_titlebar(window_t *w) {
     uint32_t bg = w->focused ? 0x000044AA : 0x00223366;
     if (gfx_mode) {
@@ -180,48 +199,50 @@ static void draw_client(window_t *w) {
     }
 }
 
-// ─── cursor save/restore ─────────────────────────────────
-static uint32_t cur_bg[12][12];
+static void draw_panel(void) {
+    uint32_t bar = 0x001A1A2E;
+    uint32_t border = 0x00333366;
+    vesa_draw_rect(0, scr_h - PANEL_H, scr_w, PANEL_H, bar);
+    vesa_draw_rect(0, scr_h - PANEL_H, scr_w, 1, border);
+    int x = 4;
+    for (int i = 0; i < win_count; i++) {
+        window_t *w = &windows[i];
+        int bw = 8;
+        for (int j = 0; w->title[j]; j++) bw += 8;
+        if (bw > 200) bw = 200;
+        uint32_t btn = (w->focused || i == focused_win) ? 0x00335599 : 0x00223355;
+        vesa_draw_rect(x, scr_h - PANEL_H + 3, bw, PANEL_H - 6, btn);
+        vesa_draw_rect(x, scr_h - PANEL_H + 3, bw, 1, 0x004466AA);
+        int tx = x + 4;
+        int ti = 0;
+        for (; tx < x + bw - 4 && w->title[ti]; tx += 8, ti++)
+            vesa_draw_char(tx, scr_h - PANEL_H + 6, w->title[ti], 0x00CCCCCC);
+        x += bw + 4;
+    }
+}
+
+static uint32_t cur_bg[8][8];
 
 static void cur_save(int mx, int my) {
     extern framebuffer_t g_fb;
     uint32_t *fb = (uint32_t *)(uintptr_t)g_fb.addr;
     uint32_t stride = g_fb.pitch / 4;
-    for (int y = 0; y < 12 && my + y < scr_h; y++)
-        for (int x = 0; x < 12 && mx + x < scr_w; x++)
+    for (int y = 0; y < 8 && my + y < scr_h; y++)
+        for (int x = 0; x < 8 && mx + x < scr_w; x++)
             cur_bg[y][x] = fb[(my + y) * stride + (mx + x)];
 }
 
 static void cur_restore(int mx, int my) {
-    for (int y = 0; y < 12 && my + y < scr_h; y++)
-        for (int x = 0; x < 12 && mx + x < scr_w; x++)
+    for (int y = 0; y < 8 && my + y < scr_h; y++)
+        for (int x = 0; x < 8 && mx + x < scr_w; x++)
             vesa_draw_pixel(mx + x, my + y, cur_bg[y][x]);
 }
 
 static void cur_draw(int mx, int my) {
-    uint32_t w = 0x00FFFFFF, b = 0x00000000;
-    int cx = mx, cy = my;
-    vesa_draw_pixel(cx,   cy,   w);
-    vesa_draw_pixel(cx,   cy+1, w); vesa_draw_pixel(cx+1, cy+1, w);
-    vesa_draw_pixel(cx,   cy+2, w); vesa_draw_pixel(cx+2, cy+2, w);
-    vesa_draw_pixel(cx,   cy+3, w); vesa_draw_pixel(cx+3, cy+3, w);
-    vesa_draw_pixel(cx,   cy+4, w); vesa_draw_pixel(cx+4, cy+4, b); vesa_draw_pixel(cx+5, cy+4, b);
-    vesa_draw_pixel(cx,   cy+5, w); vesa_draw_pixel(cx+5, cy+5, w);
-    vesa_draw_pixel(cx,   cy+6, w); vesa_draw_pixel(cx+6, cy+6, w);
-    vesa_draw_pixel(cx,   cy+7, w); vesa_draw_pixel(cx+7, cy+7, w);
-    vesa_draw_pixel(cx+1, cy+7, b); vesa_draw_pixel(cx+2, cy+7, b);
-    vesa_draw_pixel(cx+1, cy+6, b);
-    vesa_draw_pixel(cx+2, cy+6, w);
-    vesa_draw_pixel(cx+3, cy+7, w);
-    vesa_draw_pixel(cx+4, cy+8, w);
-    vesa_draw_pixel(cx+5, cy+9, w);
-    vesa_draw_pixel(cx+6, cy+10, w);
-    vesa_draw_pixel(cx+7, cy+11, w);
-    vesa_draw_pixel(cx+7, cy+10, b); vesa_draw_pixel(cx+6, cy+9, b);
-    vesa_draw_pixel(cx+5, cy+8, b);
+    vesa_draw_rect(mx, my, 8, 8, 0x00FFFFFF);
+    vesa_draw_rect(mx + 2, my + 2, 4, 4, 0x00000000);
 }
 
-// ─── render ──────────────────────────────────────────────
 void disp_render(void) {
     if (!gfx_mode) {
         vga_gfx_clear(0x01);
@@ -243,6 +264,7 @@ void disp_render(void) {
             draw_titlebar(&windows[i]);
             draw_client(&windows[i]);
         }
+        draw_panel();
     } else {
         cur_restore(old_mx, old_my);
         for (int i = 0; i < win_count; i++) {
@@ -252,6 +274,7 @@ void disp_render(void) {
             draw_client(w);
             w->dirty = 0;
         }
+        draw_panel();
     }
     cur_save(mouse_x, mouse_y);
     cur_draw(mouse_x, mouse_y);
@@ -261,7 +284,6 @@ void disp_render(void) {
 
 int disp_win_count(void) { return win_count; }
 
-// ─── init ────────────────────────────────────────────────
 void disp_init(void) {
     win_count = 0;
     focused_win = -1;

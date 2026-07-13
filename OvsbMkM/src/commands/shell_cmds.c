@@ -340,7 +340,7 @@ void cmd_rmdir(const char *name) {
 extern int g_fb_active;
 
 void cmd_disp(void) {
-    vga_puts("Compositor: WASD=cursor SPACE=click TAB=cycle Q=fechar ESC=sair\n");
+    vga_puts("Compositor: WASD=cursor SPACE=click TAB=cycle Q=close ESC=exit\n");
     extern void vga_gfx_init(void);
     extern void vga_gfx_restore_text(void);
     extern void disp_init(void);
