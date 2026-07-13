@@ -98,7 +98,7 @@ iso: $(BUILD_DIR)/kernel.elf
 	$(GRUB) -o $(ISO) iso 2>/dev/null || true
 
 run: iso
-	$(QEMU) -cdrom $(ISO) -drive file=../disk.img,format=raw,index=0 -boot order=d -m 256M
+	$(QEMU) -cdrom $(ISO) -drive file=../disk.img,format=raw,index=0 -boot order=d -m 512M
 
 clean:
 	rm -rf $(BUILD_DIR) $(ISO)

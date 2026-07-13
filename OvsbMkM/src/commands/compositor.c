@@ -1,5 +1,7 @@
 #include <stdint.h>
+#include <stddef.h>
 #include "vesa.h"
+#include "memory.h"
 
 #define MAX_WINDOWS 8
 #define TITLE_H 16
@@ -238,20 +240,19 @@ static void draw_panel(void) {
 }
 
 static uint32_t cur_bg[8][8];
+static uint32_t stride;
+static uint32_t *backbuf;
 
 static void cur_save(int mx, int my) {
-    extern framebuffer_t g_fb;
-    uint32_t *fb = (uint32_t *)(uintptr_t)g_fb.addr;
-    uint32_t stride = g_fb.pitch / 4;
     for (int y = 0; y < 8 && my + y < scr_h; y++)
         for (int x = 0; x < 8 && mx + x < scr_w; x++)
-            cur_bg[y][x] = fb[(my + y) * stride + (mx + x)];
+            cur_bg[y][x] = backbuf[(my + y) * stride + (mx + x)];
 }
 
 static void cur_restore(int mx, int my) {
     for (int y = 0; y < 8 && my + y < scr_h; y++)
         for (int x = 0; x < 8 && mx + x < scr_w; x++)
-            vesa_draw_pixel(mx + x, my + y, cur_bg[y][x]);
+            backbuf[(my + y) * stride + (mx + x)] = cur_bg[y][x];
 }
 
 static void cur_draw(int mx, int my) {
@@ -280,6 +281,7 @@ void disp_render(void) {
     draw_panel();
     cur_save(mouse_x, mouse_y);
     cur_draw(mouse_x, mouse_y);
+    vesa_flush();
     old_mx = mouse_x;
     old_my = mouse_y;
 }
@@ -294,8 +296,8 @@ void disp_init(void) {
     old_mx = -1;
     next_cascade = 30;
     extern int g_fb_active;
+    extern framebuffer_t g_fb;
     if (g_fb_active) {
-        extern framebuffer_t g_fb;
         scr_w = (int)g_fb.width;
         scr_h = (int)g_fb.height;
         gfx_mode = 1;
@@ -303,6 +305,12 @@ void disp_init(void) {
         scr_w = 320;
         scr_h = 200;
         gfx_mode = 0;
+    }
+    stride = g_fb.pitch / 4;
+    size_t bbsize = (size_t)scr_w * scr_h * 4;
+    if (gfx_mode) {
+        backbuf = (uint32_t *)(uintptr_t)kmalloc(bbsize);
+        vesa_set_backbuffer(backbuf);
     }
     mouse_x = scr_w / 2;
     mouse_y = scr_h / 2;

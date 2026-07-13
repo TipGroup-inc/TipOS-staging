@@ -2,6 +2,19 @@
 #include "../../kernel/memory.h"
 
 static framebuffer_t *g_fb = 0;
+static uint32_t *g_backbuffer = 0;
+
+void vesa_set_backbuffer(void *buf) {
+    g_backbuffer = buf;
+}
+
+int vesa_has_backbuffer(void) {
+    return g_backbuffer != 0;
+}
+
+static inline uint32_t *fb_target(void) {
+    return g_backbuffer ? g_backbuffer : (uint32_t *)(uintptr_t)g_fb->addr;
+}
 
 static const uint8_t font8x8[95][8] = {
     {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00},
@@ -111,8 +124,11 @@ int vesa_init(framebuffer_t *fb) {
     return pml4_map_phys(pml4, fb->addr, fb->addr, fb_size, 1);
 }
 
-static inline uint32_t *fb_ptr(void) {
-    return (uint32_t *)(uintptr_t)g_fb->addr;
+void vesa_flush(void) {
+    if (!g_fb || !g_backbuffer) return;
+    uint32_t *fb = (uint32_t *)(uintptr_t)g_fb->addr;
+    size_t pixels = (size_t)g_fb->pitch * g_fb->height / 4;
+    for (size_t i = 0; i < pixels; i++) fb[i] = g_backbuffer[i];
 }
 
 void vesa_draw_pixel(int x, int y, uint32_t color) {
@@ -120,19 +136,19 @@ void vesa_draw_pixel(int x, int y, uint32_t color) {
     if (x < 0 || y < 0 || (uint32_t)x >= g_fb->width || (uint32_t)y >= g_fb->height)
         return;
 
-    uint32_t *framebuffer = fb_ptr();
+    uint32_t *buf = fb_target();
     uint32_t stride = g_fb->pitch / 4;
-    framebuffer[y * stride + x] = color;
+    buf[y * stride + x] = color;
 }
 
 void vesa_fill_screen(uint32_t color) {
     if (!g_fb) return;
 
-    uint32_t *framebuffer = fb_ptr();
+    uint32_t *buf = fb_target();
     uint32_t stride = g_fb->pitch / 4;
 
     for (uint32_t y = 0; y < g_fb->height; y++) {
-        uint32_t *row = &framebuffer[y * stride];
+        uint32_t *row = &buf[y * stride];
         for (uint32_t x = 0; x < g_fb->width; x += 8) {
             row[x] = color; row[x+1] = color; row[x+2] = color; row[x+3] = color;
             row[x+4] = color; row[x+5] = color; row[x+6] = color; row[x+7] = color;
@@ -144,7 +160,7 @@ void vesa_draw_rect(int x, int y, int w, int h, uint32_t color) {
     if (!g_fb) return;
     if (w <= 0 || h <= 0) return;
 
-    uint32_t *framebuffer = fb_ptr();
+    uint32_t *buf = fb_target();
     uint32_t stride = g_fb->pitch / 4;
 
     int x0 = x < 0 ? 0 : x;
@@ -157,7 +173,7 @@ void vesa_draw_rect(int x, int y, int w, int h, uint32_t color) {
 
     for (int py = y0; py < y1; py++) {
         for (int px = x0; px < x1; px++) {
-            framebuffer[py * stride + px] = color;
+            buf[py * stride + px] = color;
         }
     }
 }
@@ -198,11 +214,11 @@ void vesa_draw_cell(int x, int y, char c, uint32_t fg, uint32_t bg) {
                 }
         }
     }
-    uint32_t *fb = fb_ptr();
+    uint32_t *buf = fb_target();
     uint32_t stride = g_fb->pitch / 4;
     for (int r = 0; r < 16; r++) {
         uint32_t *src = cell[r];
-        uint32_t *dst = &fb[(y + r) * stride + x];
+        uint32_t *dst = &buf[(y + r) * stride + x];
         dst[0] = src[0]; dst[1] = src[1]; dst[2] = src[2]; dst[3] = src[3];
         dst[4] = src[4]; dst[5] = src[5]; dst[6] = src[6]; dst[7] = src[7];
     }

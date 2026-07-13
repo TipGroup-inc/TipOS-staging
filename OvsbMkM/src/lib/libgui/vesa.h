@@ -18,5 +18,8 @@ void vesa_draw_rect(int x, int y, int w, int h, uint32_t color);
 void vesa_draw_char(int x, int y, char c, uint32_t color);
 void vesa_draw_cell(int x, int y, char c, uint32_t fg, uint32_t bg);
 void vesa_draw_text(int x, int y, const char *text, uint32_t color);
+void vesa_set_backbuffer(void *buf);
+int  vesa_has_backbuffer(void);
+void vesa_flush(void);
 
 #endif

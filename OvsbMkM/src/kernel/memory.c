@@ -3,9 +3,9 @@
 #include <stdint.h>
 
 // Heap simples bump allocator + page bitmap para mmap
-// Região de heap: 0x900000 - 0x940000 (4MB)
+// Região de heap: 0x900000 - 0x4900000 (64MB)
 #define HEAP_START ((uint8_t*)0x900000)
-#define HEAP_SIZE  (4 * 1024 * 1024)
+#define HEAP_SIZE  (64 * 1024 * 1024)
 
 #define PAGE_SIZE 4096
 #define MAX_PAGES (HEAP_SIZE / PAGE_SIZE)
