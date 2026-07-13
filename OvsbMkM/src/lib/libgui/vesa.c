@@ -132,8 +132,9 @@ void vesa_fill_screen(uint32_t color) {
     uint32_t stride = g_fb->pitch / 4;
 
     for (uint32_t y = 0; y < g_fb->height; y++) {
+        uint32_t *row = &framebuffer[y * stride];
         for (uint32_t x = 0; x < g_fb->width; x++) {
-            framebuffer[y * stride + x] = color;
+            row[x] = color;
         }
     }
 }
@@ -174,6 +175,29 @@ void vesa_draw_char(int x, int y, char c, uint32_t color) {
                 int py = y + row * 2;
                 vesa_draw_pixel(px, py, color);
                 vesa_draw_pixel(px, py + 1, color);
+            }
+        }
+    }
+}
+
+void vesa_draw_cell(int x, int y, char c, uint32_t fg, uint32_t bg) {
+    if (!g_fb) return;
+    uint32_t *fb = fb_ptr();
+    uint32_t stride = g_fb->pitch / 4;
+
+    for (int row = 0; row < 16; row++)
+        for (int col = 0; col < 8; col++)
+            fb[(y + row) * stride + (x + col)] = bg;
+
+    if (c < 32 || c > 126) return;
+    const uint8_t *glyph = font8x8[(unsigned char)c - 32];
+
+    for (int row = 0; row < 8; row++) {
+        uint8_t bits = glyph[row];
+        for (int col = 0; col < 8; col++) {
+            if (bits & (1 << col)) {
+                fb[(y + row*2)     * stride + (x + col)] = fg;
+                fb[(y + row*2 + 1) * stride + (x + col)] = fg;
             }
         }
     }
