@@ -340,12 +340,18 @@ void cmd_rmdir(const char *name) {
 extern int g_fb_active;
 
 void cmd_disp(void) {
-    vga_puts("Iniciando modo grafico (ESC para sair)...\n");
+    vga_puts("Compositor: WASD=cursor SPACE=click TAB=cycle Q=fechar ESC=sair\n");
     extern void vga_gfx_init(void);
     extern void vga_gfx_restore_text(void);
     extern void disp_init(void);
     extern void disp_render(void);
     extern void disp_update_mouse(int,int);
+    extern void disp_handle_click(void);
+    extern void disp_cycle_focus(void);
+    extern void disp_close_focused(void);
+    extern int disp_drag_state(void);
+    extern int disp_drag_win(void);
+    extern void disp_drag_move(int,int);
     extern char keyboard_read(void);
     int was_fb = g_fb_active;
     if (!was_fb) vga_gfx_init();
@@ -354,14 +360,37 @@ void cmd_disp(void) {
     int running = 1;
     while (running) {
         char c = keyboard_read();
+        int step = 5;
         switch (c) {
             case 27: running = 0; break;
-            case 'w': disp_update_mouse(0, -5); break;
-            case 's': disp_update_mouse(0, 5); break;
-            case 'a': disp_update_mouse(-5, 0); break;
-            case 'd': disp_update_mouse(5, 0); break;
+            case ' ': disp_handle_click(); break;
+            case '\t': disp_cycle_focus(); break;
+            case 'q':
+            case 'Q': disp_close_focused(); break;
+            case 'w':
+            case 'W':
+                if (disp_drag_state()) disp_drag_move(0, -step);
+                else disp_update_mouse(0, -step);
+                break;
+            case 's':
+            case 'S':
+                if (disp_drag_state()) disp_drag_move(0, step);
+                else disp_update_mouse(0, step);
+                break;
+            case 'a':
+            case 'A':
+                if (disp_drag_state()) disp_drag_move(-step, 0);
+                else disp_update_mouse(-step, 0);
+                break;
+            case 'd':
+            case 'D':
+                if (disp_drag_state()) disp_drag_move(step, 0);
+                else disp_update_mouse(step, 0);
+                break;
         }
         disp_render();
+        extern int disp_win_count(void);
+        if (disp_win_count() == 0) running = 0;
     }
     if (!was_fb) vga_gfx_restore_text();
     vga_clear();
