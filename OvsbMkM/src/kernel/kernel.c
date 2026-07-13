@@ -91,16 +91,7 @@ static void fb_scroll(void) {
         fb_buf[fb_rows-1][c].ch = ' ';
         fb_buf[fb_rows-1][c].attr = fb_attr;
     }
-    uint32_t *fb = (uint32_t *)(uintptr_t)g_fb.addr;
-    uint32_t stride = g_fb.pitch / 4;
-    int cols = fb_cols * 8 / 4;
-    for (int y = 0; y < (fb_rows - 1) * 16; y++) {
-        uint32_t *src = fb + (y + 16) * stride;
-        uint32_t *dst = fb + y * stride;
-        for (int x = 0; x < cols; x++) dst[x] = src[x];
-    }
-    for (int c = 0; c < fb_cols; c++)
-        fb_render_cell(c, fb_rows - 1);
+    fb_redraw_all();
 }
 
 static void fb_reset(void) {

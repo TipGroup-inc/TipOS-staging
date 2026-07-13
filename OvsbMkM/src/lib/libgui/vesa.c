@@ -133,8 +133,9 @@ void vesa_fill_screen(uint32_t color) {
 
     for (uint32_t y = 0; y < g_fb->height; y++) {
         uint32_t *row = &framebuffer[y * stride];
-        for (uint32_t x = 0; x < g_fb->width; x++) {
-            row[x] = color;
+        for (uint32_t x = 0; x < g_fb->width; x += 8) {
+            row[x] = color; row[x+1] = color; row[x+2] = color; row[x+3] = color;
+            row[x+4] = color; row[x+5] = color; row[x+6] = color; row[x+7] = color;
         }
     }
 }
@@ -182,24 +183,28 @@ void vesa_draw_char(int x, int y, char c, uint32_t color) {
 
 void vesa_draw_cell(int x, int y, char c, uint32_t fg, uint32_t bg) {
     if (!g_fb) return;
+    uint32_t cell[16][8];
+    for (int r = 0; r < 16; r++)
+        for (int cl = 0; cl < 8; cl++)
+            cell[r][cl] = bg;
+    if (c >= 32 && c <= 126) {
+        const uint8_t *glyph = font8x8[(unsigned char)c - 32];
+        for (int r = 0; r < 8; r++) {
+            uint8_t bits = glyph[r];
+            for (int cl = 0; cl < 8; cl++)
+                if (bits & (1 << cl)) {
+                    cell[r*2][cl] = fg;
+                    cell[r*2+1][cl] = fg;
+                }
+        }
+    }
     uint32_t *fb = fb_ptr();
     uint32_t stride = g_fb->pitch / 4;
-
-    for (int row = 0; row < 16; row++)
-        for (int col = 0; col < 8; col++)
-            fb[(y + row) * stride + (x + col)] = bg;
-
-    if (c < 32 || c > 126) return;
-    const uint8_t *glyph = font8x8[(unsigned char)c - 32];
-
-    for (int row = 0; row < 8; row++) {
-        uint8_t bits = glyph[row];
-        for (int col = 0; col < 8; col++) {
-            if (bits & (1 << col)) {
-                fb[(y + row*2)     * stride + (x + col)] = fg;
-                fb[(y + row*2 + 1) * stride + (x + col)] = fg;
-            }
-        }
+    for (int r = 0; r < 16; r++) {
+        uint32_t *src = cell[r];
+        uint32_t *dst = &fb[(y + r) * stride + x];
+        dst[0] = src[0]; dst[1] = src[1]; dst[2] = src[2]; dst[3] = src[3];
+        dst[4] = src[4]; dst[5] = src[5]; dst[6] = src[6]; dst[7] = src[7];
     }
 }
 
