@@ -24,5 +24,7 @@ uint64_t pml4_create(void);
 void pml4_load(uint64_t pml4_pa);
 void pml4_restore(uint64_t pml4_pa);
 void pml4_destroy(uint64_t pml4_pa);
+int pml4_map_phys(uint64_t pml4_pa, uint64_t virt_addr, uint64_t phys_addr,
+                  size_t size, int writable);
 
 #endif

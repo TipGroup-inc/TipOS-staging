@@ -62,7 +62,7 @@ void cmd_echo(const char *args) {
 
 void cmd_about(void) {
     set_vga_color(C_HEADER);
-    vga_puts("OvsbMkM - Micro Kernel\n");
+    vga_puts("OvsbMk - Micro Kernel\n");
     set_vga_color(C_OUTPUT);
 }
 

@@ -2,13 +2,32 @@ bits 32
 
 section .multiboot
 align 8
-multiboot_header:
+mb2_start:
     dd 0xE85250D6
     dd 0
-    dd header_end - multiboot_header
-    dd -(0xE85250D6 + 0 + (header_end - multiboot_header))
-    dw 0, 0, 8
-header_end:
+    dd mb2_end - mb2_start
+    dd 0x100000000 - (0xE85250D6 + 0 + (mb2_end - mb2_start))
+
+    ; --- Tag: framebuffer (type 5) ---
+    dw 5
+    dw 1
+    dd 24
+    dd 0
+    dd 0
+    dd 32
+    dd 0
+
+    ; --- Tag: end ---
+    dw 0
+    dw 0
+    dd 8
+mb2_end:
+
+section .data  ; NOVO: variáveis globais para GRUB info
+global saved_magic
+global saved_mbinfo
+saved_magic:  dd 0
+saved_mbinfo: dd 0
 
 section .text
 global _start
@@ -16,6 +35,8 @@ extern kmain
 
 _start:
     mov esp, stack_top
+    mov [saved_magic], eax
+    mov [saved_mbinfo], ebx
 
     ; 1. PAE
     mov eax, cr4
@@ -52,6 +73,8 @@ start64:
     mov gs, ax
     mov ss, ax
     mov rsp, stack_top
+    mov edi, [saved_magic]
+    mov esi, [saved_mbinfo]
     call kmain
     cli
     hlt

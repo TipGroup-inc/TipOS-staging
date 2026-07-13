@@ -122,3 +122,42 @@ void pml4_restore(uint64_t pml4_pa) {
 void pml4_destroy(uint64_t pml4_pa) {
     page_free((void *)pml4_pa);
 }
+
+int pml4_map_phys(uint64_t pml4_pa, uint64_t virt_addr, uint64_t phys_addr,
+                  size_t size, int writable) {
+    uint64_t entry_flags = 0x83;
+    if (writable) entry_flags |= 0x04;
+
+    uint64_t *pml4 = (uint64_t *)(uintptr_t)pml4_pa;
+
+    for (uint64_t offset = 0; offset < size; offset += 0x200000) {
+        uint64_t va = virt_addr + offset;
+        uint64_t pa = phys_addr + offset;
+
+        int pml4_idx = (va >> 39) & 0x1FF;
+        int pdpt_idx = (va >> 30) & 0x1FF;
+        int pd_idx   = (va >> 21) & 0x1FF;
+
+        if (!(pml4[pml4_idx] & 1)) {
+            uint64_t *pdpt = mmap_user(0, 4096, 3, 0);
+            if (!pdpt) return -1;
+            for (int i = 0; i < 512; i++) pdpt[i] = 0;
+            pml4[pml4_idx] = (uint64_t)(uintptr_t)pdpt | 0x03;
+        }
+
+        uint64_t *pdpt = (uint64_t *)(uintptr_t)(pml4[pml4_idx] & ~0xFFF);
+
+        if (!(pdpt[pdpt_idx] & 1)) {
+            uint64_t *pd = mmap_user(0, 4096, 3, 0);
+            if (!pd) return -1;
+            for (int i = 0; i < 512; i++) pd[i] = 0;
+            pdpt[pdpt_idx] = (uint64_t)(uintptr_t)pd | 0x03;
+        }
+
+        uint64_t *pd = (uint64_t *)(uintptr_t)(pdpt[pdpt_idx] & ~0xFFF);
+        pd[pd_idx] = pa | entry_flags;
+    }
+
+    __asm__ volatile ("mov %0, %%cr3" : : "r"(pml4_pa) : "memory");
+    return 0;
+}

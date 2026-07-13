@@ -85,6 +85,8 @@ irq0:
     pop r14
     pop r13
     pop r12
+    pop rbp
+    pop rbx
     pop r11
     pop r10
     pop r9
@@ -93,7 +95,6 @@ irq0:
     pop rsi
     pop rdx
     pop rcx
-    pop rbx
     pop rax
     iretq
 

@@ -5,9 +5,9 @@ QEMU := qemu-system-x86_64
 
 BUILD_DIR := build
 ISO_DIR := iso/boot
-ISO := OvsbMkM.iso
+ISO := OvsbMk.iso
 
-CFLAGS := -ffreestanding -nostdlib -mno-red-zone -mno-mmx -mno-sse -mgeneral-regs-only -Wall -O0 -I src/kernel -I src/drivers -I src/fs -I src/commands -I .
+CFLAGS := -ffreestanding -nostdlib -mno-red-zone -mno-mmx -mno-sse -mgeneral-regs-only -Wall -O0 -I src/kernel -I src/drivers -I src/fs -I src/commands -I src/lib/libgui -I .
 NASM_FLAGS := -f elf64
 LDFLAGS := -T src/kernel/linker.ld
 
@@ -35,6 +35,8 @@ SRCS += src/commands/shell_cmds.c
 SRCS += src/kernel/pic.c
 SRCS += src/commands/compositor.c
 SRCS += src/kernel/process.c
+SRCS += src/lib/libgui/vesa.c
+SRCS += src/lib/libgui/gui.c
 
 OBJS := $(patsubst %.c,$(BUILD_DIR)/%.o,$(SRCS))
 

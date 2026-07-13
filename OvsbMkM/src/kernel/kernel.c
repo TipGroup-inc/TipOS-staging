@@ -6,6 +6,7 @@
 #include "ring3.h"
 #include "process.h"
 #include "kernel.h"
+#include "../lib/libgui/vesa.h"
 
 void keyboard_init(void);
 void keyboard_handler(void);
@@ -17,13 +18,126 @@ void nvram_init(void);
 
 #include "colors.h"
 
-#define VGA_ADDR  0xB8000
 #define VGA_WIDTH  80
 #define VGA_HEIGHT 25
 
+static framebuffer_t g_fb = {0};
+static int g_fb_active = 0;
+
+static void parse_multiboot2(uint32_t magic, uint32_t addr) {
+    if (magic != 0x36D76289) return;
+    uint8_t *base = (uint8_t*)(uintptr_t)addr;
+    uint32_t total = *(uint32_t*)base;
+    if (total < 16) return;
+    for (uint32_t i = 8; i + 8 < total; ) {
+        uint32_t t = *(uint32_t*)(base + i);
+        uint32_t s = *(uint32_t*)(base + i + 4);
+        if (s < 8) break;
+        if (t == 8 && s >= 32) {
+            g_fb.addr   = *(uint64_t*)(base + i + 8);
+            g_fb.pitch  = *(uint32_t*)(base + i + 16);
+            g_fb.width  = *(uint32_t*)(base + i + 20);
+            g_fb.height = *(uint32_t*)(base + i + 24);
+            g_fb.bpp    = *(uint8_t *)(base + i + 28);
+        }
+        if (s > 4096) break;
+        if (s % 8) s += 8 - (s % 8);
+        i += s;
+    }
+}
+
+#define VGA_ADDR  0xB8000
+
+extern volatile unsigned short *vga;
+
+// ─── Framebuffer terminal state ──────────────────────────
+#define FB_MAX_COLS 160
+#define FB_MAX_ROWS 64
+static int fb_cols = 80;
+static int fb_rows = 25;
+static uint8_t fb_attr = 0x07;
+static int fb_cur_visible = 1;
+static struct { char ch; uint8_t attr; } fb_buf[FB_MAX_ROWS][FB_MAX_COLS];
+
+static uint32_t vga_to_rgb(uint8_t attr) {
+    static const uint32_t pal[16] = {
+        0x000000, 0x0000AA, 0x00AA00, 0x00AAAA,
+        0xAA0000, 0xAA00AA, 0xAA5500, 0xAAAAAA,
+        0x555555, 0x5555FF, 0x55FF55, 0x55FFFF,
+        0xFF5555, 0xFF55FF, 0xFFFF55, 0xFFFFFF
+    };
+    return pal[attr & 0x0F];
+}
+
+static void fb_render_cell(int col, int row) {
+    char c = fb_buf[row][col].ch;
+    uint32_t color = vga_to_rgb(fb_buf[row][col].attr);
+    vesa_draw_rect(col * 8, row * 16, 8, 16, 0x000000);
+    if (c >= 32 && c <= 126)
+        vesa_draw_char(col * 8, row * 16, c, color);
+}
+
+static void fb_redraw_all(void) {
+    if (!g_fb_active) return;
+    for (int r = 0; r < fb_rows; r++)
+        for (int c = 0; c < fb_cols; c++)
+            fb_render_cell(c, r);
+}
+
+static void fb_scroll(void) {
+    if (!g_fb_active) return;
+    for (int r = 0; r < fb_rows - 1; r++)
+        for (int c = 0; c < fb_cols; c++)
+            fb_buf[r][c] = fb_buf[r+1][c];
+    for (int c = 0; c < fb_cols; c++) {
+        fb_buf[fb_rows-1][c].ch = ' ';
+        fb_buf[fb_rows-1][c].attr = fb_attr;
+    }
+    // Shift framebuffer content by memcpy
+    int row_bytes = g_fb.pitch * 16;
+    uint8_t *fb_mem = (uint8_t *)(uintptr_t)g_fb.addr;
+    for (int y = 0; y < (fb_rows - 1) * 16; y++)
+        for (int x = 0; x < fb_cols * 8; x++)
+            fb_mem[y * g_fb.pitch + x] = fb_mem[(y + 16) * g_fb.pitch + x];
+    // Clear and render new last row
+    for (int c = 0; c < fb_cols; c++)
+        fb_render_cell(c, fb_rows - 1);
+}
+
+static void fb_reset(void) {
+    fb_cols = (int)(g_fb.width / 8);
+    fb_rows = (int)(g_fb.height / 16);
+    if (fb_cols > FB_MAX_COLS) fb_cols = FB_MAX_COLS;
+    if (fb_rows > FB_MAX_ROWS) fb_rows = FB_MAX_ROWS;
+    fb_attr = 0x07;
+    fb_cur_visible = 1;
+    for (int r = 0; r < fb_rows; r++)
+        for (int c = 0; c < fb_cols; c++) {
+            fb_buf[r][c].ch = ' ';
+            fb_buf[r][c].attr = fb_attr;
+        }
+    vesa_fill_screen(0x000000);
+}
+
+static void fb_store(int col, int row, char c, uint8_t attr) {
+    if (col < 0 || col >= fb_cols || row < 0 || row >= fb_rows) return;
+    fb_buf[row][col].ch = c;
+    fb_buf[row][col].attr = attr;
+    fb_render_cell(col, row);
+}
+
+static void fb_line_clear(int row, int from_col) {
+    for (int c = from_col; c < fb_cols; c++)
+        fb_store(c, row, ' ', fb_attr);
+}
+
+// ─── Terminal dimensions (sized to fb when active, 80x25 for VGA) ───
+static int term_cols(void) { return g_fb_active ? fb_cols : VGA_WIDTH; }
+static int term_rows(void) { return g_fb_active ? fb_rows : VGA_HEIGHT; }
+
 uint8_t vga_attr = C_OUTPUT;
 
-void set_vga_color(uint8_t color) { vga_attr = color; }
+void set_vga_color(uint8_t color) { vga_attr = color; fb_attr = color; }
 
 static inline void outb(uint16_t port, uint8_t val) {
     __asm__ volatile ("outb %0, %1" :: "a"(val), "Nd"(port));
@@ -63,20 +177,28 @@ static char redir_buf[16384];
 static int redir_len = 0;
 
 static void vga_set_cursor(void) {
-    unsigned short pos = cy * VGA_WIDTH + cx;
+    unsigned short pos = cy * term_cols() + cx;
     outb(0x3D4, 0x0F); outb(0x3D5, pos & 0xFF);
     outb(0x3D4, 0x0E); outb(0x3D5, (pos >> 8) & 0xFF);
 }
 
 static void vga_scroll(void) {
-    for (int i = 0; i < VGA_WIDTH * (VGA_HEIGHT - 1); i++) vga[i] = vga[i + VGA_WIDTH];
-    for (int i = VGA_WIDTH * (VGA_HEIGHT - 1); i < VGA_WIDTH * VGA_HEIGHT; i++)
+    int cols = term_cols();
+    int rows = term_rows();
+    if (g_fb_active) {
+        cy = rows - 1;
+        fb_scroll();
+        return;
+    }
+    for (int i = 0; i < cols * (rows - 1); i++) vga[i] = vga[i + cols];
+    for (int i = cols * (rows - 1); i < cols * rows; i++)
         vga[i] = (vga_attr << 8) | ' ';
-    cy = VGA_HEIGHT - 1;
+    cy = rows - 1;
 }
 
 void vga_putchar(char c) {
-    // Redirection: write to buffer instead of VGA
+    int cols = term_cols();
+    int rows = term_rows();
     if (redir_active) {
         if (redir_len < 16384) redir_buf[redir_len++] = c;
         return;
@@ -84,15 +206,17 @@ void vga_putchar(char c) {
     if (esc_state == 1) {
         if (c == '[') { esc_state = 2; esc_np = 0; esc_question = 0; esc_params[0] = 0; return; }
         if (c == 'A') { if (cy > 0) cy--; esc_state = 0; return; }
-        if (c == 'B') { if (cy < VGA_HEIGHT-1) cy++; esc_state = 0; return; }
-        if (c == 'C') { if (cx < VGA_WIDTH-1) cx++; esc_state = 0; return; }
+        if (c == 'B') { if (cy < rows-1) cy++; esc_state = 0; return; }
+        if (c == 'C') { if (cx < cols-1) cx++; esc_state = 0; return; }
         if (c == 'D') { if (cx > 0) cx--; esc_state = 0; return; }
         if (c == 'H') { cx = cy = 0; esc_state = 0; return; }
         esc_state = 0;
         serial_putc('\x1b'); serial_putc(c);
-        vga[cy * VGA_WIDTH + cx] = (vga_attr << 8) | c; cx++;
-        if (cx >= VGA_WIDTH) { cx = 0; cy++; }
-        if (cy >= VGA_HEIGHT) vga_scroll();
+        if (g_fb_active) fb_store(cx, cy, c, vga_attr);
+        else vga[cy * cols + cx] = (vga_attr << 8) | c;
+        cx++;
+        if (cx >= cols) { cx = 0; cy++; }
+        if (cy >= rows) vga_scroll();
         return;
     }
     if (esc_state == 2 || esc_state == 3) {
@@ -106,8 +230,8 @@ void vga_putchar(char c) {
         if (c == 'H' || c == 'f') {
             int r = esc_params[0] > 0 ? esc_params[0] - 1 : 0;
             int cc = esc_params[1] > 0 ? esc_params[1] - 1 : 0;
-            if (r >= 0 && r < VGA_HEIGHT) cy = r;
-            if (cc >= 0 && cc < VGA_WIDTH) cx = cc;
+            if (r >= 0 && r < rows) cy = r;
+            if (cc >= 0 && cc < cols) cx = cc;
             esc_state = 0; return;
         }
         if (c == 'J') {
@@ -115,7 +239,9 @@ void vga_putchar(char c) {
             esc_state = 0; return;
         }
         if (c == 'K') {
-            for (int i = cx; i < VGA_WIDTH; i++) vga[cy * VGA_WIDTH + i] = (vga_attr << 8) | ' ';
+            if (g_fb_active) fb_line_clear(cy, cx);
+            else for (int i = cx; i < cols; i++)
+                vga[cy * cols + i] = (vga_attr << 8) | ' ';
             esc_state = 0; return;
         }
         if (c == 'm') {
@@ -138,26 +264,37 @@ void vga_putchar(char c) {
         serial_putc('\r'); serial_putc('\n');
         cx = 0; cy++;
     } else if (c == '\b') {
-        if (cx > 0) { cx--; vga[cy * VGA_WIDTH + cx] = (vga_attr << 8) | ' '; }
+        if (cx > 0) {
+            cx--;
+            if (g_fb_active) fb_store(cx, cy, ' ', vga_attr);
+            else vga[cy * cols + cx] = (vga_attr << 8) | ' ';
+        }
         serial_putc('\b');
     } else if (c == '\r') {
         cx = 0;
         serial_putc('\r');
     } else {
-        unsigned short attr = (esc_rev ? 0x70 : vga_attr) << 8;
-        vga[cy * VGA_WIDTH + cx] = attr | c; cx++;
+        uint8_t attr = esc_rev ? 0x70 : vga_attr;
+        if (g_fb_active) fb_store(cx, cy, c, attr);
+        else vga[cy * cols + cx] = (attr << 8) | c;
+        cx++;
         serial_putc(c);
     }
-    if (cx >= VGA_WIDTH) { cx = 0; cy++; }
-    if (cy >= VGA_HEIGHT) vga_scroll();
-    if (cur_visible) vga_set_cursor();
+    if (cx >= cols) { cx = 0; cy++; }
+    if (cy >= rows) vga_scroll();
+    if (cur_visible && !g_fb_active) vga_set_cursor();
 }
 
 void vga_puts(const char *s) {
     while (*s) vga_putchar(*s++);
 }
 void vga_clear() {
-    for (int i = 0; i < VGA_WIDTH * VGA_HEIGHT; i++) vga[i] = (vga_attr << 8) | ' ';
+    if (g_fb_active) {
+        fb_reset();
+    } else {
+        for (int i = 0; i < VGA_WIDTH * VGA_HEIGHT; i++)
+            vga[i] = (vga_attr << 8) | ' ';
+    }
     cx = cy = 0; esc_state = 0; esc_rev = 0;
 }
 
@@ -336,7 +473,7 @@ static void env_init(void) {
     env_set("PATH", "/BIN:/USR/BIN:/LOCAL/BIN");
     env_set("HOME", "/");
     env_set("EDITOR", "edit");
-    env_set("SHELL", "MkM");
+    env_set("SHELL", "Mk");
     env_set("PS1", "[\\w]\\$ ");
 }
 
@@ -721,7 +858,7 @@ static void build_prompt(char *prompt, int maxlen) {
             if (p[i] == '\\')      { prompt[o++] = '\\'; }
             else if (p[i] == 'u')  { const char *u = "root"; for (int j = 0; u[j] && o < maxlen-1; j++) prompt[o++] = u[j]; }
             else if (p[i] == 'h')  { const char *h = "ovsb"; for (int j = 0; h[j] && o < maxlen-1; j++) prompt[o++] = h[j]; }
-            else if (p[i] == 's')  { const char *sh = "MkM"; for (int j = 0; sh[j] && o < maxlen-1; j++) prompt[o++] = sh[j]; }
+            else if (p[i] == 's')  { const char *sh = "Mk"; for (int j = 0; sh[j] && o < maxlen-1; j++) prompt[o++] = sh[j]; }
             else if (p[i] == '$')  { prompt[o++] = '#'; }
             else if (p[i] == 'w')  {
                 char path[256];
@@ -1038,13 +1175,13 @@ void shell_loop() {
     }
 }
 
-void kmain(void) {
+void kmain(uint32_t magic, uint32_t mb_info) {
     idt_init();
     pic_init();
     idt_set_syscall();
     idt_set_irq1();
     keyboard_init();
-    pit_init();         // Program PIT to 100Hz
+    pit_init();
     memory_init();
     proc_init();
     tss_init();
@@ -1055,9 +1192,17 @@ void kmain(void) {
     ata_init();
     env_init();
 
+    parse_multiboot2(magic, mb_info);
+    if (g_fb.addr && g_fb.bpp == 32) {
+        if (vesa_init(&g_fb) == 0) {
+            g_fb_active = 1;
+            fb_reset();
+        }
+    }
+
     vga_clear();
     set_vga_color(C_HEADER);
-    vga_puts("OvsbMkM Terminal v4.0\n");
+    vga_puts("OvsbMk Terminal v4.0\n");
     
     if (fat32_init() == 0) {
         set_vga_color(C_SUCCESS);
