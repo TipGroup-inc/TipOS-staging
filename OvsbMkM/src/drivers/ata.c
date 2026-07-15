@@ -22,6 +22,10 @@ void ata_init(void) {
 }
 
 int ata_read_sector(uint32_t lba, uint8_t *buffer) {
+    for (int timeout = 0; timeout < 100000; timeout++) {
+        uint8_t st = inb(ATA_STATUS);
+        if (!(st & 0x80)) break;
+    }
     outb(ATA_DRIVE, 0xE0 | ((lba >> 24) & 0x0F));
     outb(ATA_SECTORS, 1);
     outb(ATA_LBA_LOW, lba & 0xFF);
@@ -29,12 +33,12 @@ int ata_read_sector(uint32_t lba, uint8_t *buffer) {
     outb(ATA_LBA_HIGH, (lba >> 16) & 0xFF);
     outb(ATA_COMMAND, 0x20);
     for (int timeout = 0; timeout < 100000; timeout++) {
-        uint8_t status = inb(ATA_STATUS);
-        if (status & 0x08) break;
-        if (status & 0x01) return -1;
+        uint8_t st = inb(ATA_STATUS);
+        if ((st & 0x08) && !(st & 0x80)) break;
+        if (st & 0x01) return -1;
     }
-    uint8_t status = inb(ATA_STATUS);
-    if (!(status & 0x08)) return -1;
+    uint8_t st = inb(ATA_STATUS);
+    if (!(st & 0x08) || (st & 0x80)) return -1;
     for (int i = 0; i < 256; i++) {
         uint16_t data;
         __asm__ volatile ("inw %1, %0" : "=a"(data) : "Nd"(ATA_DATA));

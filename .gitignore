@@ -3,6 +3,11 @@ build/
 *.o
 *.elf
 *.bin
+*.rlib
+*.rmeta
+*.a
+target/
+src/rust/target/
 *.tmp
 *.bak
 temp.*

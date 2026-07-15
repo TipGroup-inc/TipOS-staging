@@ -1,4 +1,8 @@
-# OvsbMkM — Kernel 64-bit com Ring 3
+# OvsbMkM — Kernel 64-bit com Ring 3 (SUSPENSO)
+
+> ⚠️ **Nota:** O kernel ativo agora é `OvsbMk/`. OvsbMkM está suspenso —
+> o código de boot, drivers, FAT32, e ring 3 foram portados para OvsbMk
+> e estão em desenvolvimento ativo lá.
 
 Kernel 64-bit minimalista com ring 3, TSS, paginação com User bit,
 loader Mach-O, FAT32, syscalls int 0x80 e shell TUI completo.

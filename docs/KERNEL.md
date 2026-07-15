@@ -3,7 +3,7 @@
 > **Nível:** Bizarro. Até uma pedra consegue continuar o desenvolvimento.
 >
 > **Arquitetura:** x86-64, long mode, ring 0, GRUB/Multiboot2, single-address-space.
-> **Linguagens:** C11 (GCC) + NASM (assembly).
+> **Linguagens:** C11 (GCC) + NASM (assembly) + Rust (nightly, `x86_64-unknown-none`).
 > **Build:** Makefile + GRUB + QEMU.
 
 ---
@@ -27,11 +27,12 @@
 15. [Comandos](#15-comandos)
 16. [Userland e Libc](#16-userland)
 17. [Graphy — Editor TUI](#17-graphy)
-18. [Como Adicionar um Syscall](#18-como-adicionar-uma-syscall)
-19. [Como Adicionar um Comando](#19-como-adicionar-um-comando)
-20. [Como Adicionar uma Função Libc](#20-como-adicionar-uma-função-libc)
-21. [Debugging](#21-debugging)
-22. [Problemas Comuns](#22-problemas-comuns)
+18. [Integração Rust](#18-integração-rust)
+19. [Como Adicionar uma Syscall](#19-como-adicionar-uma-syscall)
+20. [Como Adicionar um Comando](#20-como-adicionar-um-comando)
+21. [Como Adicionar uma Função Libc](#21-como-adicionar-uma-função-libc)
+22. [Debugging](#22-debugging)
+23. [Problemas Comuns](#23-problemas-comuns)
 
 ---
 
@@ -81,26 +82,32 @@ MBR → GRUB stage 1+2 → kernel.elf (multiboot2) → boot64.asm → kmain()
 ### 2.2 kmain() — Sequência de Inicialização
 
 ```c
-void kmain(void) {
-    idt_init();         // 1. Configura IDT (exceções, IRQs, handlers)
-    pic_init();         // 2. PIC 8259 — remapeia IRQs 0-15 para vetores 32-47
-    idt_set_syscall();  // 3. Registra int 0x80 como syscall gate (DPL=3)
-    idt_set_irq1();     // 4. Registra handler customizado para IRQ1 (teclado)
-    keyboard_init();    // 5. Habilita IRQ1 no PIC
-    pit_init();         // 6. Programa PIT para 100 Hz
-    memory_init();      // 7. Inicializa heap (bump allocator 4MB @ 0x900000)
-    __asm__ ("sti");    // 8. Habilita interrupções
-    smc_init();         // 9. SMC stub
-    nvram_init();       // 10. NVRAM stub
-    serial_init();      // 11. COM1 serial (debug logging)
-    ata_init();         // 12. ATA PIO init (primary master)
-    fat32_init();       // 13. Lê BPB, monta FAT32
-    vga_puts("...\n");  // 14. Mensagens de boot
-    shell_loop();       // 15. → SHELL (nunca retorna)
+void kmain(uint32_t magic, uint32_t mb_info) {
+    idt_init();              // 1. Configura IDT (exceções, IRQs, handlers)
+    pic_init();              // 2. PIC 8259 — remapeia IRQs 0-15 para vetores 32-47
+    idt_set_syscall();       // 3. Registra int 0x80 como syscall gate (DPL=3)
+    idt_set_irq1();          // 4. Registra handler customizado para IRQ1 (teclado)
+    idt_set_irq12();         // 5. IRQ12 para mouse PS/2
+    keyboard_init();         // 6. Habilita IRQ1 no PIC
+    pit_init();              // 7. Programa PIT para 100 Hz
+    memory_init();           // 8. Inicializa heap (bump allocator 64MB @ 0x900000)
+    proc_init();             // 9. Tabela de processos + idle task
+    tss_init();              // 10. TSS para ring 3
+    __asm__ ("sti");         // 11. Habilita interrupções
+    parse_multiboot2(        // 12. Lê tags Multiboot2 (framebuffer VESA)
+        magic, mb_info);
+    boot_selector();         // 13. Prompt [C]/[R] — escolhe memory manager
+                             //     C: continua com C, R: chama rust_entry()
+    mouse_init();            // 14. Inicializa mouse PS/2 (se fb ativo)
+    ata_init();              // 15. ATA PIO init (primary master)
+    fat32_init();            // 16. Lê BPB, monta FAT32
+    disp_init();             // 17. Compositor gráfico (se fb ativo)
+    vga_puts("TipOS...\n");  // 18. Mensagens de boot
+    shell_loop();            // 19. → SHELL (nunca retorna)
 }
 ```
 
-**Ordem importa:** PIC antes de habilitar IRQs, ATA antes de FAT32, FAT32 antes de shell.
+**Ordem importa:** PIC antes de habilitar IRQs, VESA antes do boot selector (framebuffer), ATA antes de FAT32.
 
 ---
 
@@ -1188,7 +1195,103 @@ for (int i = 0; i < ind; i++) ins(co + 1 + i, ' ');
 
 ---
 
-## 18. Como Adicionar uma Syscall
+## 18. Integração Rust
+
+### 18.1 Visão Geral
+
+O kernel TipOS pode ser extendido com código Rust, compilado como uma staticlib
+(`.a`) e linkado diretamente no `kernel.elf`. A crate live em `src/rust/` e usa
+`#![no_std]` com `build-std = ["core", "alloc"]` (nightly).
+
+### 18.2 Estrutura
+
+```
+src/rust/
+├── Cargo.toml              # [lib] crate-type = ["staticlib"]
+├── .cargo/config.toml      # target = "x86_64-unknown-none", rustflags
+└── src/
+    ├── lib.rs              # rust_entry(), panic_handler, alloc_error_handler
+    ├── ffi.rs              # extern "C" declarations (serial_putc, kmalloc, kfree)
+    └── allocator.rs        # TiposAllocator: GlobalAlloc wrappando kmalloc/kfree
+```
+
+### 18.3 Boot Selector
+
+No início do `kmain()`, um **boot selector** pergunta:
+
+```
+TipOS Boot Selector
+Press [R] for Rust memory manager
+Press [C] for C memory manager
+Default: C in 5s...
+```
+
+- **C (default):** continua com o memory manager C (bump allocator).
+- **R:** chama `rust_entry()` (código Rust), que testa o `TiposAllocator`
+  alocando e escrevendo um `u64` na heap, depois continua o boot normal.
+
+### 18.4 FFI — C chamando Rust
+
+Rust exporta `extern "C" fn rust_entry()`, que é chamada do `kmain()`.
+A declaração em C:
+
+```c
+extern void rust_entry(void);
+```
+
+E a implementação em Rust:
+
+```rust
+#[no_mangle]
+pub extern "C" fn rust_entry() { ... }
+```
+
+### 18.5 FFI — Rust chamando C
+
+Funções C são declaradas como `extern "C"` no Rust:
+
+```rust
+extern "C" {
+    fn kmalloc(size: usize) -> *mut u8;
+    fn kfree(ptr: *mut u8);
+    fn serial_putc(c: u8);
+}
+```
+
+### 18.6 Global Allocator
+
+`TiposAllocator` implementa `GlobalAlloc` e wrappa `kmalloc`/`kfree` do C:
+
+```rust
+use core::alloc::{GlobalAlloc, Layout};
+
+pub struct TiposAllocator;
+
+unsafe impl GlobalAlloc for TiposAllocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        extern "C" { fn kmalloc(size: usize) -> *mut u8; }
+        kmalloc(layout.size())
+    }
+    unsafe fn dealloc(&self, ptr: *mut u8, _layout: Layout) {
+        extern "C" { fn kfree(ptr: *mut u8); }
+        kfree(ptr);
+    }
+}
+```
+
+### 18.7 Build
+
+```bash
+make rust    # cargo build — release, target x86_64-unknown-none
+make kernel  # .elf + .a linkados (automático)
+```
+
+O Makefile do `OvsbMk/` tem o target `$(RUST_LIB)` que chama `cargo build`,
+e o link do `kernel.elf` inclui `$(RUST_LIB)` nos objetos.
+
+---
+
+## 19. Como Adicionar uma Syscall
 
 ### Passo 1: Defina o número
 
@@ -1223,7 +1326,7 @@ static inline int64_t minha_syscall(int a1, int a2) {
 
 ---
 
-## 19. Como Adicionar um Comando
+## 20. Como Adicionar um Comando
 
 ### Passo 1: shell_cmds.h
 
@@ -1252,7 +1355,7 @@ vga_puts("hello   ...\n");
 
 ---
 
-## 20. Como Adicionar uma Função na Libc
+## 21. Como Adicionar uma Função na Libc
 
 ### Exemplo: Adicionar `strdup`
 
@@ -1274,7 +1377,7 @@ vga_puts("hello   ...\n");
 
 ---
 
-## 21. Debugging
+## 22. Debugging
 
 ### 21.1 QEMU + Serial
 
@@ -1319,7 +1422,7 @@ vga[2] = (0x0E << 8) | ('0' + (num % 10));
 
 ---
 
-## 22. Problemas Comuns
+## 23. Problemas Comuns
 
 ### "Kernel panic: no working init found"
 - FAT32 não foi inicializado. Verifique `fat32_init()` > 0.

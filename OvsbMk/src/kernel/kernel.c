@@ -57,6 +57,36 @@ static void parse_multiboot2(uint32_t magic, uint32_t mb_info) {
 
 static inline uint8_t inb(uint16_t p) { uint8_t r; __asm__ volatile ("inb %1, %0":"=a"(r):"Nd"(p)); return r; }
 
+extern void rust_entry(void);
+
+static void boot_selector(void) {
+    serial_init();
+    vga_clear();
+    set_vga_color(0x0F);
+    vga_puts("TipOS Boot Selector\n");
+    vga_puts("Press [R] for Rust memory manager\n");
+    vga_puts("Press [C] for C memory manager\n");
+    vga_puts("Default: C in 5s...\n");
+    for (volatile int i = 0; i < 50000000; i++) {
+        if (keyboard_avail()) {
+            char c = keyboard_read();
+            if (c == 'r' || c == 'R') {
+                vga_puts("[Rust] selected\n");
+                serial_puts("[Rust] selected\n");
+                rust_entry();
+                return;
+            }
+            if (c == 'c' || c == 'C') {
+                vga_puts("[C] selected\n");
+                serial_puts("[C] selected\n");
+                return;
+            }
+        }
+    }
+    vga_puts("[C] timeout\n");
+    serial_puts("[C] timeout\n");
+}
+
 void kmain(uint32_t magic, uint32_t mb_info) {
     idt_init(); pic_init();
     idt_set_syscall(); idt_set_irq1(); idt_set_irq12();
@@ -64,10 +94,14 @@ void kmain(uint32_t magic, uint32_t mb_info) {
     __asm__ volatile ("sti");
 
     parse_multiboot2(magic, mb_info);
+    if (g_fb_active) vesa_flush();
+
+    boot_selector();
+    if (g_fb_active) vesa_flush();
 
     if (g_fb_active) mouse_init();
 
-    serial_init(); ata_init();
+    ata_init();
     if (fat32_init() != 0) {
         set_vga_color(0x04); vga_puts("FAT32 FAIL\n"); set_vga_color(0x07);
     }

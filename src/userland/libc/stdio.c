@@ -13,8 +13,8 @@ static long _syscall(long num, long a1, long a2, long a3, long a4) {
     __asm__ volatile (
         "int $0x80"
         : "=a"(ret)
-        : "a"(num), "D"(a1), "S"(a2), "d"(a3), "c"(a4)
-        : "r11", "memory"
+        : "a"(num), "b"(a1), "c"(a2), "d"(a3), "S"(a4)
+        : "memory"
     );
     return ret;
 }
@@ -36,7 +36,7 @@ int write(int fd, const void *buf, int count) {
 }
 
 int lseek(int fd, int offset, int whence) {
-    return _syscall(200, fd, offset, whence, 0);
+    return _syscall(202, fd, offset, whence, 0);
 }
 
 int unlink(const char *path) {

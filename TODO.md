@@ -33,9 +33,9 @@
 | Syscall gate int 0x80 (XNU convention, 30 handlers) | ✅ | `syscall.c`, `syscall_entry.asm` |
 | PIC 8259 (IRQs remapeados 32-47) | ✅ | `pic.c` |
 | Serial COM1 debug output | ✅ | `kernel.c` |
-| ATA PIO (LBA28, read/write sector) | ✅ | `ata.c` |
+| ATA PIO (LBA28, read/write sector, BSY polling fix) | ✅ | `ata.c` |
 | FAT32 (init, read, write, create, delete, mkdir, rmdir, rename, stat, chdir, pwd) | ✅ | `fat32.c` |
-| Bump allocator kmalloc (4MB heap @ 0x900000) | ✅ | `memory.c` |
+| Bump allocator kmalloc (64MB heap @ 0x900000-0x4900000) | ✅ | `memory.c` |
 | Page allocator (bitmap, 4096-byte pages, 1024 pages) | ✅ | `memory.c` |
 | Memory map user pages (mmap_user/munmap_user) | ✅ | `memory.c` |
 | TSS + enter_ring3() via iretq (ring 0 → ring 3) | ✅ | `ring3.c`, `ring3.h` |
@@ -58,7 +58,7 @@
 | VESA framebuffer (1024×768 32-bit, init via Multiboot2 tag) | ✅ | `vesa.c` |
 | Termina framebuffer nativo (fb_buf, fb_render_cell, scroll atômico) | ✅ | `kernel.c`, `vesa.c` |
 | Renderização atômica (temp buffer + memcpy, sem flicker por célula) | ✅ | `vesa.c` (vesa_draw_cell) |
-| Compositor (8 windows, title bar, software cursor 7x7, VESA+VGA fallback) | ✅ | `compositor.c` |
+| Compositor: backbuffer VESA (flicker-free), 8 janelas, panel botão [+], drag, close, focus cycle, Ctrl+N/Ctrl+Q (fallback VGA 320x200) | ✅ | `compositor.c` |
 
 ### 1.3 Shell & Comandos
 
@@ -239,6 +239,76 @@
 - [ ] **SIGINT** — ^C no terminal
 - [ ] **SIGSEGV** — page fault (precisa de ring 3 primeiro)
 - [ ] **signal() / sigaction()** — reais (hoje são stubs)
+
+---
+
+## 🦀 13. INTEGRAÇÃO RUST NO KERNEL
+
+*Adicionar Rust como linguagem de kernel, compilando para freestanding x86_64 e linkando com o C existente.*
+
+### 13.1 Toolchain & Target
+
+- [x] **Instalar Rust nightly** (componentes `rust-src`, `llvm-tools`)
+- [x] **Criar crate + Cargo.toml** em `src/rust/` com `crate-type = ["staticlib"]`
+- [x] **Configurar `.cargo/config.toml`** com target `x86_64-unknown-none`, rustflags (`-C no-red-zone`, `-C target-feature=-mmx,-sse`)
+- [x] **Integrar `cargo build` no Makefile** — crate Rust compila como `.a` e linka no `kernel.elf`
+
+### 13.2 Rust Runtime Mínimo
+
+- [x] **Crate `#![no_std]` + `#![no_main]`** — sem libstd, sem main
+- [x] **Panic handler** — `#[panic_handler]` que chama `serial_puts` + loop `hlt`
+- [x] **`panic = "abort"`** no Cargo.toml (profile.release)
+- [x] **`alloc_error_handler`** — handler para alocação
+- [x] **build-std = ["core", "alloc"]** — compila core + alloc do source (nightly)
+
+### 13.3 FFI com C (Interface Externa)
+
+- [x] **Declarar funções C como `extern "C"`** no Rust:
+  - `serial_puts`, `serial_putc`
+  - `kmalloc`, `kfree`
+- [ ] **Cabeçalhos compartilhados** — structs C traduzidas para `#[repr(C)]` no Rust:
+  - ([futuro] framebuffer_t, window_t, process_t, etc.)
+- [x] **Chamar Rust de C** — `extern "C" fn rust_entry()` exportada, chamada do `kmain` via boot selector
+
+### 13.4 Global Allocator para Rust
+
+- [x] **TiposAllocator** implementando `GlobalAlloc` — wrappa `kmalloc`/`kfree` do C
+- [x] **`#[global_allocator]`** setado em `lib.rs` para que `Box`, `Vec`, `String` funcionem
+- [x] **Testar allocator** — `rust_entry()` aloca `u64` via `alloc(Layout::new::<u64>())`, testa write/read
+
+### 13.5 Boot Selector (C vs Rust)
+
+- [x] **Boot selector no kmain** — prompt serial + VGA: "Press [R] for Rust, [C] for C"
+- [x] **Timeout 5s** — default C
+- [x] **Tecla R** — chama `rust_entry()`, depois continua boot normal
+- [x] **Tecla C** — pula Rust, continua boot normal
+
+### 13.6 Próximos Passos
+
+- [ ] **Reverter componente em Rust** — reescrever `vesa_fill_screen` + `vesa_flush` em Rust
+- [ ] **Benchmark** — comparar performance Rust vs C
+- [ ] **Comando `disp_rust`** — versão do compositor em Rust chamando `extern "C"` para VESA
+
+### 13.6 Rust no Userland
+
+- [ ] **Target `x86_64-tipos-user.json`** — para compilar programas Rust userland
+- [ ] **libc bindings** — syscalls via `extern "C"` + `int 0x80` inline asm
+- [ ] **Hello world Rust** — programa userland em Rust que faz `write(1, "Hello\n", 6)`
+- [ ] **Port do graphy para Rust** — ou reescrever TUI library em Rust
+
+### 13.7 Build Pipeline
+
+- [ ] **Multi-stage link** — Rust `.o` + C `.o` + ASM `.o` → linker.ld final
+- [ ] **LTO entre C e Rust** — `-C lto=fat` no Rust + `-flto` no GCC
+- [ ] **Caching** — `target/` separado por build type, integrado ao `make`
+- [ ] **CI com Rust** — verificar que `cargo build` + `make` produzem ISO bootável
+
+### 13.8 Dependências e Crates (só se necessário)
+
+- [ ] **`x86_64` crate** — tipos para paginação, port IO, MSRs, CPUID
+- [ ] **`uart_16550`** — driver serial em Rust
+- [ ] **`spin`** — `Mutex` spinlock para dados compartilhados
+- [ ] **`linked_list_allocator`** — allocator alternativo ao bump
 
 ---
 
@@ -515,7 +585,9 @@ Ring 3 / Proteção ───────────┬────────
 |--------|------|----------|
 | **v0.5** | Editor maduro + history + PATH + line editing + RTC + autocomplete + env/alias + PS1 + timestamps | 2 semanas |
 | **v0.6** | TCC onboard + make + date/sleep + syntax highlight | 4 semanas |
-| **v0.7** | Ring 3 + scheduler + fork/exec/wait reais | 8 semanas |
+| **v0.7.0** | Ring 3 + userland CPL=3 + Mach-O loader + TSS | 8 semanas |
+| **v0.7.1** | Scheduler preemptivo + PCB + paginação por processo + TLB flush | 8 semanas |
+| **v0.7.2** | Backbuffer VESA (flicker-free) + panel + multi-janela (drag/close/focus/cycle) + Ctrl+N/Ctrl+Q + HEAP 64MB + RAM 512M | 8 semanas |
 | **v0.8** | Terminal multiplexado (tabs/split/scrollback) + clipboard | 12 semanas |
 | **v0.9** | Rede (TCP/IP + SSH + Git) | 20 semanas |
 | **v1.0** | Auto-hospedagem: compilar TipOS dentro do TipOS | 24 semanas |
@@ -610,6 +682,21 @@ Ring 3 / Proteção ───────────┬────────
 | **HOJE** | **syscall exit → proc_exit** — SYS_exit chama proc_exit(), não retorna ao kernel |
 | **HOJE** | **^C chama proc_exit(-1)** — sigint_pending no handler mata o processo |
 | **HOJE** | **cmd_exec usa processo** — exec ring 3 via proc_spawn + proc_waitpid, não mais enter_ring3 direto |
+| **v0.7.2.0** | **VESA backbuffer (vesa_set_backbuffer/vesa_flush)** — frame buffer secundário, full redraw, zero flicker |
+| **v0.7.2.0** | **Panel na titlebar** — barra horizontal no topo, botão [+] verde abre nova janela |
+| **v0.7.2.0** | **Multi-janela** — 8 janelas simultâneas, cascata, z-order, close [X] vermelho |
+| **v0.7.2.0** | **Window drag** — Space+WASD move janela + cursor (modo arrasto na titlebar) |
+| **v0.7.2.0** | **Focus cycle** — Tab cicla foco entre janelas, click no panel foca |
+| **v0.7.2.0** | **Ctrl+N / Ctrl+Q** — atalhos de teclado para nova janela / fechar focada |
+| **v0.7.2.0** | **Cursor 8x8 quadrado** — outline white, fill black, center white dot |
+| **v0.7.2.0** | **HEAP 64MB** — bump allocator estendido de 4MB para 64MB (0x900000-0x4900000) |
+| **v0.7.2.0** | **RAM 512MB** — QEMU -m 256M → -m 512M |
+| **v0.7.2.0** | **Bugfix backbuffer** — mmap_user (não kmalloc) para backbuffer, evitava page fault loop por corrupção de page tables |
+| **v0.7.3.0** | **disp-wm separado** — WM extraído para repositório próprio (`disp-wm/`), kernel expõe syscalls 200 (disp_get_fb) e 201 (disp_flush), cmd_disp exec disp-wm.macho como userland ring 3 |
+| **v0.7.3.0** | **lseek movido para syscall 202** — desocupa 200/201 para as syscalls de display |
+| **v0.7.3.0** | **ATA fix (BSY polling)** — wait BSY==0 antes de enviar comando ATA, polling `BSY==0 && DRQ==1` evita hangs |
+| **v0.7.3.0** | **Integração Rust** — crate `src/rust/` compila como staticlib (nightly, `x86_64-unknown-none`), linkada no kernel. GlobalAlloc wrappa `kmalloc`/`kfree` do C |
+| **v0.7.3.0** | **Boot selector** — prompt C/R na inicialização, timeout 5s default C. VGA + serial output |
 
 ---
 

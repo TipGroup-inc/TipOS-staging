@@ -1,17 +1,20 @@
 # TipOS
 
-Sistema operacional TUI-first com kernel OvsbMkM, libc própria, ring 3,
+Sistema operacional TUI-first com kernel OvsbMk, libc própria, ring 3,
 e editor gráfico TUI (graphy). Boota em QEMU, hardware real via GRUB.
 
 ```
-Versão: v0.7.2.0
+Versão: v0.7.3.0
          STAGE  = 7 (Ring 3 + VESA framebuffer)
-         RELEASE = 2 (backbuffer VESA + panel + multi-janela + Ctrl atalhos)
+         RELEASE = 3 (boot selector + integração Rust)
          FEATURE = 0
 ```
 
 ## O que tem de legal
 
+- **Integração Rust no kernel**: crate `#![no_std]` compilada com nightly,
+  linkada como staticlib. `GlobalAlloc` wrappa `kmalloc`/`kfree` do C.
+  Boot selector `[C]`/`[R]` na inicialização escolhe memory manager.
 - **Ring 3 funcional**: programas userland rodam em CPL=3 com TSS, iretq,
   segmentos ring 3 (0x18/0x20), bit User na paginação
 - **Editor graphy**: TUI text mode com syntax highlight C, undo/redo (512),
@@ -26,22 +29,33 @@ Versão: v0.7.2.0
 - **Mach-O 64-bit loader**: carrega userland programs em 0x2000000
 - **RTC real**: gettimeofday, date, sleep
 - **Keyboard repeat**: 500ms delay, 33Hz rate
-- **Compositor gráfico**: 1024x768 32-bit via VESA framebuffer (fallback 320x200x256 VGA), 8 janelas, cursor software
+- **Compositor gráfico (disp-wm)**: WM standalone em ring 3, repositório separado (`disp-wm/`), syscalls 200-201. 1024x768 32-bit VESA framebuffer com backbuffer (flicker-free), multi-janela (8), drag, close, focus cycle, panel com botão [+], Ctrl+N/Ctrl+Q shortcuts
 
 ## Estrutura
 
 ```
 TipOS/
-├── Makefile              # Build principal (kernel + ISO)
+├── Makefile              # Build principal (kernel + Rust + ISO)
 ├── README.md
 ├── disk.img              # FAT32 (gitignored)
-├── OvsbMkM.iso           # ISO bootável (gitignored)
+├── TipOS.iso             # ISO bootável (gitignored)
 │
-├── OvsbMkM/              # Kernel (ring 0)
-│   ├── src/kernel/       #   kmain, IDT, syscalls, ring3, Mach-O
+├── OvsbMk/               # Kernel (ring 0)
+│   ├── src/kernel/       #   kmain, IDT, syscalls, ring3, Mach-O, disp_api
 │   ├── src/drivers/      #   ATA, PS/2 keyboard, VGA text/gfx
 │   ├── src/fs/           #   FAT32
-│   └── src/commands/     #   Shell + builtins + compositor
+│   └── os/shell/         #   Shell + builtins
+│       └── os/wm/        #   Compositor (fallback VGA)
+│
+├── src/rust/             # Rust kernel crate
+│   ├── Cargo.toml        #   staticlib, no_std
+│   ├── .cargo/config.toml
+│   └── src/
+│       ├── lib.rs         #   rust_entry(), panic/alloc handlers
+│       ├── ffi.rs         #   extern "C" declarações
+│       └── allocator.rs   #   TiposAllocator (GlobalAlloc)
+│
+├── disp-wm/              # Window Manager (userland ring 3, repo separado)
 │
 ├── src/userland/         # Userland MIT
 │   ├── Makefile          #   .c → .macho → disk.img
@@ -51,29 +65,46 @@ TipOS/
 │   └── tools/            #   macho_pack.py
 │
 ├── docs/                 # Documentação
-└── build/                # Artefatos
+└── Discord_docc/         # Discord docs (planejamento/equipe)
 ```
 
 ## Build & Run
 
+**Requisito**: Rust nightly (`rustup toolchain install nightly`, `rustup target add x86_64-unknown-none`)
+
 ```bash
 # Tudo de uma vez
-make                     # kernel + ISO
-make -C src/userland install  # userland → disk.img
-make run                 # QEMU
+make all                 # Rust crate → kernel .elf → ISO
+make run                 # QEMU (512M RAM, FAT32 disk)
 
 # Ou separado
-make -C OvsbMkM          # só kernel .elf
-make -C OvsbMkM iso      # gera OvsbMkM.iso
-make -C src/userland install  # compila + mcopy pro disk.img
+make rust                # só cargo build da crate Rust
+make kernel              # só kernel .elf (inclui Rust)
+make iso                 # só ISO
 
 # QEMU manual
 qemu-system-x86_64 \
-    -cdrom OvsbMkM/OvsbMkM.iso \
+    -cdrom TipOS.iso \
     -drive file=disk.img,format=raw,index=0 \
     -boot order=d \
-    -m 256M
+    -m 512M \
+    -serial stdio
 ```
+
+## Boot Selector
+
+Ao iniciar, o kernel exibe na tela:
+
+```
+TipOS Boot Selector
+Press [R] for Rust memory manager
+Press [C] for C memory manager
+Default: C in 5s...
+```
+
+- **C** — continua com o memory manager C (bump allocator via `kmalloc`/`kfree`)
+- **R** — chama `rust_entry()`, que inicializa o `GlobalAlloc` Rust (wrappando `kmalloc`/`kfree`) e roda um teste de alocação
+- **Timeout** (5s) — padrão: C
 
 ## Shell (MkM)
 
@@ -129,7 +160,9 @@ qemu-system-x86_64 \
 | 197| mmap      | 197 | addr       | length     | prot        | Aloca páginas       |
 | 198| kbhit     | 198 | -          | -          | -           | Tecla disponível?   |
 | 199| lstat     | 199 | path       | stat buf   | -           | Stub (igual stat)   |
-| 200| lseek     | 200 | fd         | offset     | whence      | Posiciona em fd     |
+| 200| disp_get_fb | 200 | -        | -          | -           | Endereço framebuffer|
+| 201| disp_flush | 201 | -         | -          | -           | Flush framebuffer   |
+| 202| lseek     | 202 | fd         | offset     | whence      | Posiciona em fd     |
 
 Registradores preservados: `rbx, rbp, r12-r15`.
 
@@ -188,4 +221,4 @@ Editor de texto no terminal com sintaxe highlight para C, 4096 linhas,
 ## Licença
 
 - **Userland TipOS** (`src/userland/`): MIT
-- **Kernel OvsbMkM** (`OvsbMkM/`): licença do autor original (Bugsappetit.inc)
+- **Kernel OvsbMk** (`OvsbMk/`): licença do autor original (Bugsappetit.inc)

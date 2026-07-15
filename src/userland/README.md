@@ -61,7 +61,7 @@ make install
 | 73 | munmap   | 73  | addr       | length     | -           | -     |
 | 188| stat     | 188 | path       | stat buf   | -           | -     |
 | 189| fstat    | 189 | fd         | stat buf   | -           | -     |
-| 200| lseek    | 200 | fd         | offset     | whence      | -     |
+| 202| lseek    | 202 | fd         | offset     | whence      | -     |
 | 198| kbhit    | 198 | -          | -          | -           | -     |
 | 116| gettimeofday|116| tv         | -          | -           | -     |
 | 136| mkdir    | 136 | path       | mode       | -           | -     |

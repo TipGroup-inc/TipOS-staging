@@ -23,6 +23,9 @@ SRCS += os/wm/compositor.c
 
 OBJS := $(patsubst %.c,$(BUILD_DIR)/%.o,$(SRCS))
 
+RUST_DIR := ../src/rust
+RUST_LIB := $(RUST_DIR)/target/x86_64-unknown-none/release/libtipos_rust.a
+
 all: iso
 
 $(BUILD_DIR): ; mkdir -p $(BUILD_DIR)
@@ -42,8 +45,11 @@ $(BUILD_DIR)/keyboard_asm.o: src/drivers/keyboard_asm.asm | $(BUILD_DIR)
 $(BUILD_DIR)/switch_asm.o: src/kernel/switch.asm | $(BUILD_DIR)
 	$(NASM) -f elf64 -o $@ $<
 
+$(RUST_LIB): $(RUST_DIR)/src/lib.rs $(RUST_DIR)/src/ffi.rs $(RUST_DIR)/src/allocator.rs $(RUST_DIR)/Cargo.toml
+	cd $(RUST_DIR) && rustup run nightly cargo build --release --target x86_64-unknown-none 2>&1
+
 KERNEL_ELF := $(BUILD_DIR)/kernel.elf
-$(KERNEL_ELF): $(BUILD_DIR)/boot64.o $(BUILD_DIR)/idt_asm.o $(BUILD_DIR)/syscall_entry.o $(BUILD_DIR)/keyboard_asm.o $(BUILD_DIR)/switch_asm.o $(OBJS)
+$(KERNEL_ELF): $(BUILD_DIR)/boot64.o $(BUILD_DIR)/idt_asm.o $(BUILD_DIR)/syscall_entry.o $(BUILD_DIR)/keyboard_asm.o $(BUILD_DIR)/switch_asm.o $(OBJS) $(RUST_LIB)
 	$(CC) $(CFLAGS) -nostdlib -no-pie -o $@ $^ -Wl,$(LDFLAGS)
 
 iso: $(KERNEL_ELF)
