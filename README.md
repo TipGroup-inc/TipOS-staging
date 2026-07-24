@@ -128,10 +128,13 @@ docker run --rm -it --platform linux/amd64 -v "$PWD":/work -w /work tipos-build 
   bash -lc 'make all && make disk.img && make userland'
 ```
 
-**3. Rodar no QEMU do macOS** (janela gráfica):
+**3. Rodar no QEMU do macOS** (janela gráfica). **Não use `make run` no macOS**:
+o target `run` depende de `all` (phony) e tentaria rebuildar o kernel, exigindo a
+toolchain Linux. Chame o QEMU direto:
 
 ```bash
-make run     # QEMU 512M + disk FAT32 (o target run não usa -enable-kvm)
+qemu-system-x86_64 -cdrom TipOS.iso \
+    -drive file=disk.img,format=raw,index=0 -boot d -m 512M -serial stdio
 ```
 
 > No Apple Silicon, o container amd64 e o QEMU rodam por **emulação (TCG/Rosetta)**:
