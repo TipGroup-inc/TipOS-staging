@@ -91,6 +91,53 @@ qemu-system-x86_64 \
     -serial stdio
 ```
 
+## Rodar no macOS (via Docker)
+
+O build **nativo não funciona no macOS**: o `gcc` do sistema é o Apple clang
+(arm64/Mach-O), que não gera ELF x86_64, e faltam `grub-mkrescue`, `xorriso`,
+`mtools`/`dosfstools` e o Rust nightly. A forma testada é **buildar dentro de um
+container Linux x86_64** e **rodar o QEMU no próprio macOS** (abre janela nativa).
+Nenhuma alteração no código é necessária.
+
+**Pré-requisitos:** Docker Desktop rodando e QEMU no host (`brew install qemu`).
+
+**1. Criar a imagem da toolchain** (uma vez). Salve como `docker/Dockerfile` ou
+use o here-doc abaixo:
+
+```bash
+docker build --platform linux/amd64 -t tipos-build - <<'EOF'
+FROM --platform=linux/amd64 ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PATH="/root/.cargo/bin:${PATH}"
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      build-essential nasm grub-pc-bin grub-common xorriso mtools \
+      dosfstools qemu-system-x86 python3 curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --default-toolchain nightly --profile minimal --component rust-src \
+    && rustup target add --toolchain nightly x86_64-unknown-none
+WORKDIR /work
+EOF
+```
+
+**2. Buildar** (a partir da raiz do repo; os artefatos `TipOS.iso`/`disk.img`
+aparecem direto no seu disco via bind-mount):
+
+```bash
+docker run --rm -it --platform linux/amd64 -v "$PWD":/work -w /work tipos-build \
+  bash -lc 'make all && make disk.img && make userland'
+```
+
+**3. Rodar no QEMU do macOS** (janela gráfica):
+
+```bash
+make run     # QEMU 512M + disk FAT32 (o target run não usa -enable-kvm)
+```
+
+> No Apple Silicon, o container amd64 e o QEMU rodam por **emulação (TCG/Rosetta)**:
+> funciona, mas é mais lento — não afeta a corretude. No boot selector, aperte
+> **[R]** em 5s para o path Rust ou **[C]** (padrão) para o C.
+
 ## Boot Selector
 
 Ao iniciar, o kernel exibe na tela:
