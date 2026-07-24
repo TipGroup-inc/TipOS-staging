@@ -39,6 +39,44 @@ static void print_err(int err, const char *name) {
     set_vga_color(C_OUTPUT);
 }
 
+/* Print `v` in decimal with at least `width` digits (left zero-padding).
+   width <= 1 prints unpadded (0 -> "0"). */
+static void put_uint_pad(uint64_t v, int width) {
+    char n[20]; int p = 0;
+    do { n[p++] = '0' + (v % 10); v /= 10; } while (v);
+    for (int i = p; i < width; i++) vga_putchar('0');
+    while (p > 0) vga_putchar(n[--p]);
+}
+
+/* Print `s` in color `color`, then restore C_OUTPUT. */
+static void msg_color(uint8_t color, const char *s) {
+    set_vga_color(color);
+    vga_puts(s);
+    set_vga_color(C_OUTPUT);
+}
+static void msg_err(const char *s) { msg_color(C_ERROR, s); }
+
+/* Read two space-separated tokens from `args` into src/dst (max 63 chars each).
+   Returns 1 if both are non-empty, 0 otherwise. */
+static int parse_two_args(const char *args, char *src, char *dst) {
+    int i = 0;
+    while (*args == ' ') args++;
+    while (*args && *args != ' ' && i < 63) src[i++] = *args++;
+    src[i] = '\0';
+    while (*args == ' ') args++;
+    i = 0;
+    while (*args && *args != ' ' && i < 63) dst[i++] = *args++;
+    dst[i] = '\0';
+    return src[0] != '\0' && dst[0] != '\0';
+}
+
+/* Create `dst` (ignore if it already exists) and write `buf`. Returns 1 on success. */
+static int copy_write(const char *dst, const uint8_t *buf, int bytes) {
+    fat32_create_file(dst);
+    if (bytes == 0) return 1;
+    return fat32_write_file(dst, buf, bytes) > 0;
+}
+
 void cmd_help(void) {
     set_vga_color(C_HEADER);
     vga_puts("Comandos disponiveis:\n");
@@ -274,15 +312,7 @@ void cmd_exec(const char *name) {
 
 void cmd_mv(const char *args) {
     char src[64], dst[64];
-    int i = 0;
-    while (*args == ' ') args++;
-    while (*args && *args != ' ' && i < 63) src[i++] = *args++;
-    src[i] = '\0';
-    while (*args == ' ') args++;
-    i = 0;
-    while (*args && *args != ' ' && i < 63) dst[i++] = *args++;
-    dst[i] = '\0';
-    if (src[0] == '\0' || dst[0] == '\0') {
+    if (!parse_two_args(args, src, dst)) {
         vga_puts("Uso: mv <origem> <destino>\n");
         return;
     }
@@ -297,28 +327,14 @@ void cmd_mv(const char *args) {
 
 void cmd_cp(const char *args) {
     char src[64], dst[64];
-    int i = 0;
-    while (*args == ' ') args++;
-    while (*args && *args != ' ' && i < 63) src[i++] = *args++;
-    src[i] = '\0';
-    while (*args == ' ') args++;
-    i = 0;
-    while (*args && *args != ' ' && i < 63) dst[i++] = *args++;
-    dst[i] = '\0';
-    if (src[0] == '\0' || dst[0] == '\0') {
+    if (!parse_two_args(args, src, dst)) {
         vga_puts("Uso: cp <origem> <destino>\n");
         return;
     }
     static uint8_t buf[4096];
     int bytes = fat32_read_file(src, buf, 4096);
     if (bytes < 0) { print_err(FAT_ERR_NOTFOUND, src); return; }
-    if (fat32_create_file(dst) != 0 && fat32_write_file(dst, buf, bytes) <= 0) {
-        set_vga_color(C_ERROR);
-        vga_puts("Erro ao copiar\n");
-        set_vga_color(C_OUTPUT);
-        return;
-    }
-    fat32_write_file(dst, buf, bytes);
+    if (!copy_write(dst, buf, bytes)) { msg_err("Erro ao copiar\n"); return; }
     set_vga_color(C_SUCCESS);
     vga_puts("Copiado: "); vga_puts(src); vga_puts(" -> "); vga_puts(dst); vga_putchar('\n');
     set_vga_color(C_OUTPUT);
@@ -399,33 +415,13 @@ void cmd_disp(void) {
 void cmd_date(void) {
     rtc_time t;
     rtc_read(&t);
-    // Format: YYYY-MM-DD HH:MM:SS
-    char n[4]; int p;
-    // year
-    p = 0; int v = t.yr; do { n[p++] = '0' + (v % 10); v /= 10; } while (v);
-    while (p > 0) vga_putchar(n[--p]);
-    vga_putchar('-');
-    // month
-    p = 0; v = t.mo; if (v == 0) { vga_putchar('0'); } else { do { n[p++] = '0' + (v % 10); v /= 10; } while (v); while (p > 0) vga_putchar(n[--p]); }
-    vga_putchar('-');
-    // day
-    p = 0; v = t.dy; if (v == 0) { vga_putchar('0'); } else { do { n[p++] = '0' + (v % 10); v /= 10; } while (v); while (p > 0) vga_putchar(n[--p]); }
-    vga_putchar(' ');
-    // hour
-    p = 0; v = t.h; do { n[p++] = '0' + (v % 10); v /= 10; } while (v);
-    if (p < 2) vga_putchar('0');
-    while (p > 0) vga_putchar(n[--p]);
-    vga_putchar(':');
-    // minute
-    p = 0; v = t.m; do { n[p++] = '0' + (v % 10); v /= 10; } while (v);
-    if (p < 2) vga_putchar('0');
-    while (p > 0) vga_putchar(n[--p]);
-    vga_putchar(':');
-    // second
-    p = 0; v = t.s; do { n[p++] = '0' + (v % 10); v /= 10; } while (v);
-    if (p < 2) vga_putchar('0');
-    while (p > 0) vga_putchar(n[--p]);
-    vga_putchar('\n');
+    /* YYYY-MM-DD HH:MM:SS (year/month/day unpadded; hour/min/sec 2-digit) */
+    put_uint_pad(t.yr, 1); vga_putchar('-');
+    put_uint_pad(t.mo, 1); vga_putchar('-');
+    put_uint_pad(t.dy, 1); vga_putchar(' ');
+    put_uint_pad(t.h,  2); vga_putchar(':');
+    put_uint_pad(t.m,  2); vga_putchar(':');
+    put_uint_pad(t.s,  2); vga_putchar('\n');
 }
 
 void cmd_uptime(void) {
@@ -433,15 +429,10 @@ void cmd_uptime(void) {
     uint64_t days = sec / 86400; sec %= 86400;
     uint64_t hours = sec / 3600; sec %= 3600;
     uint64_t mins = sec / 60; sec %= 60;
-    // use same pattern as date
-    char n[12]; int p;
     vga_puts("up ");
-    if (days > 0) { p = 0; uint64_t v = days; do { n[p++] = '0' + (v % 10); v /= 10; } while (v); while (p > 0) vga_putchar(n[--p]); vga_putchar('d'); }
-    p = 0; uint64_t v = hours; if (v == 0) n[p++] = '0'; else do { n[p++] = '0' + (v % 10); v /= 10; } while (v); while (p > 0) vga_putchar(n[--p]);
-    vga_putchar(':');
-    p = 0; v = mins; if (v == 0) n[p++] = '0'; else do { n[p++] = '0' + (v % 10); v /= 10; } while (v); if (p < 2) vga_putchar('0');
-    while (p > 0) vga_putchar(n[--p]);
-    vga_putchar('\n');
+    if (days > 0) { put_uint_pad(days, 1); vga_putchar('d'); }
+    put_uint_pad(hours, 1); vga_putchar(':');
+    put_uint_pad(mins, 2);  vga_putchar('\n');
 }
 
 void cmd_cc(const char *name) {
@@ -465,16 +456,13 @@ void cmd_cc(const char *name) {
     char dst[64]; int j;
     for (j = 0; j < i; j++) dst[j] = src[j];
     dst[j] = '\0';
-    if (fat32_create_file(dst) == 0 || fat32_write_file(dst, buf, bytes) > 0) {
-        fat32_write_file(dst, buf, bytes);
+    if (copy_write(dst, buf, bytes)) {
         set_vga_color(C_SUCCESS);
         vga_puts("Fonte salvo em /SRC/"); vga_puts(dst); vga_putchar('\n');
         set_vga_color(C_OUTPUT);
         vga_puts("Rode 'cc-host "); i = 0; while (src[i] && src[i] != '.') { vga_putchar(src[i]); i++; } vga_puts("' no HOST\n");
     } else {
-        set_vga_color(C_ERROR);
-        vga_puts("Erro ao salvar fonte\n");
-        set_vga_color(C_OUTPUT);
+        msg_err("Erro ao salvar fonte\n");
     }
     fat32_change_dir("/");
 }
@@ -668,10 +656,7 @@ void cmd_stat(const char *name) {
     if (r != 0) { print_err(r, name); return; }
     vga_puts(name);
     vga_puts("  tam=");
-    char n[12]; int p = 0;
-    uint32_t s = size;
-    do { n[p++] = '0' + (s % 10); s /= 10; } while (s);
-    while (p > 0) vga_putchar(n[--p]);
+    put_uint_pad(size, 1);
     vga_puts("  attr=");
     if (attr & 0x10) vga_puts("DIR");
     else if (attr & 0x20) vga_puts("ARC");

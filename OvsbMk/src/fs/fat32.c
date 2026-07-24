@@ -261,12 +261,15 @@ static uint32_t first_cluster_of(fat32_dir_entry_t *e) {
 }
 
 /*
- * Busca entrada por nome em uma cadeia de clusters de diretório.
- * Retorna o número do setor onde a entrada foi encontrada,
- * ou -1 (FAT_ERR_NOTFOUND) se não existir.
+ * Localiza uma entrada por nome numa cadeia de clusters de diretório, devolvendo
+ * uma REFERÊNCIA mutável: a LBA do setor (valor de retorno >= 0), o buffer de 512
+ * bytes desse setor (`buf`) e o índice da entrada dentro dele (`*idx`). Se `ent`
+ * != 0, também copia a entrada. Assim o chamador pode alterar entries[*idx] e
+ * regravar `buf` na LBA retornada, sem re-varrer o diretório.
+ * Retorna -1 se não encontrada (ou em erro de E/S na leitura).
  */
-static int find_entry(uint32_t dir_cluster, const char *name,
-                      fat32_dir_entry_t *out) {
+static int find_entry_loc(uint32_t dir_cluster, const char *name,
+                          uint8_t buf[512], int *idx, fat32_dir_entry_t *ent) {
     uint8_t name83[11];
     name_to_83(name, name83);
 
@@ -274,7 +277,6 @@ static int find_entry(uint32_t dir_cluster, const char *name,
     while (cluster >= 2 && cluster < 0x0FFFFFF8) {
         uint32_t sector = cluster_to_sector(cluster);
         for (uint32_t s = 0; s < sectors_per_cluster; s++) {
-            uint8_t buf[512];
             if (ata_read_sector(sector + s, buf) != 0) return -1;
             fat32_dir_entry_t *entries = (fat32_dir_entry_t *)buf;
             for (int i = 0; i < 16; i++) {
@@ -289,14 +291,25 @@ static int find_entry(uint32_t dir_cluster, const char *name,
                     if (entries[i].name[j] != name83[j]) { match = 0; break; }
                 }
                 if (match) {
-                    if (out) *out = entries[i];
-                    return cluster_to_sector(cluster) + s;
+                    if (idx) *idx = i;
+                    if (ent) *ent = entries[i];
+                    return (int)(sector + s);
                 }
             }
         }
         cluster = fat_read_entry(cluster);
     }
     return -1;
+}
+
+/*
+ * Busca entrada por nome. Retorna o número do setor onde foi encontrada
+ * (>= 0) e preenche *out, ou -1 (FAT_ERR_NOTFOUND) se não existir.
+ */
+static int find_entry(uint32_t dir_cluster, const char *name,
+                      fat32_dir_entry_t *out) {
+    uint8_t buf[512];
+    return find_entry_loc(dir_cluster, name, buf, 0, out);
 }
 
 /* Lista entradas de um diretório na saída VGA */
@@ -428,33 +441,14 @@ static int create_entry_at(uint32_t dir_cluster, const char *name,
 
 /* Marca uma entrada como deletada (0xE5 no primeiro byte do nome) */
 static int delete_entry_at(uint32_t dir_cluster, const char *name) {
-    uint32_t cluster = dir_cluster;
-    while (cluster >= 2 && cluster < 0x0FFFFFF8) {
-        uint32_t sector_num = cluster_to_sector(cluster);
-        for (uint32_t s = 0; s < sectors_per_cluster; s++) {
-            uint8_t buf[512];
-            if (ata_read_sector(sector_num + s, buf) != 0) return -1;
-            fat32_dir_entry_t *entries = (fat32_dir_entry_t *)buf;
-            for (int i = 0; i < 16; i++) {
-                if (entries[i].name[0] == 0x00) return -1;
-                if (entries[i].name[0] == 0xE5) continue;
-                if (entries[i].attr == 0x0F) continue;
-                uint8_t name83[11];
-                name_to_83(name, name83);
-                int match = 1;
-                for (int j = 0; j < 11; j++) {
-                    if (entries[i].name[j] != name83[j]) { match = 0; break; }
-                }
-                if (match) {
-                    entries[i].name[0] = 0xE5;
-                    if (ata_write_sector(sector_num + s, buf) != 0) return -1;
-                    return 0;
-                }
-            }
-        }
-        cluster = fat_read_entry(cluster);
-    }
-    return -1;
+    uint8_t buf[512];
+    int idx;
+    int lba = find_entry_loc(dir_cluster, name, buf, &idx, 0);
+    if (lba < 0) return -1;
+    fat32_dir_entry_t *entries = (fat32_dir_entry_t *)buf;
+    entries[idx].name[0] = 0xE5;
+    if (ata_write_sector(lba, buf) != 0) return -1;
+    return 0;
 }
 
 // ── API Pública ──
@@ -514,32 +508,15 @@ int fat32_write_file(const char *name, const uint8_t *buffer, uint32_t size) {
     if (result < 0) return result;
 
     /* Só atualiza diretório se write_chain teve sucesso */
-    uint8_t name83[11];
-    name_to_83(name, name83);
-    uint32_t c = current_dir_cluster;
-    while (c >= 2 && c < 0x0FFFFFF8) {
-        uint32_t s = cluster_to_sector(c);
-        for (uint32_t si = 0; si < sectors_per_cluster; si++) {
-            uint8_t buf[512];
-            if (ata_read_sector(s + si, buf) != 0) return result;
-            fat32_dir_entry_t *entries = (fat32_dir_entry_t *)buf;
-            for (int i = 0; i < 16; i++) {
-                if (entries[i].name[0] == 0xE5) continue;
-                if (entries[i].attr == 0x0F) continue;
-                int match = 1;
-                for (int j = 0; j < 11; j++)
-                    if (entries[i].name[j] != name83[j]) { match = 0; break; }
-                if (match) {
-                    entries[i].size = result;
-                    entries[i].first_cluster_low = cluster & 0xFFFF;
-                    entries[i].first_cluster_high = (cluster >> 16) & 0xFFFF;
-                    if (ata_write_sector(s + si, buf) != 0) return -1;
-                    return result;
-                }
-            }
-        }
-        c = fat_read_entry(c);
-    }
+    uint8_t buf[512];
+    int idx;
+    int lba = find_entry_loc(current_dir_cluster, name, buf, &idx, 0);
+    if (lba < 0) return result;
+    fat32_dir_entry_t *entries = (fat32_dir_entry_t *)buf;
+    entries[idx].size = result;
+    entries[idx].first_cluster_low = cluster & 0xFFFF;
+    entries[idx].first_cluster_high = (cluster >> 16) & 0xFFFF;
+    if (ata_write_sector(lba, buf) != 0) return -1;
     return result;
 }
 
@@ -679,133 +656,83 @@ int fat32_mkdir(const char *name) {
     int r = create_entry_at(current_dir_cluster, name, 0x10);
     if (r != 0) return r;
 
-    uint8_t name83[11];
-    name_to_83(name, name83);
-    uint32_t c = current_dir_cluster;
-    while (c >= 2 && c < 0x0FFFFFF8) {
-        uint32_t s = cluster_to_sector(c);
-            for (uint32_t si = 0; si < sectors_per_cluster; si++) {
-            uint8_t buf[512];
-            if (ata_read_sector(s + si, buf) != 0) return FAT_ERR_IO;
-            fat32_dir_entry_t *entries = (fat32_dir_entry_t *)buf;
-            for (int i = 0; i < 16; i++) {
-                if (entries[i].name[0] == 0xE5) continue;
-                if (entries[i].attr == 0x0F) continue;
-                int match = 1;
-                for (int j = 0; j < 11; j++)
-                    if (entries[i].name[j] != name83[j]) { match = 0; break; }
-                if (match && (entries[i].attr & 0x10)) {
-                    entries[i].first_cluster_low = new_cluster & 0xFFFF;
-                    entries[i].first_cluster_high =
-                        (new_cluster >> 16) & 0xFFFF;
-                    if (ata_write_sector(s + si, buf) != 0) return FAT_ERR_IO;
+    /* Aponta a entrada recém-criada para o cluster alocado */
+    uint8_t buf[512];
+    int idx;
+    int lba = find_entry_loc(current_dir_cluster, name, buf, &idx, 0);
+    if (lba < 0) return FAT_ERR_IO;
+    fat32_dir_entry_t *entries = (fat32_dir_entry_t *)buf;
+    entries[idx].first_cluster_low = new_cluster & 0xFFFF;
+    entries[idx].first_cluster_high = (new_cluster >> 16) & 0xFFFF;
+    if (ata_write_sector(lba, buf) != 0) return FAT_ERR_IO;
 
-                    /* Formata o novo diretório: entradas . e .. */
-                    uint8_t dirbuf[512] = {0};
-                    fat32_dir_entry_t *de = (fat32_dir_entry_t *)dirbuf;
-                    /* Entrada . (próprio diretório) */
-                    de[0].name[0] = '.';
-                    de[0].attr = 0x10;
-                    for (int j = 1; j < 11; j++) de[0].name[j] = ' ';
-                    de[0].first_cluster_low = new_cluster & 0xFFFF;
-                    de[0].first_cluster_high =
-                        (new_cluster >> 16) & 0xFFFF;
-                    /* Entrada .. (diretório pai) */
-                    de[1].name[0] = '.';
-                    de[1].name[1] = '.';
-                    de[1].attr = 0x10;
-                    for (int j = 2; j < 11; j++) de[1].name[j] = ' ';
-                    de[1].first_cluster_low = current_dir_cluster & 0xFFFF;
-                    de[1].first_cluster_high =
-                        (current_dir_cluster >> 16) & 0xFFFF;
-                    /* Marca cluster como EOC na FAT */
-                    uint32_t ds = cluster_to_sector(new_cluster);
-                    if (fat_write_entry(new_cluster, 0x0FFFFFFF) != 0) return FAT_ERR_IO;
-                    if (ata_write_sector(ds, dirbuf) != 0) return FAT_ERR_IO;
-                    return 0;
-                }
-            }
-        }
-        c = fat_read_entry(c);
-    }
-    return -1;
+    /* Formata o novo diretório: entradas . e .. */
+    uint8_t dirbuf[512] = {0};
+    fat32_dir_entry_t *de = (fat32_dir_entry_t *)dirbuf;
+    /* Entrada . (próprio diretório) */
+    de[0].name[0] = '.';
+    de[0].attr = 0x10;
+    for (int j = 1; j < 11; j++) de[0].name[j] = ' ';
+    de[0].first_cluster_low = new_cluster & 0xFFFF;
+    de[0].first_cluster_high = (new_cluster >> 16) & 0xFFFF;
+    /* Entrada .. (diretório pai) */
+    de[1].name[0] = '.';
+    de[1].name[1] = '.';
+    de[1].attr = 0x10;
+    for (int j = 2; j < 11; j++) de[1].name[j] = ' ';
+    de[1].first_cluster_low = current_dir_cluster & 0xFFFF;
+    de[1].first_cluster_high = (current_dir_cluster >> 16) & 0xFFFF;
+    /* Marca cluster como EOC na FAT */
+    uint32_t ds = cluster_to_sector(new_cluster);
+    if (fat_write_entry(new_cluster, 0x0FFFFFFF) != 0) return FAT_ERR_IO;
+    if (ata_write_sector(ds, dirbuf) != 0) return FAT_ERR_IO;
+    return 0;
 }
 
 int fat32_rename(const char *oldname, const char *newname) {
-    uint8_t old83[11], new83[11];
-    name_to_83(oldname, old83);
+    uint8_t new83[11];
     name_to_83(newname, new83);
-    uint32_t c = current_dir_cluster;
-    while (c >= 2 && c < 0x0FFFFFF8) {
-        uint32_t s = cluster_to_sector(c);
-        for (uint32_t si = 0; si < sectors_per_cluster; si++) {
-            uint8_t buf[512];
-            if (ata_read_sector(s + si, buf) != 0) return FAT_ERR_IO;
-            fat32_dir_entry_t *e = (fat32_dir_entry_t *)buf;
-            for (int i = 0; i < 16; i++) {
-                if (e[i].name[0] == 0x00 || e[i].name[0] == 0xE5) continue;
-                if (e[i].attr == 0x0F) continue;
-                int match = 1;
-                for (int j = 0; j < 11; j++)
-                    if (e[i].name[j] != old83[j]) { match = 0; break; }
-                if (!match) continue;
-                for (int j = 0; j < 11; j++) e[i].name[j] = new83[j];
-                if (ata_write_sector(s + si, buf) != 0) return FAT_ERR_IO;
-                return 0;
-            }
-        }
-        c = fat_read_entry(c);
-    }
-    return FAT_ERR_NOTFOUND;
+    uint8_t buf[512];
+    int idx;
+    int lba = find_entry_loc(current_dir_cluster, oldname, buf, &idx, 0);
+    if (lba < 0) return FAT_ERR_NOTFOUND;
+    fat32_dir_entry_t *e = (fat32_dir_entry_t *)buf;
+    for (int j = 0; j < 11; j++) e[idx].name[j] = new83[j];
+    if (ata_write_sector(lba, buf) != 0) return FAT_ERR_IO;
+    return 0;
 }
 
 int fat32_rmdir(const char *name) {
-    uint8_t name83[11];
-    name_to_83(name, name83);
-    uint32_t c = current_dir_cluster;
-    while (c >= 2 && c < 0x0FFFFFF8) {
-        uint32_t s = cluster_to_sector(c);
-        for (uint32_t si = 0; si < sectors_per_cluster; si++) {
-            uint8_t buf[512];
-            if (ata_read_sector(s + si, buf) != 0) return FAT_ERR_IO;
-            fat32_dir_entry_t *e = (fat32_dir_entry_t *)buf;
-            for (int i = 0; i < 16; i++) {
-                if (e[i].name[0] == 0x00 || e[i].name[0] == 0xE5) continue;
-                if (e[i].attr == 0x0F) continue;
-                int match = 1;
-                for (int j = 0; j < 11; j++)
-                    if (e[i].name[j] != name83[j]) { match = 0; break; }
-                if (!match) continue;
-                if (!(e[i].attr & 0x10)) return FAT_ERR_NOTDIR;
-                uint32_t cl = ((uint32_t)e[i].first_cluster_high << 16) | e[i].first_cluster_low;
-                /* Verifica se está vazio: só . e .. */
-                if (cl != 0) {
-                    uint8_t db[512];
-                    if (ata_read_sector(cluster_to_sector(cl), db) == 0) {
-                        fat32_dir_entry_t *de = (fat32_dir_entry_t *)db;
-                        int empty = 1;
-                        for (int ei = 2; ei < 16; ei++) {
-                            if (de[ei].name[0] != 0x00 && de[ei].name[0] != 0xE5)
-                                { empty = 0; break; }
-                        }
-                        if (!empty) return FAT_ERR_NOTEMPTY;
-                    }
-                    /* Libera a cadeia de clusters */
-                    uint32_t next;
-                    do {
-                        next = fat_read_entry(cl);
-                        fat_write_entry(cl, 0);
-                        cl = next;
-                    } while (cl >= 2 && cl < 0x0FFFFFF8);
-                }
-                e[i].name[0] = 0xE5;
-                if (ata_write_sector(s + si, buf) != 0) return FAT_ERR_IO;
-                return 0;
+    uint8_t buf[512];
+    int idx;
+    int lba = find_entry_loc(current_dir_cluster, name, buf, &idx, 0);
+    if (lba < 0) return FAT_ERR_NOTFOUND;
+    fat32_dir_entry_t *e = (fat32_dir_entry_t *)buf;
+    if (!(e[idx].attr & 0x10)) return FAT_ERR_NOTDIR;
+    uint32_t cl = ((uint32_t)e[idx].first_cluster_high << 16) | e[idx].first_cluster_low;
+    /* Verifica se está vazio: só . e .. */
+    if (cl != 0) {
+        uint8_t db[512];
+        if (ata_read_sector(cluster_to_sector(cl), db) == 0) {
+            fat32_dir_entry_t *de = (fat32_dir_entry_t *)db;
+            int empty = 1;
+            for (int ei = 2; ei < 16; ei++) {
+                if (de[ei].name[0] != 0x00 && de[ei].name[0] != 0xE5)
+                    { empty = 0; break; }
             }
+            if (!empty) return FAT_ERR_NOTEMPTY;
         }
-        c = fat_read_entry(c);
+        /* Libera a cadeia de clusters */
+        uint32_t next;
+        do {
+            next = fat_read_entry(cl);
+            fat_write_entry(cl, 0);
+            cl = next;
+        } while (cl >= 2 && cl < 0x0FFFFFF8);
     }
-    return FAT_ERR_NOTFOUND;
+    e[idx].name[0] = 0xE5;
+    if (ata_write_sector(lba, buf) != 0) return FAT_ERR_IO;
+    return 0;
 }
 
 int fat32_stat(const char *name, uint32_t *size, uint8_t *attr,

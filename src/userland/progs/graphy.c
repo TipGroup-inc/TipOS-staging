@@ -462,15 +462,21 @@ static char fn2[256];
 static int active_buf = 0;
 
 static void swap_buf(void) {
+    /* Actually swap the current buffer state with the secondary one. The old
+       version saved current into *2 then copied *2 straight back, so lns/cursor/
+       fname were never swapped and the other buffer's state was lost. */
     char *tmp_buf = buf; buf = buf2; buf2 = tmp_buf;
-    int tmp_cap = cap; cap = cap2; cap2 = tmp_cap;
-    int tmp_sz = sz; sz = sz2; sz2 = tmp_sz;
-    memcpy(lns2, lns, sizeof(lns)); nlns2 = nlns;
-    cx2 = cx; cy2 = cy; co2 = co; top2 = top; mod2 = mod;
-    strncpy(fn2, fname, 255); fn2[255] = '\0';
-    memcpy(lns, lns2, sizeof(lns)); nlns = nlns2;
-    cx = cx2; cy = cy2; co = co2; top = top2; mod = mod2;
-    strncpy(fname, fn2, 255); fname[255] = '\0';
+    int t;
+    t = cap; cap = cap2; cap2 = t;
+    t = sz;  sz = sz2;   sz2 = t;
+    for (int i = 0; i < MAXLNS; i++) { int l = lns[i]; lns[i] = lns2[i]; lns2[i] = l; }
+    t = nlns; nlns = nlns2; nlns2 = t;
+    t = cx;  cx = cx2;  cx2 = t;
+    t = cy;  cy = cy2;  cy2 = t;
+    t = co;  co = co2;  co2 = t;
+    t = top; top = top2; top2 = t;
+    t = mod; mod = mod2; mod2 = t;
+    for (int i = 0; i < 256; i++) { char c = fname[i]; fname[i] = fn2[i]; fn2[i] = c; }
 }
 
 static void kill_line(void) {

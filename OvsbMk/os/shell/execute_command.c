@@ -348,15 +348,7 @@ void execute_command(const char *cmd) {
         vga_puts("Unset: "); vga_puts(work + 6); vga_putchar('\n');
         set_vga_color(C_OUTPUT);
     }
-    else if (strcmp(work, "env") == 0) {
-        int n = env_count_get();
-        for (int i = 0; i < n; i++) {
-            set_vga_color(C_OUTPUT);
-            vga_puts(env_name_get(i)); vga_puts("="); vga_puts(env_val_get(i)); vga_putchar('\n');
-            set_vga_color(C_OUTPUT);
-        }
-    }
-    else if (strcmp(work, "set") == 0) {
+    else if (strcmp(work, "env") == 0 || strcmp(work, "set") == 0) {
         int n = env_count_get();
         for (int i = 0; i < n; i++) {
             set_vga_color(C_OUTPUT);
