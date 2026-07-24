@@ -118,8 +118,14 @@ void kmain(uint32_t magic, uint32_t mb_info) {
 
     int frame = 0;
     while (1) {
-        while (inb(0x64) & 0x01)
-            mouse_process_byte(inb(0x60));
+        /* Drena o buffer 0x60 roteando por AUXB (bit 5 de 0x64): só bytes do
+         * mouse alimentam o decodificador; bytes de teclado são descartados
+         * aqui (evita corromper o estado do mouse com scancodes). */
+        uint8_t st;
+        while ((st = inb(0x64)) & 0x01) {
+            uint8_t data = inb(0x60);
+            if (st & 0x20) mouse_process_byte(data);
+        }
 
         if (mouse_has_moved()) {
             int dx = mouse_get_dx();

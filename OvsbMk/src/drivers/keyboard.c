@@ -14,6 +14,12 @@ static inline void outb(uint16_t port, uint8_t val) {
     __asm__ volatile ("outb %0, %1" :: "a"(val), "Nd"(port));
 }
 
+/* Dados auxiliares (mouse PS/2) chegam no mesmo buffer 0x60; o bit AUXB
+ * (bit 5 do status 0x64) os distingue dos scancodes de teclado. */
+#define PS2_STAT_OBF  0x01   /* output buffer full */
+#define PS2_STAT_AUXB 0x20   /* dado veio do dispositivo auxiliar (mouse) */
+extern void mouse_process_byte(uint8_t data);
+
 static volatile char kb_buffer[KB_BUFFER_SIZE];
 extern volatile int sigint_pending;
 static volatile int kb_head = 0;
@@ -127,8 +133,12 @@ static int process_scancode(uint8_t sc) {
 }
 
 void keyboard_handler(void) {
-    uint8_t sc = inb(PS2_DATA);
-    process_scancode(sc);
+    uint8_t st = inb(PS2_CTRL);
+    if (st & PS2_STAT_OBF) {
+        uint8_t data = inb(PS2_DATA);
+        if (st & PS2_STAT_AUXB) mouse_process_byte(data);  /* byte do mouse: não digitar */
+        else process_scancode(data);
+    }
     outb(0x20, 0x20);
 }
 
@@ -172,9 +182,11 @@ char keyboard_read(void) {
             }
         }
         __asm__ volatile ("pause");
-        if (inb(0x64) & 1) {
-            uint8_t sc = inb(0x60);
-            process_scancode(sc);
+        uint8_t st = inb(0x64);
+        if (st & PS2_STAT_OBF) {
+            uint8_t data = inb(0x60);
+            if (st & PS2_STAT_AUXB) mouse_process_byte(data);  /* byte do mouse: não digitar */
+            else process_scancode(data);
         }
     }
 }

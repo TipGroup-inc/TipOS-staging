@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "colors.h"
+#include "rtc.h"
 
 extern volatile int sigint_pending;
 
@@ -15,7 +16,6 @@ void smc_init(void);
 void nvram_init(void);
 void fds_cleanup(void);
 
-typedef struct { int yr, mo, dy, h, m, s; } rtc_time;
-void rtc_read(rtc_time *t);
+/* rtc_time e rtc_read vêm de rtc.h (fonte única da definição) */
 
 #endif
