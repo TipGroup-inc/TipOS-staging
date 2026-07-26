@@ -1,0 +1,470 @@
+/* moe moe kyun <3 */
+╔══════════════════════════════════════════════════════╗
+║  💖  TUTORIAL DO REINO WHIMEKASY: APPS PRO TipOS  💖             ║
+║   (ou: como fazer o bicho obedecer, kyun~)                                 ║
+╚══════════════════════════════════════════════════════╝
+
+                                                        🌸
+                                         ⋆｡°✩｡⋆
+                          ~~~~~~*~~~~~~~~*~~~~~~*~~~~
+
+─── ✦ ─── INTRODUÇÃO (presta atenção baka) ─── ✦ ───
+
+TipOS n é sistema operacional normal, n tem linux, n tem
+libc de verdade, n tem instalador bonitinho. Aqui vc
+escreve programa, compila, bota no disco e reza pra n
+dar page fault. É sobrevivência com ponteiro solto >_<
+
+Mas relaxa, n é bicho de 7 cabeça. O segredo inteiro é
+entender como o DISP (compositor) fala com os app.
+Spoiler kyun~: é tudo via memória compartilhada.
+
+─── ✦ ─── COMO OS APP FUNCIONA ─── ✦ ───
+
+┌────────────────────────────────────────────────────┐
+│  Toda app grafica no TipOS tem uma janelinha                         │
+│  gerenciada pelo DISP. A conversa entre os dois                       │
+│  acontece numa pagina compartilhada em 0x500000.             │
+│  DISP cria processo filho, prepara a pagina, e o                        │
+│  filho desenha nela. Contrato social, mas de pixel.                   │
+└────────────────────────────────────────────────────┘
+
+o fluxo, sem enrolar:
+
+  1. DISP aloca buffer de pixel (via mmap)
+  2. DISP escreve info da janela em 0x500000
+  3. DISP dá spawn no app (syscall 211 = spawn_shared)
+  4. kernel clona a pml4 do DISP pro filho
+  5. filho lê a info em 0x500000 e desenha no buffer
+  6. filho marca dirty=1, DISP copia pra tela
+  7. repete até fechar (ou crashar, rsrsrs)
+
+─── ✦ ─── A STRUCT WinInfo (essa é sagrada) ─── ✦ ───
+
+WinInfo mora em 0x500000, é a ponte entre DISP e app.
+os DOIS precisam ter a MESMA definição, se n vira caos:
+
+    const WinInfo = extern struct {
+        buffer: ?*volatile u32,   // ponteiro pro buffer de pixel
+        width: i32,               // largura da janela
+        height: i32,              // altura da janela
+        dirty: i32,               // 1 = tem conteudo novo
+        win_x: i32,               // posição x na tela (só leitura)
+        win_y: i32,               // posição y na tela
+        win_w: i32,               // largura real do buffer
+        win_h: i32,               // altura real do buffer
+        pending_key: i32,         // tecla que o DISP mandou
+    };
+
+  ╔═══════════════════════════════════════════════════╗
+  ║  ATENÇÃO BAKA:                                                                     ║
+  ║  o extern struct em zig TEM q ter os campo na                       ║
+  ║  MESMA ORDEM que o c. se botar pending_key no meio,        ║
+  ║  DISP vai ler lixo e seu filho nasce deformado.                        ║
+  ║  n faz isso, kyun.                                                                      ║
+  ╚═══════════════════════════════════════════════════╝
+
+campo por campo:
+  buffer   → onde desenha o pixel. uint32 em BGRA (azul,
+             verde, vermelho, alpha). DISP aloca, app só
+             escreve.
+  width/height → tamanho da janela em pixel msm
+  dirty    → app seta 1 qnd tem conteudo novo, DISP lê,
+             copia pra tela, zera dnv
+  win_x/y/w/h → posição/tamanho q o DISP definiu, app
+             pode ler pra se adaptar
+  pending_key → tecla que o DISP encaminhou, app lê,
+             processa e zera
+
+─── ✦ ─── SISTEMA DE TECLA ─── ✦ ───
+
+DISP é o dono do teclado, kyun~ o q ele n usa (tab pra
+focar, esc pra fechar) ele bota no pending_key do app
+que tá focado.
+
+app só precisa disso:
+
+    if (SHARED_INFO.pending_key != 0) {
+        char ch = SHARED_INFO.pending_key;
+        SHARED_INFO.pending_key = 0;
+        // processa a tecla
+    }
+
+sem syscall de teclado, sem kbhit, sem read(). DISP já
+fez o trampo pesado, o app só espia o pending_key.
+
+─── ✦ ─── ESCOLHE SEU DESTINO: ZIG OU C ─── ✦ ───
+
+  ┌─────────────────────────────────────────────────────┐
+  │  ZIG:                                                                                            │
+  │  - zig build-obj -target x86_64-freestanding                                │
+  │  - vantagem: slice c/ bounds check, @memset,                          │
+  │    alocação segura, tipo forte, n dá dor de cabeça                      │
+  │  - desvantagem: linkar com crt0 em c as vez dá                         │
+  │    trabalho msm                                                                           │
+  │                                                                                                     │
+  │  C:                                                                                                │
+  │  - gcc com flag freestanding                                                        │
+  │  - vantagem: mais controle, mais exemplo pronto                      │
+  │  - desvantagem: kmalloc pode corromper memoria,                  │
+  │    buffer overflow clássico, ponteiro solto, baka                          │
+  └─────────────────────────────────────────────────────┘
+
+─── ✦ ─── PASSO A PASSO: APP EM ZIG ─── ✦ ───
+
+bora fazer uma app q desenha quadrado colorido e muda
+de cor qnd aperta tecla, kyun~
+
+╔══════════════════════════════════════════════════════╗
+║  PASSO 1: CRIA O ARQUIVO src/app.zig                                         ║
+╚══════════════════════════════════════════════════════╝
+
+    const std = @import("std");
+
+    const WinInfo = extern struct {
+        buffer: ?*volatile u32,
+        width: i32,
+        height: i32,
+        dirty: i32,
+        win_x: i32, win_y: i32,
+        win_w: i32, win_h: i32,
+        pending_key: i32,
+    };
+
+    const SHARED_INFO: *volatile WinInfo = @ptrFromInt(0x500000);
+
+    var g_scr_w: u32 = 0;
+    var g_scr_h: u32 = 0;
+    var g_shared: [*]u32 = undefined;
+    var g_hue: u32 = 0;
+
+    fn mmap(hint: u64, len: u64, prot: i32, flags: i32) u64 {
+        var ret: u64 = 0;
+        asm volatile ("int $0x80"
+            : [out] "={rax}" (ret),
+            : [num] "{rax}" (197),
+              [a1]  "{rdi}" (hint),
+              [a2]  "{rsi}" (len),
+              [a3]  "{rdx}" (prot),
+              [a4]  "{rcx}" (flags),
+            : "memory"
+        );
+        return ret;
+    }
+
+    fn fillRect(x: u32, y: u32, w: u32, h: u32, color: u32) void {
+        const x1 = if (x + w < g_scr_w) x + w else g_scr_w;
+        const y1 = if (y + h < g_scr_h) y + h else g_scr_h;
+        var py = y;
+        while (py < y1) : (py += 1)
+            @memset(g_shared[py * g_scr_w + x .. py * g_scr_w + x1], color);
+        SHARED_INFO.dirty = 1;
+    }
+
+    export fn main(argc: i32, argv: [*][*]u8) callconv(.C) i32 {
+        _ = argc; _ = argv;
+
+        g_scr_w = @intCast(SHARED_INFO.width);
+        g_scr_h = @intCast(SHARED_INFO.height);
+        if (SHARED_INFO.buffer == null) return 1;
+        g_shared = @ptrFromInt(@intFromPtr(SHARED_INFO.buffer.?));
+
+        // desenha quadrado vermelho, o clássico
+        fillRect(50, 50, 100, 100, 0x000000FF);
+
+        while (true) {
+            const k = SHARED_INFO.pending_key;
+            if (k != 0) {
+                SHARED_INFO.pending_key = 0;
+                g_hue = (g_hue + 1) % 3;
+                const colors = [_]u32{ 0x000000FF, 0x0000FF00, 0x00FF0000 };
+                fillRect(50, 50, 100, 100, colors[g_hue]);
+            }
+        }
+    }
+
+╔══════════════════════════════════════════════════════╗
+║  PASSO 2: CRIA/ATUALIZA O MAKEFILE                                         ║
+╚══════════════════════════════════════════════════════╝
+
+    TIPOS_SDK ?= ../TipOS-staging
+    ZIG ?= ~/.local/bin/zig
+    CC = gcc
+    GCC_INC := $(shell gcc -print-file-name=include)
+
+    CFLAGS = -ffreestanding -nostdlib -static -fno-PIC \
+             -mno-red-zone -mno-mmx \
+             -nostartfiles -fno-asynchronous-unwind-tables \
+             -fno-unwind-tables -Wl,--build-id=none \
+             -fno-stack-protector -nostdinc -O1 \
+             -I$(TIPOS_SDK)/src/userland/include \
+             -I$(GCC_INC)
+
+    LINK_LD = $(TIPOS_SDK)/src/userland/libc/link.ld
+    OBJ_DIR = build
+    PROG    = app
+
+    $(OBJ_DIR):
+        mkdir -p $(OBJ_DIR)
+
+    $(OBJ_DIR)/app.o: src/app.zig | $(OBJ_DIR)
+        $(ZIG) build-obj -target x86_64-freestanding \
+            -O ReleaseSmall -femit-bin=$@ src/app.zig 2>&1
+
+    $(OBJ_DIR)/crt0.o: $(TIPOS_SDK)/src/userland/libc/crt0.c
+        $(CC) $(CFLAGS) -c $< -o $@
+
+    $(OBJ_DIR)/stdlib.o: $(TIPOS_SDK)/src/userland/libc/stdlib.c
+        $(CC) $(CFLAGS) -c $< -o $@
+
+    $(PROG): $(OBJ_DIR)/app.o $(OBJ_DIR)/crt0.o $(OBJ_DIR)/stdlib.o
+        $(CC) $(CFLAGS) -e _start -T $(LINK_LD) \
+            -o $(OBJ_DIR)/app.elf \
+            $(OBJ_DIR)/crt0.o $(OBJ_DIR)/stdlib.o $(OBJ_DIR)/app.o
+        objcopy -O binary -j .text $(OBJ_DIR)/app.elf $(OBJ_DIR)/app.bin
+        python3 $(TIPOS_SDK)/src/userland/tools/macho_pack.py \
+            $(OBJ_DIR)/app.bin $(PROG)
+
+    install: $(PROG)
+        mcopy -o -i $(TIPOS_SDK)/disk.img $(PROG) ::/BIN/APP
+
+  ╔═══════════════════════════════════════════════════╗
+  ║  ATENÇÃO:                                                                               ║
+  ║  zig build-obj gera .o c/ os símbolo. gcc linka com                   ║
+  ║  crt0.o (chama main()) e stdlib.o (tem exit()).                         ║
+  ║  objcopy extrai a seção .text, macho_pack.py                         ║
+  ║  embrulha num mach-o. parece complicado mas                    ║
+  ║  funciona, confia. >_<                                                             ║
+  ╚═══════════════════════════════════════════════════╝
+
+╔══════════════════════════════════════════════════════╗
+║  PASSO 3: INSTALA E TESTA                             ║
+╚══════════════════════════════════════════════════════╝
+
+    make clean all install
+
+    # roda no qemu:
+    qemu-system-x86_64 -boot order=d \
+        -cdrom ../TipOS-staging/TipOS.iso \
+        -m 512M -drive file=../TipOS-staging/disk.img,format=raw \
+        -serial stdio -vga std
+
+  pra testar sem tela (só log):
+    qemu-system-x86_64 -boot order=d \
+        -cdrom ../TipOS-staging/TipOS.iso \
+        -m 512M -drive file=../TipOS-staging/disk.img,format=raw \
+        -serial file:/tmp/log.txt -display none -no-reboot
+
+─── ✦ ─── PASSO A PASSO: APP EM C ─── ✦ ───
+
+se vc prefere c (masoquista? brinks, ou n) segue o jogo:
+
+    #include <stdint.h>
+
+    typedef struct {
+        volatile uint32_t *buffer;
+        int width, height;
+        volatile int dirty;
+        int win_x, win_y, win_w, win_h;
+        volatile int pending_key;
+    } win_info_t;
+
+    static win_info_t *info = (win_info_t *)0x500000;
+
+    static void fill32(uint32_t *dst, uint32_t val, int count) {
+        __asm__ volatile ("rep stosl"
+            : "+D"(dst), "+c"(count) : "a"(val) : "memory");
+    }
+
+    static void *kmalloc(int size) {
+        uint64_t addr;
+        __asm__ volatile ("int $0x80"
+            : "=a"(addr)
+            : "0"(197), "D"(0), "S"(size), "d"(3), "c"(0x1002)
+            : "memory");
+        return (void *)(uintptr_t)addr;
+    }
+
+    void _start(void) {
+        int w = info->width, h = info->height;
+        if (!info->buffer || w <= 0 || h <= 0) return;
+
+        uint32_t *local = (uint32_t *)kmalloc(w * h * 4);
+        if (!local) return;
+
+        // preenche de vermelho, óbvio
+        fill32(local, 0x000000FF, w * h);
+
+        // copia pro buffer compartilhado
+        for (int y = 0; y < h; y++) {
+            uint32_t *src = local + y * w;
+            uint32_t *dst = (uint32_t *)info->buffer + y * w;
+            __asm__ volatile ("rep movsl"
+                : "+D"(dst), "+S"(src), "+c"(w) : : "memory");
+        }
+        info->dirty = 1;
+
+        for (;;) {
+            int k = info->pending_key;
+            if (k) { info->pending_key = 0; break; }
+        }
+    }
+
+MAS PRESTA ATENÇÃO: em c, kmalloc devolve endereço do
+pool do buddy allocator (0xA00000-0x49FFFFF). se seu
+buffer cair nessa faixa e vc escrever, VC CORROMPE AS
+PAGE TABLE. é por isso q recomendo zig msm. >_>
+
+─── ✦ ─── SYSCALL DISPONÍVEL ─── ✦ ───
+
+  Número  |  Nome                |  O que faz
+  ────────┼──────────────────────┼────────────────────────
+  1       |  exit                |  mata o processo
+  3       |  read(fd,buf,len)    |  lê do teclado (fd=0)
+  4       |  write(fd,buf,len)   |  escreve no serial
+  73      |  munmap(addr,len)    |  libera memória
+  197     |  mmap(hint,len,prot,flags) | aloca memória
+  198     |  kbhit()             |  tem tecla no buffer?
+  201     |  flush(ptr)          |  (DISP) flipa framebuffer
+  202     |  mouseRead(dx,dy,btn)|  lê mouse
+  209     |  shell_cmd(cmd,out,sz) | executa comando shell
+  211     |  spawn_shared(path)  |  cria processo filho
+
+  pra chamar syscall em zig:
+    asm volatile ("int $0x80"
+        : [out] "={rax}" (ret)
+        : [num] "{rax}" (NUMERO),
+          [a1]  "{rdi}" (arg1),
+          [a2]  "{rsi}" (arg2),
+          [a3]  "{rdx}" (arg3),
+          [a4]  "{rcx}" (arg4),
+        : "memory"
+    );
+
+  registrador: RAX=número, RDI=arg1, RSI=arg2, RDX=arg3,
+  RCX=arg4. retorno vem em RAX, sem segredo.
+
+─── ✦ ─── O SEGREDO DOS BUFFER COMPARTILHADO ─── ✦ ───
+
+DISP usa SYS_spawn_shared (211) pra criar processo filho.
+o kernel:
+  1. clona a pml4 do pai (copia as entrada de 2mb)
+  2. carrega o binário do filho em 0x10000000
+  3. filho HERDA o mapeamento identitário
+
+isso significa q o buffer de pixel (0x6000000) e a página
+de info (0x500000) são visíveis TANTO no DISP quanto no
+filho. os dois enxergam os MESMO endereço.
+
+é tipo o filho ser um clone do DISP, só q com código
+diferente. mágico né? (na real é paginação, mas mágica
+soa mais bonito, kyun~)
+
+─── ✦ ─── ENDEREÇO IMPORTANTE ─── ✦ ───
+
+  0x500000   → página compartilhada WinInfo
+  0x6000000  → buffer de pixel da janela
+  0x70000000 → backbuffer do DISP (mmap)
+  0x10000000 → onde os binário são carregado
+  0xA00000   → início do pool do buddy allocator
+  0x49FFFFF  → fim do pool do buddy allocator
+
+  ╔═══════════════════════════════════════════════════╗
+  ║  CUIDADO: NUNCA aloca buffer q possa cair entre                 ║
+  ║  0xA00000 e 0x49FFFFF e depois escreve nele. se                 ║
+  ║  fizer isso vc sobrescreve as page table q o                            ║
+  ║  kernel alocou ali. usa mmap (syscall 197) q                          ║
+  ║  devolve endereço em 0x70000000+ — seguro e feliz.         ║
+  ║  🌈                                                                                             ║
+  ╚═══════════════════════════════════════════════════╝
+
+─── ✦ ─── DIRETRIZ DE ESTILO DO REINO ─── ✦ ───
+
+  • comentário em português, tom brincalhão msm
+  • variável em inglês (g_foo pra global)
+  • comentário ácido sobre a própria fragilidade do código
+  • ">_<", "~", "kyun~" são bem-vindo
+  • ponteiro solto n é bem-vindo
+  • page fault menos ainda, baka
+
+─── ✦ ─── ARQUIVO DE REFERÊNCIA ─── ✦ ───
+
+  pra ver exemplo real:
+
+  DISP (compositor):
+    ~/repo/disp/src/main.zig
+
+  TERM (terminal em zig):
+    ~/repo/term/src/term.zig
+
+  makefile de referência (DISP):
+    ~/repo/disp/Makefile
+
+  makefile de referência (TERM):
+    ~/repo/term/Makefile
+
+  syscall do DISP:
+    ~/repo/disp/src/syscall.zig
+
+  crt0 (ponto de entrada):
+    ~/repo/TipOS-staging/src/userland/libc/crt0.c
+
+  linker script:
+    ~/repo/TipOS-staging/src/userland/libc/link.ld
+
+─── ✦ ─── CHECKLIST PRA N DAR PAGE FAULT ─── ✦ ───
+
+  [ ] WinInfo tá com os campo na ordem certa?
+  [ ] buffer n cai entre 0xA00000-0x49FFFFF?
+  [ ] usou mmap, n kmalloc?
+  [ ] conta de offset tá dentro do buffer?
+  [ ] ponteiro do buffer n é null?
+  [ ] toda cor é BGRA (0x00BBGGRR)?
+  [ ] dirty = 1 depois de desenhar?
+  [ ] pending_key foi zerado depois de ler?
+  [ ] _start chama main() ou tem código direto?
+  [ ] link.ld tá com .text em 0x10000000?
+
+─── ✦ ─── PROBLEMA COMUM E SOLUÇÃO ─── ✦ ───
+
+  "app n aparece na tela"
+    → dirty = 1? DISP só copia se dirty = 1
+    → buffer é válido? checa info->buffer != null
+
+  "page fault qnd o mouse passa perto"
+    → c kmalloc pode ter devolvido endereço no meio das
+      page table. usa mmap.
+    → tá fora da tela? verifica bound do fillRect
+
+  "teclado n funciona"
+    → DISP bota a tecla em pending_key. seu app tá lendo
+      pending_key? n usa kbhit/read.
+
+  "app crasha na inicialização"
+    → BSS foi zerado? kernel zera, mas confere msm assim
+    → binário é válido? verifica com file
+    → entry point tá certa? _start → main()
+
+  "gcc reclama de tudo"
+    → usa as flag: -ffreestanding -nostdlib -static
+      -fno-PIC -mno-red-zone -mno-mmx -mno-sse
+      -mgeneral-regs-only -nostartfiles -nostdinc
+
+  "zig reclama de @ptrCast"
+    → usa @ptrFromInt(@intFromPtr(x)) pra tirar volatile
+    → usa @as([*]T, @ptrCast(...)) pra mudar tipo
+
+─── ✦ ─── FINALMENTE, KYUN~ ─── ✦ ───
+
+é isso, aprendiz do reino! agora vc sabe criar app pro
+TipOS. n é difícil — só n escreve em memória q n é sua,
+n confia no kmalloc, e lembra de marcar dirty = 1.
+
+se der certo, comemora com café ~
+se der page fault, chora um pouco e tenta dnv ~
+
+boa sorte, baka. >_<
+
+                                                        🌸
+                                         ⋆｡°✩｡⋆
+                          ~~~~~~*~~~~~~~~*~~~~~~~*~~~~~
