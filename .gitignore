@@ -1,0 +1,17 @@
+build/
+*.iso
+*.o
+*.elf
+*.bin
+*.rlib
+*.rmeta
+*.a
+target/
+src/rust/target/
+*.tmp
+*.bak
+temp.*
+*.log
+.DS_Store
+disk.img
+/iso/
