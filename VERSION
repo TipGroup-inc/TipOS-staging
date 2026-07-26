@@ -1,0 +1,8 @@
+v0.7.3.0
+
+Format: v0.STAGE.RELEASE.FEATURE
+  STAGE  = 7 = Ring 3 + proteção de memória + scheduler preemptivo +
+                VESA framebuffer 1024x768 32-bit
+  RELEASE = 3 = boot selector (C/R), integração Rust (no_std, GlobalAlloc,
+                nightly, staticlib linkado no kernel), ATA BSY polling fix
+  FEATURE = 0 = initial feature set
