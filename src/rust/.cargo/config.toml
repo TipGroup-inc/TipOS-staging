@@ -1,0 +1,15 @@
+/* moe moe kyun <3 */
+[build]
+target = "x86_64-unknown-none"
+
+[target.x86_64-unknown-none]
+rustflags = [
+  "-C", "no-redzone=yes",
+  "-C", "target-feature=-mmx,-sse,-sse2,-sse3,-ssse3,-sse4.1,-sse4.2,-avx,-avx2",
+  "-C", "link-arg=-nostartfiles",
+  "-C", "link-arg=-static",
+  "-C", "link-arg=-no-pie",
+]
+
+[unstable]
+build-std = ["core", "alloc"]
