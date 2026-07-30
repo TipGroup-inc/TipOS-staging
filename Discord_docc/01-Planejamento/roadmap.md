@@ -1,5 +1,4 @@
-/* moe moe kyun <3 */
-/* moe moe kyun <3 */
+<!-- moe moe kyun <3 -->
 📍 **ROADMAP — TipOS**
 
 Base do projeto: **OvsbMkM** (kernel 64-bit, monolítico, single-address-space) → evoluindo pra **TipOS** (userland MIT + kernel reorganizado).

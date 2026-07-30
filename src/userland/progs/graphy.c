@@ -3,11 +3,29 @@
 /* ♥ userland ~ programinha de ring 3, longe do kernel!
  * arquivo: graphy.c ~ funcoes anotadas: 23
  */
-/* ~*~ graphy.c ~*~
- * Hihi, olha esse arquivo aqui~ Que lindo, né? >_<
- * Escrito com muito amor (e gambiarras) pela equipe TipOS!
- * Se quebrar, a culpa é sua~ <3
- *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
+ /*~*~ graphy.c ~*~
+  * Hihi, olha esse arquivo aqui~ Que lindo, né? >_<
+  * Escrito com muito amor (e gambiarras) pela equipe TipOS!
+  * Se quebrar, a culpa é sua~ <3
+  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
+
+// ~~ graphy.c ~~
+// Editor de texto estilo "nano" rodando sobre TUI.
+// Operações: inserir, deletar, undo, cut/paste, find/replace,
+// syntax highlight pra C, line numbers, scroll, busca bracket matching.
+//
+// Estrutura de dados: buffer linear com array de line starts (lns[]).
+// O buffer é um char* dinâmico (realloc), as linhas são índices nele.
+// cursor: cx (coluna), cy (linha), co (offset no buffer absoluto~)
+// top: primeira linha visível na janela (scroll vertical)
+//
+// Undo: stack circular de operações (pos, char, tipo/is_ins)
+// Clipboard: clip[] com clip_len (cut/copy/paste entre sessões~)
+//
+// Key bindings (^ = Ctrl):
+//   ^O save, ^X exit, ^G help, ^F find, ^R replace
+//   ^J go line, ^Z undo, ^W cut word, ^Y paste, ^K kill line
+//   ^T swap buffer, ^C command mode, F2 toggle line numbers
 
 #include <tui.h>
 #include <stdio.h>
@@ -21,6 +39,18 @@
 #define COLS     80
 #define TABW     4
 
+// ~~ Estado global do editor ~~
+// buf: buffer de texto (char* dinâmico)
+// cap/sz: capacidade e tamanho atual do buffer
+// lns[]: offsets de início de cada linha (array de int)
+// nlns: número de linhas
+// cx/cy/co: cursor (coluna, linha, offset absoluto)
+// top: primeira linha visível na janela
+// fname: nome do arquivo atual
+// mod: dirty flag (precisa salvar?)
+// overwrite: modo overwrite (vs insert)
+// msg/msg_age: mensagem na barra de status
+// show_help/show_linenos: flags de UI
 static char *buf;
 static int  cap, sz;
 static int  lns[MAXLNS], nlns;

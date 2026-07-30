@@ -1,8 +1,8 @@
-/* moe moe kyun <3 */
-/* moe moe kyun <3 */
 #!/bin/bash
-# cc-host: compila arquivos .c do TipOS para Mach-O
-#
+# moe moe kyun <3
+# cc-host: compilador cross que transforma .c do TipOS em Mach-O 64-bit.
+# Extrai o fonte do disk.img via mcopy, compila com toolchain freestanding,
+# empacota com macho_pack.py, e copia de volta pro disco.
 # Uso: ./cc-host.sh <nome_sem_extensao>
 # Ex: ./cc-host.sh hello   (compila /SRC/HELLO.C → /BIN/HELLO.MACHO)
 

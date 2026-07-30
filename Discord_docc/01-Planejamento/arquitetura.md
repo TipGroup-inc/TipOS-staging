@@ -1,5 +1,4 @@
-/* moe moe kyun <3 */
-/* moe moe kyun <3 */
+<!-- moe moe kyun <3 -->
 🏗️ **ARQUITETURA — TipOS**
 
 **Base:** OvsbMkM — x86-64, long mode, ring 0, GRUB/Multiboot2, **single-address-space** (kernel e userland compartilham o mesmo espaço de endereçamento — ainda não há ring 3 nem proteção de página).

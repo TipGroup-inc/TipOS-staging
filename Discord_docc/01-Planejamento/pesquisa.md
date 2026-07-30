@@ -1,5 +1,4 @@
-/* moe moe kyun <3 */
-/* moe moe kyun <3 */
+<!-- moe moe kyun <3 -->
 🔬 **PESQUISA & REFERÊNCIAS — TipOS**
 
 Material de estudo pra consultar antes de implementar qualquer feature nova. (Fonte: `tipos-dev-stack.md`, seção 7)

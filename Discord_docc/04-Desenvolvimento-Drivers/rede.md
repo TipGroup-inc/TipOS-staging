@@ -1,5 +1,4 @@
-/* moe moe kyun <3 */
-/* moe moe kyun <3 */
+<!-- moe moe kyun <3 -->
 🌐 **REDE — TipOS**
 
 **Status atual: não existe.** Nenhum driver de rede implementado ainda. Feature de fase avançada (Fase 4 do roadmap em equipe, 4 semanas estimadas).

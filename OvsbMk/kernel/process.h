@@ -54,6 +54,7 @@ typedef struct pcb {
     uint64_t heap_start;
     struct vm_map *vm_map;
     struct vmspace *vmspace;
+    uint64_t fs_base;
 } pcb_t;
 
 extern pcb_t pcb_table[MAX_PROC];

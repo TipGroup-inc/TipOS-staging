@@ -1,5 +1,6 @@
-/* moe moe kyun <3 */
-/* moe moe kyun <3 */
+# moe moe kyun <3
+# Config do Cargo pro target freestanding x86_64-unknown-none.
+# Desativa SIMD, red-zone, PIE. build-std = ["core", "alloc"].
 [build]
 target = "x86_64-unknown-none"
 

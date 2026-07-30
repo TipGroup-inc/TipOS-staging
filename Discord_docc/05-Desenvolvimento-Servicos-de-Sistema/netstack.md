@@ -1,5 +1,4 @@
-/* moe moe kyun <3 */
-/* moe moe kyun <3 */
+<!-- moe moe kyun <3 -->
 🌐 **NETSTACK — TipOS**
 
 **Status atual: não existe.** Companion do canal #rede (pasta Drivers) — aqui é a discussão de arquitetura da stack **como serviço isolado**, lá é sobre os drivers de placa de rede em si.

@@ -1,5 +1,4 @@
-/* moe moe kyun <3 */
-/* moe moe kyun <3 */
+<!-- moe moe kyun <3 -->
 💾 **ARMAZENAMENTO — TipOS**
 
 **Driver ATA PIO — já implementado** (`OvsbMkM/src/drivers/ata.c`):

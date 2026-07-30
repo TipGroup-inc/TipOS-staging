@@ -1,8 +1,8 @@
-/* moe moe kyun <3 */
-/* moe moe kyun <3 */
 #!/usr/bin/env bash
-# Setup e commits organizados para o repo TipOS-staging (tipos)
-# Roda LOCALMENTE na sua máquina, dentro da pasta "tipos" já extraída do zip.
+# moe moe kyun <3
+# Script de setup automatizado que prepara o repositório TipOS-staging
+# com commits organizados por subsistema. Roda LOCALMENTE na sua máquina,
+# dentro da pasta "tipos" já extraída do zip. NUNCA cole token no script, ok?
 set -e
 
 # 1) Configure seu token como variável de ambiente (NUNCA cole o token direto no script)

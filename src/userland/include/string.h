@@ -12,20 +12,32 @@
 #ifndef STRING_H
 #define STRING_H
 
-int strlen(const char *s);
-int strcmp(const char *a, const char *b);
-int strncmp(const char *a, const char *b, int n);
-char *strcpy(char *dst, const char *src);
-char *strncpy(char *dst, const char *src, int n);
-char *strcat(char *dst, const char *src);
-char *strchr(const char *s, int c);
-char *strrchr(const char *s, int c);
-char *strstr(const char *haystack, const char *needle);
-char *strtok(char *str, const char *delim);
-void *memset(void *s, int c, int n);
-void *memcpy(void *dst, const void *src, int n);
-void *memmove(void *dst, const void *src, int n);
-char *strdup(const char *s);
+// ~~ string.h ~~ Operações de string e memória~
+// Tudo que você precisa pra brincar com bytes~
+
+// ── Comprimento e comparação ───────────────────────────────
+int strlen(const char *s);                    // Tamanho da string (até o \0~)
+int strcmp(const char *a, const char *b);     // Compara duas strings (0 = iguais)
+int strncmp(const char *a, const char *b, int n); // Compara até n caracteres
+
+// ── Cópia e concatenação ──────────────────────────────────
+char *strcpy(char *dst, const char *src);     // Copia src pra dst (sem frescura~)
+char *strncpy(char *dst, const char *src, int n); // Copia no máximo n chars
+char *strcat(char *dst, const char *src);     // Concatena src no fim de dst
+
+// ── Busca ──────────────────────────────────────────────────
+char *strchr(const char *s, int c);           // Procura c em s (primeira ocorrência~)
+char *strrchr(const char *s, int c);          // Procura c em s (última ocorrência~)
+char *strstr(const char *haystack, const char *needle); // Procura substring (agulha no palheiro~)
+char *strtok(char *str, const char *delim);   // Tokeniza string (estado global!)
+
+// ── Manipulação de memória ─────────────────────────────────
+void *memset(void *s, int c, int n);          // Preenche n bytes com c
+void *memcpy(void *dst, const void *src, int n); // Copia n bytes (não overlapping!)
+void *memmove(void *dst, const void *src, int n); // Copia n bytes (seguro pra overlap~)
+
+// ── Duplicação ─────────────────────────────────────────────
+char *strdup(const char *s);                  // Duplica string (malloc interna~)
 
 #endif
 

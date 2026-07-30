@@ -1,5 +1,4 @@
-/* moe moe kyun <3 */
-/* moe moe kyun <3 */
+<!-- moe moe kyun <3 -->
 # TipOS
 
 Sistema operacional com kernel OvsbMkM (ring 3, VESA, OWT), libc própria,

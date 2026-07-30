@@ -12,15 +12,25 @@
 #ifndef STDLIB_H
 #define STDLIB_H
 
-int atoi(const char *s);
-char *itoa(int n, char *buf);
-void *malloc(int n);
-void *calloc(int n, int size);
-void *realloc(void *p, int n);
-void free(void *p);
-void *mmap(void *addr, int length, int prot, int flags);
-int munmap(void *addr, int length);
-void exit(int code);
+// ~~ stdlib.h ~~ Funções utilitárias padrão~
+// Aqui tem alocação, conversão e término de processo
+
+// ── Conversão de strings ───────────────────────────────────
+int atoi(const char *s);            // String → int ("42" vira 42, óbvio~)
+char *itoa(int n, char *buf);       // Int → string (o contrário do atoi~)
+
+// ── Alocação de memória ────────────────────────────────────
+void *malloc(int n);                // Aloca n bytes (ou NULL se sem memória~)
+void *calloc(int n, int size);      // Aloca + zera (n * size bytes nil)
+void *realloc(void *p, int n);      // Realoca (copia se precisar crescer~)
+void free(void *p);                 // Libera (não esquece de chamar, hein!)
+
+// ── Mapeamento de memória ──────────────────────────────────
+void *mmap(void *addr, int length, int prot, int flags);  // Mapeia páginas
+int munmap(void *addr, int length);  // Desmapeia páginas (limpeza~)
+
+// ── Término ────────────────────────────────────────────────
+void exit(int code);                 // Sai do processo (tchau tchau~)
 
 #endif
 

@@ -1,5 +1,4 @@
-/* moe moe kyun <3 */
-/* moe moe kyun <3 */
+<!-- moe moe kyun <3 -->
 # Tutorial: fazendo programas pro TipOS
 
 Este tutorial cobre como escrever, compilar e rodar programas no

@@ -3,11 +3,30 @@
 /* ♥ userland ~ programinha de ring 3, longe do kernel!
  * arquivo: tui.c ~ funcoes anotadas: 37
  */
-/* ~*~ tui.c ~*~
- * Hihi, olha esse arquivo aqui~ Que lindo, né? >_<
- * Escrito com muito amor (e gambiarras) pela equipe TipOS!
- * Se quebrar, a culpa é sua~ <3
- *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
+ /*~*~ tui.c ~*~
+  * Hihi, olha esse arquivo aqui~ Que lindo, né? >_<
+  * Escrito com muito amor (e gambiarras) pela equipe TipOS!
+  * Se quebrar, a culpa é sua~ <3
+  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
+
+// ~~ tui.c ~~
+// Terminal UI — biblioteca de interface de usuário no terminal.
+// Implementa um sistema de janelas sobre ANSI escape codes.
+// Usa double-buffering: composite buffer (o que deve aparecer) vs
+// phys buffer (o que já está no terminal), só envia diferenças~
+// 
+// Arquitetura:
+//   tui_t: contexto da tela (dimensões, janelas, buffers)
+//   tui_win_t: janela individual (posição, conteúdo, cursor, scroll)
+//   composite(): desenha janelas em ordem no composite buffer
+//   tui_refresh(): diff composite vs phys, envia ANSI codes
+//
+// ANSI sequences usadas:
+//   \x1b[y;xH — cursor goto
+//   \x1b[ATTRm — set attribute (fg/bg/bold)
+//   \x1b[K — clear to end of line
+//   \x1b[2J — clear screen
+//   \x1b[?25l — hide cursor, \x1b[?25h — show cursor
 
 #include <tui.h>
 #include <stdio.h>

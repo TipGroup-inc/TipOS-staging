@@ -3,6 +3,15 @@
 /* ♥ userland ~ programinha de ring 3, longe do kernel!
  * arquivo: stdio.c ~ funcoes anotadas: 30
  */
+
+// ~~ stdio.c ~~ Libc: entrada e saída padrão~
+// Implementa tudo via int 0x80 (syscall). Sem bufferização complexa,
+// sem FILE* mágico - só o fd e fé~ ♡
+//
+// Syscalls usados:
+//   read(3), write(4), open(5), close(6), lseek(199)
+//   stat(188), fstat(189), kbhit(198), mkdir(136), rmdir(137)
+
 /* ~*~ stdio.c ~*~
  * Hihi, olha esse arquivo aqui~ Que lindo, né? >_<
  * Escrito com muito amor (e gambiarras) pela equipe TipOS!
@@ -19,6 +28,11 @@ FILE __stdin_file  = { .fd = 0 };
 FILE __stdout_file = { .fd = 1 };
 FILE __stderr_file = { .fd = 2 };
 
+// ~~ _syscall ~~
+// Chamada de syscall via int 0x80 (Linux-style).
+// num = número do syscall (traduzido pelo kernel~)
+// a1-a4 = argumentos em rdi, rsi, rdx, rcx
+// retorno em rax. Usa constraint "=a" pra pegar o resultado~ ☆
 /* ~ essa demorou pra debugar, respeita ~ */
 static long _syscall(long num, long a1, long a2, long a3, long a4) {
     long ret;
@@ -31,12 +45,18 @@ static long _syscall(long num, long a1, long a2, long a3, long a4) {
     return ret;
 }
 
+// ~~ open ~~
+// Syscall open(2): abre arquivo no path com flags.
+// Traduzido pelo kernel: nosso syscall 5 = TipOS open~
 /* ~~ open ~~ */
 /* ~ simples mas essencial, n mexe sem saber oq ta fazendo */
 int open(const char *path, int flags) {
     return _syscall(5, (long)path, flags, 0, 0);
 }
 
+// ~~ close ~~
+// System call close(2): libera o file descriptor.
+// Importante chamar pra não vazar fd~ (recursos são finitos!)
 /* ~~ close ~~ */
 /* ~ essa funcao aqui e a mais importante, presta atencao baka! */
 int close(int fd) {

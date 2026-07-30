@@ -9,8 +9,10 @@
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
-
-
-
+// ~~ log.c ~~
+// [TODO] Sistema de logging do Dock.
+// Quando implementado, vai ter níveis (DEBUG, INFO, WARN, ERROR),
+// saída pra serial/console, e formatação bonitinha~
+// Por enquanto, calado~ shhh~
 
 /* ♥ log.c ~ feito com carinho (e uma raiva controlada) ~ kyun! */

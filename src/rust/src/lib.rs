@@ -8,16 +8,27 @@
 // Se o borrow checker reclamar, joga a culpa no ferris~ <3
 // ~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~
 
+// ~~ Atrubutos do crate ~~
+// no_std: sem stdlib (kernel mode, não tem libc~)
+// no_main: sem main, entry point é rust_entry
+// alloc_error_handler: handler customizado pra erro de alocação
 #![no_std]
 #![no_main]
 #![feature(alloc_error_handler)]
 
+// ~~ Módulos internos ~~
+// ffi: ligação com as funções C do kernel (serial_puts, etc)
+// allocator: alocador de memória Rust (wrappa kmalloc/kfree)
 mod ffi;
 mod allocator;
 
 use core::panic::PanicInfo;
 use core::alloc::GlobalAlloc;
 
+// ~~ panic_handler ~~
+// Handler de pânico do Rust. Se algo der muito errado (unwrap, index out of
+// bounds, etc), isso é chamado. Mostra a mensagem na serial e entra em loop
+// infinito com HLT (porque travar é melhor que corromper~)
 #[panic_handler]
 // ~~ panic ~~ será que compila? >_<
 // ~ simples mas essencial, n mexe sem saber oq ta fazendo
@@ -37,9 +48,11 @@ fn panic(info: &PanicInfo) -> ! {
     }
 }
 
+// ~~ alloc_error_handler ~~
+// Chamado quando o alocador global (TiposAllocator) não consegue alocar
+// memória. Mostra erro na serial e entra em HLT loop.
+// Melhor que um NULL pointer dereference~ ☆
 #[alloc_error_handler]
-// ~~ alloc_error ~~ será que compila? >_<
-// ~ kyun~ mais uma funcao pra fazer o kernel n morrer
 fn alloc_error(_layout: core::alloc::Layout) -> ! {
     unsafe {
         ffi::rust_serial_puts("[RUST ALLOC ERROR] ");
@@ -50,7 +63,12 @@ fn alloc_error(_layout: core::alloc::Layout) -> ! {
 }
 
 #[no_mangle]
-// ~ essa funcao aqui e a mais importante, presta atencao baka!
+// ~~ rust_entry ~~
+// Ponto de entrada do módulo Rust! Chamado pelo kernel depois de
+// inicializar o alocador. Testa a alocação: aloca um u64, escreve
+// 0xDEADBEEF nele, lê de volta, e verifica se o valor é o mesmo.
+// Se passar, mostra "[Rust] alloc test: OK" na serial.
+// É o "Hello World" dos sistemas operacionais~ ☆
 pub extern "C" fn rust_entry() {
     unsafe {
         ffi::rust_serial_puts("[Rust] memory manager active\n");

@@ -9,8 +9,10 @@
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
-
-
-
+// ~~ manifest.c ~~
+// [TODO] Processador de manifests do Dock.
+// Manifests são arquivos de descrição de aplicações (tipo package.json
+// mas sem o drama~). Vai parsear metadados, dependências e pontos de entrada.
+// Quando ficar pronto, vai ser ~m-a-r-a-v-i-l-h-o-s-o~!
 
 /* ♥ manifest.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */

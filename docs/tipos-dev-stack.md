@@ -1,5 +1,4 @@
-/* moe moe kyun <3 */
-/* moe moe kyun <3 */
+<!-- moe moe kyun <3 -->
 # TipOS — Fluxo de Desenvolvimento & Stack
 
 ---

@@ -9,8 +9,9 @@
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
-
-
-
+// ~~ lifecycle.c ~~
+// [TODO] Gerenciador de ciclo de vida de aplicações do Dock.
+// Vai cuidar de init, start, stop, restart dos módulos carregados.
+// Tipo um systemd mas mais fofo e menos odiado~ ☆
 
 /* ♥ lifecycle.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */

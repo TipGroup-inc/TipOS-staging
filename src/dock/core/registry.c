@@ -11,7 +11,10 @@
 
 #include "dock.h"
 
-
-
+// ~~ registry.c ~~
+// [TODO] Registro de aplicações e serviços do Dock.
+// Aqui vai manter um catálogo de manifests conhecidos,
+// resolvedor de dependências e cache de módulos carregados.
+// No momento é só um esqueleto (mas um esqueleto BONITO~)
 
 /* ♥ registry.c ~ feito com carinho (e uma raiva controlada) ~ kyun! */

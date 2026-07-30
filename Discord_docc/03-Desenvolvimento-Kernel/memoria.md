@@ -1,5 +1,4 @@
-/* moe moe kyun <3 */
-/* moe moe kyun <3 */
+<!-- moe moe kyun <3 -->
 🧠 **MEMÓRIA — TipOS**
 
 **Arquivo:** `OvsbMkM/src/kernel/memory.c` (83 linhas)

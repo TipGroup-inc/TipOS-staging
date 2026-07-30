@@ -1,4 +1,5 @@
-/* moe moe kyun <3 */
+# moe moe kyun <3
+# Coisas do kernel OvsbMk que o git n precisa ver (build artifacts, ISOs, logs)
 build/
 *.o
 *.bin

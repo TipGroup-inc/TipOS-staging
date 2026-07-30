@@ -1,5 +1,4 @@
-/* moe moe kyun <3 */
-/* moe moe kyun <3 */
+<!-- moe moe kyun <3 -->
 ⚙️ **BOOTLOADER — TipOS**
 
 **Arquivo:** `OvsbMkM/src/kernel/boot64.asm` (87 linhas) + `linker.ld` (31 linhas)

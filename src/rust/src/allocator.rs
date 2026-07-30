@@ -11,6 +11,9 @@
 use core::alloc::{GlobalAlloc, Layout};
 use core::sync::atomic::{AtomicBool, Ordering};
 
+// ~~ FFI de alocação ~~
+// Ligações pra funções de alocação do kernel (kmalloc/kfree).
+// São escritas em Zig, mas Rust chama via C ABI (todo mundo se entende~)
 extern "C" {
     // ~~ kmalloc ~~ será que compila? >_<
 // ~ cuidado que essa aqui morde ~
@@ -20,7 +23,11 @@ extern "C" {
     fn kfree(ptr: *mut u8);
 }
 
-// ~~ struct TiposAllocator ~~ cheia de campos!
+// ~~ TiposAllocator ~~
+// Alocador global do Rust que delega pro kmalloc/kfree do kernel.
+// Implementa GlobalAlloc (trait do Rust), então Vec, Box, String etc
+// funcionam sem medo~ (mas não testa com sized types, hein~)
+// O Layout::size é arredondado pra no mínimo 8 porque kmalloc é exigente~ ☆
 pub struct TiposAllocator;
 
 unsafe impl GlobalAlloc for TiposAllocator {

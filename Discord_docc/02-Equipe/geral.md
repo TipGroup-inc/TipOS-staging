@@ -1,5 +1,4 @@
-/* moe moe kyun <3 */
-/* moe moe kyun <3 */
+<!-- moe moe kyun <3 -->
 👋 **Bem-vindos ao servidor do TipOS!**
 
 TipOS é um sistema operacional minimalista (x86-64, TUI-first) construído sobre o kernel **OvsbMkM**, com userland próprio em MIT.

@@ -5,11 +5,32 @@
 # ~*~ macho_pack.py ~*~
 # Hihi, Pythonzinho ~ que fofo!
 # Se rodar sem erro, pode comemorar~ >_<
-# ~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*
+# ~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~
+
+# ~~ macho_pack.py ~~
+# Empacota flat binary em um executável Mach-O 64-bit minimal.
+# O kernel TipOS carrega Mach-O, então precisamos converter nossos
+# flat binaries (extraídos via objcopy) pro formato que ele entende~
+#
+# Layout do Mach-O gerado:
+#   [ Mach-O Header (32 bytes) ]
+#   [ __TEXT Segment Command (72 bytes) ]
+#   [ LC_MAIN Command (24 bytes) ]
+#   [ Código bruto ]
+#
+# O __TEXT segment mapeia o código em 0x10000000 (mesmo base do link.ld~)
+# LC_MAIN define o entry offset dentro do código (entry = 0x10000000 + offset)
 
 import struct
 import sys
 
+# ~~ Constantes Mach-O ~~
+# MH_MAGIC_64 = 0xFEEDFACF (little-endian, sim, ao contrário do que parece~)
+# CPU_TYPE_X86_64 = 0x01000007 (arch x86_64, claro~)
+# CPU_SUBTYPE_X86_64 = 0x80000003 (subtype com capabilitiy bit)
+# MH_EXECUTE = 2 (tipo: executável padrão)
+# LC_SEGMENT_64 = 0x19 (load command de segmento)
+# LC_MAIN = 0x80000028 (load command que define entry point)
 MH_MAGIC_64 = 0xFEEDFACF
 CPU_TYPE_X86_64 = 0x01000007
 CPU_SUBTYPE_X86_64 = 0x80000003

@@ -1,4 +1,5 @@
-/* moe moe kyun <3 */
+# moe moe kyun <3
+# Nossa listinha de arquivos que o git ignora, pra n sujar o repo com artefatos de build
 build/
 *.iso
 *.o

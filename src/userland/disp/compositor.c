@@ -17,6 +17,10 @@
 
 #include <stdint.h>
 
+// ~~ Constantes do compositor ~~
+// MAX_WINDOWS = 8 janelas simultâneas (quem precisa de mais?~)
+// SCREEN_W/H = 320x200 (modo VGA 13h, clássico~)
+// TITLE_H = 12 pixels de altura da barra de título
 #define MAX_WINDOWS 8
 #define SCREEN_W 320
 #define SCREEN_H 200
@@ -26,6 +30,11 @@ extern void vga_gfx_putpixel(int x, int y, uint8_t color);
 extern void vga_gfx_fillrect(int x, int y, int w, int h, uint8_t color);
 extern void vga_gfx_clear(uint8_t color);
 
+// ~~ window_t ~~
+// Estrutura de janela: posição (x, y), tamanho (w, h),
+// foco (focused = 0/1), título (até 31 chars + null),
+// e flag dirty (precisa redesenhar?~)
+// Dirty é tipo "marquei pq mudei algo, renderiza logo~"
 typedef struct {
     int x, y, w, h;
     uint8_t focused;
@@ -40,6 +49,11 @@ static int mouse_x = SCREEN_W / 2, mouse_y = SCREEN_H / 2;
 
 /* ~~ Criando coisa nova~~ que emocionante! */
 /* ~ kyun~ mais uma funcao pra fazer o kernel n morrer */
+// ~~ disp_create_window ~~
+// Cria uma nova janela nas coordenadas (x, y) com tamanho (w, h).
+// Se o limite MAX_WINDOWS for atingido, retorna -1 (não cabe, desculpa~)
+// A janela criada ganha foco automaticamente (sou a única, a especial~)
+// Retorna o índice da janela ou -1 em erro.
 int disp_create_window(int x, int y, int w, int h, const char *title) {
     if (win_count >= MAX_WINDOWS) return -1;
     window_t *w2 = &windows[win_count];
@@ -56,6 +70,10 @@ int disp_create_window(int x, int y, int w, int h, const char *title) {
 
 /* ~~ disp_update_mouse ~~ */
 /* ~ simples mas essencial, n mexe sem saber oq ta fazendo */
+// ~~ disp_update_mouse ~~
+// Atualiza a posição do cursor do mouse por delta (dx, dy).
+// O cursor fica preso dentro dos limites da tela (0..SCREEN_W, 0..SCREEN_H)
+// porque fugir da tela é feio~ >_<
 void disp_update_mouse(int dx, int dy) {
     mouse_x += dx;
     mouse_y += dy;
@@ -66,6 +84,11 @@ void disp_update_mouse(int dx, int dy) {
 }
 
 /* ~ essa funcao aqui e a mais importante, presta atencao baka! */
+// ~~ draw_titlebar ~~
+// Desenha a barra de título de uma janela.
+// Cor de fundo: 0x17 (azul) se focada, 0x08 (cinza escuro) se não.
+// Texto do título em branco (0x0F) no topo, linha separadora embaixo.
+// É tipo maquiagem — deixa a janela apresentável~ ☆
 static void draw_titlebar(window_t *w) {
     uint8_t bg = w->focused ? 0x17 : 0x08;
     int i = 0;
@@ -77,6 +100,10 @@ static void draw_titlebar(window_t *w) {
 
 /* ~~ disp_render ~~ */
 /* ~ simples mas essencial, n mexe sem saber oq ta fazendo */
+// ~~ disp_render ~~
+// Renderiza a tela inteira! Limpa o fundo (azul 0x01), desenha as janelas
+// (só as dirty ou a focada, pra economizar), e desenha o cursor do mouse
+// como uma cruz branca com centro preto (estiloso~)
 void disp_render(void) {
     vga_gfx_clear(0x01);
     for (int i = 0; i < win_count; i++) {
@@ -93,6 +120,10 @@ void disp_render(void) {
 
 /* ~~ Inicializando~~ torce pra não dar panic! */
 /* ~ simples mas essencial, n mexe sem saber oq ta fazendo */
+// ~~ disp_init ~~
+// Inicializa o compositor: zera a contagem de janelas e cria uma janela
+// padrão "Terminal" no centro~ (10, 10, 200x140) porque ninguém merece
+// tela preta sem nada~ >_<
 void disp_init(void) {
     win_count = 0;
     disp_create_window(10, 10, 200, 140, "Terminal");

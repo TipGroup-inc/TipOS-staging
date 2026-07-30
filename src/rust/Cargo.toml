@@ -1,5 +1,6 @@
-/* moe moe kyun <3 */
-/* moe moe kyun <3 */
+# moe moe kyun <3
+# Cargo.toml da crate Rust do kernel TipOS. Compila como staticlib (.a)
+# pra linkar direto no kernel.elf. Sem std, só core + alloc.
 [package]
 name = "tipos-rust"
 version = "0.1.0"

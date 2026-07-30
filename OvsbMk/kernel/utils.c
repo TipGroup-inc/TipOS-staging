@@ -21,6 +21,8 @@ int strlen(const char *s) { int n = 0; while (s[n]) n++; return n; }
 char *strcpy(char *d, const char *s) { char *r = d; while ((*d++ = *s++)); return r; }
 char *strncpy(char *d, const char *s, int n) { char *r = d; while (n-- > 0 && (*d++ = *s++)); while (n-- > 0) *d++ = 0; return r; }
 void *memset(void *s, int c, int n) { for (int i = 0; i < n; i++) ((uint8_t*)s)[i] = c; return s; }
+void *memcpy(void *d, const void *s, int n) { for (int i = 0; i < n; i++) ((uint8_t*)d)[i] = ((uint8_t*)s)[i]; return d; }
+void *memmove(void *d, const void *s, int n) { return memcpy(d, s, n); }
 
 /* ♥ utils.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
 

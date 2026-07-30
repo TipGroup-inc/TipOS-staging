@@ -136,6 +136,7 @@ int process_create_user(const char *name, void *entry, void *user_stack, uint64_
     pcb->heap_start = 0x201000;
     pcb->vm_map = (struct vm_map *)kmalloc(sizeof(struct vm_map));
     if (pcb->vm_map) vm_map_init((vm_map_t *)pcb->vm_map, 0x10000, 0x7FFFF000ULL);
+    pcb->fs_base = 0;
 
     setup_user_stack(pcb, entry, user_stack, user_stack_size);
     return pcb->pid;
@@ -173,6 +174,7 @@ int proc_spawn(const char *name, void *entry, void *user_stack_top) {
     p->heap_start = 0x201000;
     p->vm_map = (struct vm_map *)kmalloc(sizeof(struct vm_map));
     if (p->vm_map) vm_map_init((vm_map_t *)p->vm_map, 0x10000, 0x7FFFF000ULL);
+    p->fs_base = 0;
 
     // proc_spawn nao usa alloc_pcb(), entao precisamos
     // atualizar pcb_count manualmente senao process_current()

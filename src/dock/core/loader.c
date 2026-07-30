@@ -9,8 +9,10 @@
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
-
-
-
+// ~~ loader.c ~~
+// [TODO] Carregador de módulos do Dock.
+// Futuramente vai carregar binários Mach-O/ELF na memória,
+// resolver dependências e inicializar módulos dinamicamente.
+// Um dia chego lá~ ☆
 
 /* ♥ loader.c ~ feito com carinho (e uma raiva controlada) ~ kyun! */

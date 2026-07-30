@@ -1,5 +1,4 @@
-/* moe moe kyun <3 */
-/* moe moe kyun <3 */
+<!-- moe moe kyun <3 -->
 🔌 **USB — TipOS**
 
 **Status atual: não existe.** Feature de fase avançada (Fase 4 do roadmap em equipe, junto com input, 4-6 semanas estimadas).

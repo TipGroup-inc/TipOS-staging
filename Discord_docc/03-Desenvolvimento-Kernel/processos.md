@@ -1,5 +1,4 @@
-/* moe moe kyun <3 */
-/* moe moe kyun <3 */
+<!-- moe moe kyun <3 -->
 🧩 **PROCESSOS — TipOS**
 
 **Status atual: ainda não existe.** O TipOS hoje é **single-address-space**, sem PCB, sem scheduler, sem isolamento entre processos — kernel e userland rodam tudo em ring 0, compartilhando o mesmo espaço de memória.
