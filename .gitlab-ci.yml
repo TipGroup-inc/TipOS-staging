@@ -1,0 +1,68 @@
+/* moe moe kyun <3 */
+stages:
+  - build
+  - test
+  - deploy
+
+variables:
+  GIT_SUBMODULE_STRATEGY: none
+
+before_script:
+  - apt-get update -qq && apt-get install -y -qq make nasm grub-pc-bin xorriso 2>&1 | tail -3
+
+build-kernel:
+  stage: build
+  image: gcc:latest
+  script:
+    - cd OvsbMkM
+    - make clean
+    - make all
+  artifacts:
+    paths:
+      - OvsbMkM/build/kernel.elf
+    expire_in: 1 week
+
+build-iso:
+  stage: build
+  image: gcc:latest
+  needs:
+    - build-kernel
+  script:
+    - cd OvsbMkM
+    - make iso
+  artifacts:
+    paths:
+      - OvsbMkM/OvsbMkM.iso
+    expire_in: 1 week
+
+build-userland:
+  stage: build
+  image: gcc:latest
+  script:
+    - cd src/userland
+    - make all
+  artifacts:
+    paths:
+      - src/userland/build/
+    expire_in: 1 week
+
+test-kernel:
+  stage: test
+  image: alpine:latest
+  needs:
+    - build-kernel
+  script:
+    - ls -la OvsbMkM/build/kernel.elf
+    - file OvsbMkM/build/kernel.elf | grep -q ELF && echo "Kernel ELF OK" || (echo "Not an ELF!"; exit 1)
+
+pages:
+  stage: deploy
+  image: alpine:latest
+  script:
+    - mkdir -p public
+    - cp OvsbMkM/README.md public/ || true
+  artifacts:
+    paths:
+      - public
+  only:
+    - main

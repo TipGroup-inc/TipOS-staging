@@ -1,4 +1,5 @@
 /* moe moe kyun <3 */
+/* moe moe kyun <3 */
 # TipOS — Organização do Código & Equipes
 
 Baseado no OvsbMkM (https://github.com/Bugsappetit-inc/OvsbMkM) — microkernel 64-bit com terminal VGA, driver PS/2, IDT/PIC, syscalls XNU, carregador Mach-O, SMC/NVRAM mock.

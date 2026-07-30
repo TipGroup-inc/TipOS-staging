@@ -1,4 +1,5 @@
 /* moe moe kyun <3 */
+/* moe moe kyun <3 */
 /* ♥ window manager ~ quem manda nas janelinha aqui sou eu!
  * arquivo: wm.h ~ funcoes anotadas: 0
  */

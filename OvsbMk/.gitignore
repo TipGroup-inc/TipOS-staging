@@ -1,0 +1,13 @@
+/* moe moe kyun <3 */
+build/
+*.o
+*.bin
+kernel.elf
+OvsbMkM.iso
+.tmp*
+
+disk.img
+*.bak
+*.bak[0-9]
+qemu.log
+mnt/

@@ -1,4 +1,5 @@
 /* moe moe kyun <3 */
+/* moe moe kyun <3 */
 /* ♥ gui/vesa ~ pixel by pixel, sem pressa, kyun~
  * arquivo: vesa.c ~ funcoes anotadas: 12
  */

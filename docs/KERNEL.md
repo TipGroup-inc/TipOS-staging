@@ -1,4 +1,5 @@
 /* moe moe kyun <3 */
+/* moe moe kyun <3 */
 # TipOS Kernel — Documentação Completa
 
 > **Nível:** Bizarro. Até uma pedra consegue continuar o desenvolvimento.

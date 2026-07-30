@@ -1,4 +1,5 @@
 /* moe moe kyun <3 */
+/* moe moe kyun <3 */
 ❓ **DÚVIDAS — TipOS**
 
 Formato sugerido pra perguntas técnicas:

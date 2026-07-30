@@ -1,4 +1,5 @@
 /* moe moe kyun <3 */
+/* moe moe kyun <3 */
 ⌨️ **ENTRADA — TipOS**
 
 **Teclado PS/2 — já implementado** (`keyboard.c` + `keyboard_asm.asm`):

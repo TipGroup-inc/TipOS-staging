@@ -1,4 +1,5 @@
 /* moe moe kyun <3 */
+/* moe moe kyun <3 */
 🐚 **SHELL — TipOS**
 
 **Prompt:** `MkM> ` — roda inline no kernel (`shell_loop()`, `kernel.c`), ainda não é um processo separado.

@@ -1,4 +1,5 @@
 /* moe moe kyun <3 */
+/* moe moe kyun <3 */
 /* ♥ filesystem ~ onde os byte moram organizadinho (ou n) ~
  * arquivo: fat32.c ~ funcoes anotadas: 26
  */

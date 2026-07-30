@@ -1,4 +1,5 @@
 /* moe moe kyun <3 */
+/* moe moe kyun <3 */
 🎚️ **AUDIO SERVER — TipOS**
 
 **Status atual: não existe.** Companion do canal #audio (pasta Drivers) — aqui é a discussão do servidor em si, lá é sobre o driver HDA.

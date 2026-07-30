@@ -1,4 +1,5 @@
 /* moe moe kyun <3 */
+/* moe moe kyun <3 */
 # TipOS — Plano de Desenvolvimento
 
 Base: OvsbMkM (https://github.com/Bugsappetit-inc/OvsbMkM) — kernel 64-bit com boot, IDT, PS/2, VGA, syscalls XNU, Mach-O.

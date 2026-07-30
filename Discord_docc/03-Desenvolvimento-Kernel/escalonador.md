@@ -1,4 +1,5 @@
 /* moe moe kyun <3 */
+/* moe moe kyun <3 */
 ⏱️ **ESCALONADOR — TipOS**
 
 **Status atual: não existe.** O TipOS hoje não tem múltiplos processos rodando concorrentemente — é um kernel monolítico com um único fluxo de execução (shell + o que ele chama).

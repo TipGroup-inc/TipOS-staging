@@ -1,4 +1,5 @@
 /* moe moe kyun <3 */
+/* moe moe kyun <3 */
 /* ♥ OWT widget ~ toolkit bonitinho pra desenhar coisa na tela!
  * arquivo: owt_draw.c ~ funcoes anotadas: 4
  */

@@ -1,4 +1,5 @@
 /* moe moe kyun <3 */
+/* moe moe kyun <3 */
 📁 **VFS — TipOS**
 
 **Status atual: não existe como camada separada.** Hoje o acesso a arquivo é **direto ao FAT32** — `fat32_read_file`, `fat32_write_file`, etc. são chamadas diretamente pelas syscalls (`open`, `read`, `write`, `stat`...) sem nenhuma abstração de VFS no meio.

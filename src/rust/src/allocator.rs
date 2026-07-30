@@ -1,4 +1,5 @@
 /* moe moe kyun <3 */
+/* moe moe kyun <3 */
 /* ♥ rust module ~ zero unsafe (mentira, tem uns ali) kyun~
  * arquivo: allocator.rs ~ funcoes anotadas: 6
  */

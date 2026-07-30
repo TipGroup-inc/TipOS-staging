@@ -1,4 +1,5 @@
 /* moe moe kyun <3 */
+/* moe moe kyun <3 */
 /* ♥ dock ~ gerenciando app/processo, baka fique quieto!
  * arquivo: manifest.c ~ funcoes anotadas: 0
  */

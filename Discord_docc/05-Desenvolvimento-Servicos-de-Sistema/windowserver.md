@@ -1,4 +1,5 @@
 /* moe moe kyun <3 */
+/* moe moe kyun <3 */
 🪟 **WINDOW SERVER — TipOS**
 
 **Status: protótipo inicial existe.** `src/userland/disp/compositor.c` — compositor gráfico básico, ainda não integrado ao fluxo principal do shell.

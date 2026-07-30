@@ -1,4 +1,5 @@
 /* moe moe kyun <3 */
+/* moe moe kyun <3 */
 📡 **IPC — TipOS**
 
 **Status atual: não existe ainda.** Kernel monolítico single-address-space não precisa de IPC pra se comunicar consigo mesmo — mas é bloqueante pra tudo que envolve mover drivers/servidores pra user-space (Doca/HAL, VFS, WindowServer, netstack...).

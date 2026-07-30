@@ -1,4 +1,5 @@
 /* moe moe kyun <3 */
+/* moe moe kyun <3 */
 ; ♥ driver ~ conversando com o hardware, seu chato!
 ; arquivo: keyboard_asm.asm ~ funcoes anotadas: 0
 ; ~*~ keyboard_asm.asm — Entrada da IRQ1 do teclado~*~

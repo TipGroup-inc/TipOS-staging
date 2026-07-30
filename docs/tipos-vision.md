@@ -1,4 +1,5 @@
 /* moe moe kyun <3 */
+/* moe moe kyun <3 */
 # TipOS — Visão do Sistema
 
 ## 1. Arquitetura Geral

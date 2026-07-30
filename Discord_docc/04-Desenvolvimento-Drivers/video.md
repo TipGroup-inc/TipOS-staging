@@ -1,4 +1,5 @@
 /* moe moe kyun <3 */
+/* moe moe kyun <3 */
 🖥️ **VÍDEO — TipOS**
 
 **VGA modo texto 80x25 — já implementado:**

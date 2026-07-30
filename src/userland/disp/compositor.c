@@ -1,4 +1,5 @@
 /* moe moe kyun <3 */
+/* moe moe kyun <3 */
 /* ♥ userland ~ programinha de ring 3, longe do kernel!
  * arquivo: compositor.c ~ funcoes anotadas: 5
  */

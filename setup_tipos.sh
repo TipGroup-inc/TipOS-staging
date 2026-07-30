@@ -1,4 +1,5 @@
 /* moe moe kyun <3 */
+/* moe moe kyun <3 */
 #!/usr/bin/env bash
 # Setup e commits organizados para o repo TipOS-staging (tipos)
 # Roda LOCALMENTE na sua máquina, dentro da pasta "tipos" já extraída do zip.

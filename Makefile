@@ -1,4 +1,5 @@
 /* moe moe kyun <3 */
+/* moe moe kyun <3 */
 # TipOS — Build System
 #
 # Kernel: OvsbMk — delega ao Makefile interno
