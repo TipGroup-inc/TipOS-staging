@@ -46,6 +46,24 @@ static struct {
 struct timeval { uint64_t tv_sec; uint64_t tv_usec; };
 struct stat   { uint32_t st_size; };
 
+/* ~~ ELF64 headers (pro Linux ABI) ~~ */
+typedef struct {
+    unsigned char e_ident[16];
+    uint16_t e_type, e_machine;
+    uint32_t e_version;
+    uint64_t e_entry, e_phoff, e_shoff;
+    uint32_t e_flags;
+    uint16_t e_ehsize, e_phentsize, e_phnum;
+    uint16_t e_shentsize, e_shnum, e_shstrndx;
+} Elf64_Ehdr;
+typedef struct {
+    uint32_t p_type, p_flags;
+    uint64_t p_offset, p_vaddr, p_paddr, p_filesz, p_memsz, p_align;
+} Elf64_Phdr;
+#define PT_LOAD 1
+
+extern void *elf64_load_into_pml4(const uint8_t *data, uint32_t len, uint64_t pml4);
+
 /* ~ cuidado que essa aqui morde ~ */
 void syscall_init(void) {
     for (int i = 0; i < MAX_FDS; i++) fds[i].used = 0;
@@ -279,9 +297,76 @@ void syscall_handler(uint64_t *regs) {
         ret = 0;
         break;
 
-    case SYS_ioctl:
+    case SYS_ioctl: {
+        /* ~~ ioctl ~ "O terminal tem quantas linhas?" ~~
+         * Linux ioctl codes que o st precisa:
+         * TIOCGWINSZ (0x5413) → devolve struct winsize { ws_row, ws_col, ws_xpixel, ws_ypixel }
+         * TCGETS (0x5401) → devolve struct termios (modo cooked básico)
+         * TCSETSW (0x5403) / TCSANOW (0x5402) → só aceita e ignora (modo raw, confia~)
+         * Se não conhece o código, retorna 0 (o programa tenta de novo~) */
+        int fd = (int)a1;
+        unsigned long req = (unsigned long)a2;
+        void *argp = (void *)a3;
+        (void)fd;
+        if (req == 0x5413) { /* TIOCGWINSZ */
+            /* struct winsize { unsigned short ws_row, ws_col, ws_xpixel, ws_ypixel; } */
+            unsigned short *ws = (unsigned short *)argp;
+            if (ws) {
+                ws[0] = 45; /* ws_row — 45 linhas ~ cabe mais que VGA! */
+                ws[1] = 80; /* ws_col — 80 colunas, padrao~ */
+                ws[2] = 640; /* ws_xpixel */
+                ws[3] = 720; /* ws_ypixel */
+            }
+            ret = 0; break;
+        }
+        if (req == 0x5401) { /* TCGETS */
+            /* struct termios ~ so bits de modo cooked ~ */
+            unsigned int *t = (unsigned int *)argp;
+            if (t) {
+                t[0] = 0x000005FD; /* c_iflag  ~ BRKINT|ICRNL|IXON */
+                t[1] = 0x00000000; /* c_oflag  ~ 0 */
+                t[2] = 0x00000000; /* c_cflag  ~ 0 */
+                t[3] = 0x00000000; /* c_lflag  ~ 0 */
+                t[4] = 0;          /* c_cc[0]  ~ VINTR = ^C */
+                t[5] = 0;          /* c_cc[1]  ~ VQUIT */
+                t[6] = 0;          /* c_cc[2]  ~ VERASE */
+                t[7] = 0x7F;       /* c_cc[3]  ~ VKILL */
+                t[8] = 0;          /* c_cc[4]  ~ VEOF */
+                t[9] = 0;          /* c_cc[5]  ~ VTIME */
+                t[10] = 1;         /* c_cc[6]  ~ VMIN = 1 */
+            }
+            ret = 0; break;
+        }
+        if (req == 0x5402 || req == 0x5403 || req == 0x5404) { /* TCSANOW / TCSETSW / TCSETSF */
+            ret = 0; break;
+        }
         ret = 0;
         break;
+    }
+
+    case SYS_poll: {
+        /* ~~ poll ~ "Tem tecla ai?" ~~
+         * struct pollfd { int fd; short events; short revents; }
+         * events: POLLIN = 1
+         * retorna quantos fds tem evento, ou 0 se timeout */
+        uint64_t *fds_arr = (uint64_t *)a1;
+        int nfds = (int)a2;
+        int timeout = (int)a3;
+        (void)timeout;
+
+        int ready = 0;
+        for (int i = 0; i < nfds && i < 16; i++) {
+            int pfd_fd = *((int *)fds_arr + i * 2);
+            short *revents = (short *)fds_arr + i * 2 + 1;
+            *revents = 0;
+            if (pfd_fd == 0 && keyboard_avail()) {
+                *revents = 1; /* POLLIN */
+                ready++;
+            }
+        }
+        ret = ready;
+        break;
+    }
 
     case SYS_sigaction:
     case SYS_sigreturn:
@@ -536,17 +621,60 @@ void syscall_handler(uint64_t *regs) {
         if (fat32_read_file(fname, buf, fsize) < 0) { kfree(buf); ret = -1; break; }
         uint64_t child_pml4 = clone_identity_tables();
         if (!child_pml4) { kfree(buf); ret = -1; break; }
-        void *entry = mach_o_load_into_pml4(buf, fsize, child_pml4);
+
+        /* ~~ ELF vs Mach-O: dois jeitos de ser um binary ~~
+         * ELF = Linux padrao, Mach-O = nosso formato legado~
+         * Se tiver os 4 bytes magicos "\x7fELF", é um~ */
+        int is_elf = (fsize >= 4 && buf[0] == 0x7F && buf[1] == 'E' && buf[2] == 'L' && buf[3] == 'F');
+        uint64_t elf_phdr = 0, elf_phent = 0, elf_phnum = 0;
+        void *entry;
+        if (is_elf) {
+            Elf64_Ehdr *ehdr = (Elf64_Ehdr *)buf;
+            elf_phent = ehdr->e_phentsize;
+            elf_phnum = ehdr->e_phnum;
+            /* ~~ Calcula o endereco virtual da tabela PHDR ~~
+             * Primeiro PT_LOAD que achamos, a gente usa de base~ */
+            if (elf_phnum) {
+                Elf64_Phdr *pp = (Elf64_Phdr *)(buf + ehdr->e_phoff);
+                for (uint32_t k = 0; k < elf_phnum; k++) {
+                    if (pp->p_type == PT_LOAD) {
+                        elf_phdr = pp->p_vaddr + (ehdr->e_phoff - pp->p_offset);
+                        break;
+                    }
+                    pp = (Elf64_Phdr *)((uint8_t *)pp + elf_phent);
+                }
+            }
+            entry = elf64_load_into_pml4(buf, fsize, child_pml4);
+        } else {
+            entry = mach_o_load_into_pml4(buf, fsize, child_pml4);
+        }
         kfree(buf);
         if (!entry) { ret = -1; break; }
         void *user_stack = kmalloc(65536);
         if (!user_stack) { ret = -1; break; }
+        /* ~~ Torna a pilha visivel pro usuario ~~
+         * clone_identity_tables tirou o U/S da memoria identitaria~
+         * A gente devolve pro processo filho acessar a pilha dele! */
+        {
+            uint64_t sa = (uint64_t)user_stack;
+            for (uint64_t va = sa & ~0x1FFFFFULL; va < sa + 65536; va += 0x200000)
+                pml4_add_user(child_pml4, va);
+        }
         int pid = proc_spawn(fname, entry, (uint8_t *)user_stack + 65536);
         if (pid < 0) { kfree(user_stack); ret = -1; break; }
         for (int i = 0; i < MAX_PROC; i++) {
             if (pcb_table[i].pid == pid) {
                 pml4_destroy(pcb_table[i].pml4);
                 pcb_table[i].pml4 = child_pml4;
+                /* ~~ Setup do vetor auxiliar do Linux ~~
+                 * argc, argv, envp, e os AT_* pros binarios ELF~
+                 * Assim o codigo do usuario acha os argumentos~ */
+                if (is_elf) {
+                    uint64_t *kframe = (uint64_t *)pcb_table[i].kernel_rsp;
+                    uint64_t old_rsp = kframe[18];
+                    kframe[18] = setup_linux_user_stack(&pcb_table[i], old_rsp,
+                                                           elf_phdr, elf_phent, elf_phnum);
+                }
             }
         }
         ret = pid;
@@ -625,32 +753,37 @@ void syscall_handler(uint64_t *regs) {
             fat32_set_cwd(saved_cwd); ret = -1; break;
         }
         fat32_set_cwd(saved_cwd);
-        /* ~~ Cria PML4 independente (copia identidade), carrega TERM,
-         * cria processo (com PML4 do kernel), troca PML4 no PCB ~~
-         * clone_identity_tables() cria PML4+PDP+PD novos com copia
-         * das entradas identitarias. mach_o_load_into_pml4() modifica
-         * PD[128] no PD novo — nao afeta o kernel/DISP!
-         * Depois proc_spawn() cria o processo normal, e trocamos a
-         * PML4 do PCB pela independente. O entry point ja vai certo
-         * no frame iretq porque passamos entry pro proc_spawn. */
         uint64_t child_pml4 = clone_identity_tables();
         if (!child_pml4) { kfree(buf); serial_puts("spawn: clone_pml4 falhou\n"); ret = -1; break; }
         serial_puts("spawn: child_pml4="); serial_puthex((uint32_t)child_pml4); serial_puts("\n");
-        void *entry = mach_o_load_into_pml4(buf, fsize, child_pml4);
+
+        /* Detect ELF vs Mach-O */
+        int is_elf = (fsize >= 4 && buf[0] == 0x7F && buf[1] == 'E' && buf[2] == 'L' && buf[3] == 'F');
+        uint64_t elf_phdr = 0, elf_phent = 0, elf_phnum = 0;
+        void *entry;
+        if (is_elf) {
+            Elf64_Ehdr *ehdr = (Elf64_Ehdr *)buf;
+            elf_phent = ehdr->e_phentsize;
+            elf_phnum = ehdr->e_phnum;
+            if (elf_phnum) {
+                Elf64_Phdr *pp = (Elf64_Phdr *)(buf + ehdr->e_phoff);
+                for (uint32_t k = 0; k < elf_phnum; k++) {
+                    if (pp->p_type == PT_LOAD) {
+                        elf_phdr = pp->p_vaddr + (ehdr->e_phoff - pp->p_offset);
+                        break;
+                    }
+                    pp = (Elf64_Phdr *)((uint8_t *)pp + elf_phent);
+                }
+            }
+            entry = elf64_load_into_pml4(buf, fsize, child_pml4);
+        } else {
+            entry = mach_o_load_into_pml4(buf, fsize, child_pml4);
+        }
         kfree(buf);
         if (!entry) { serial_puts("spawn: load_into_pml4 falhou\n"); ret = -1; break; }
         serial_puts("spawn: entry="); serial_puthex((uint32_t)(uintptr_t)entry); serial_puts("\n");
         uint8_t *user_stack = kmalloc(65536);
         if (!user_stack) { serial_puts("spawn: sem stack\n"); ret = -1; break; }
-        /* ~~ Adiciona U/S seletivamente ~~
-         * clone_identity_tables() limpou o U/S de todas as entradas.
-         * Agora restauramos apenas para as paginas que o filho precisa:
-         * - framebuffer (0x500000, PD[2]) via pml4_add_user
-         * - stack do usuario (split PD[5] em paginas 4KB, add U/S no range)
-         * - buffers compartilhados (0x6000000 PD[48], 0xE00000 PD[7])
-         * - codigo (0x10000000, PD[128]) via mach_o_load_into_pml4
-         * Nao damos U/S pra PD[0] ou PD[5] inteira pra evitar que o
-         * filho escreva nos stacks/PCB do kernel ou do pai. */
         pml4_add_user(child_pml4, 0x500000);
         pml4_add_user(child_pml4, 0xA00000);
         pml4_add_user(child_pml4, 0x6000000);
@@ -658,17 +791,120 @@ void syscall_handler(uint64_t *regs) {
         int pid = proc_spawn(fname, entry, user_stack + 65536);
         if (pid < 0) { kfree(user_stack); serial_puts("spawn: proc_spawn falhou\n"); ret = -1; break; }
         serial_puts("spawn: pid="); serial_puthex((uint32_t)pid); serial_puts("\n");
-        /* ~~ Troca a PML4 que o proc_spawn criou pela nossa ~~ */
         for (int i = 0; i < MAX_PROC; i++) {
             if (pcb_table[i].pid == pid) {
                 pml4_destroy(pcb_table[i].pml4);
                 pcb_table[i].pml4 = child_pml4;
+                if (is_elf) {
+                    uint64_t *kframe = (uint64_t *)pcb_table[i].kernel_rsp;
+                    uint64_t old_rsp = kframe[18];
+                    kframe[18] = setup_linux_user_stack(&pcb_table[i], old_rsp,
+                                                          elf_phdr, elf_phent, elf_phnum);
+                }
                 break;
             }
         }
         ret = pid;
         break;
     }
+
+    /* ~~ Linux arch_prctl (158) ~ TLS pra musl! ~~
+     * ARCH_SET_FS (0x1002): seta o FS.base pro TLS do usuário~
+     * ARCH_GET_FS (0x1003): devolve o FS.base atual~
+     * (GS a gente nem usa, então ARCH_SET_GS/GET_GS são só um
+     *  tapinha nas costas e retornam 0 sem fazer nada~ hihi)
+     * Se o processo não existir, retorna -1 (você não tem corpo pra
+     *  ter TLS, baka! >_<) */
+    case SYS_arch_prctl: {
+        int code = (int)a1;
+        pcb_t *p = process_current();
+        if (!p) { ret = -1; break; }
+        switch (code) {
+        case 0x1002: { /* ARCH_SET_FS — grava o FS.base! */
+            p->fs_base = a2;
+            __asm__ volatile("wrmsr" :: "c"(0xC0000100), "a"((uint32_t)a2), "d"((uint32_t)(a2 >> 32)));
+            ret = 0;
+            break;
+        }
+        case 0x1003: { /* ARCH_GET_FS — lê o FS.base! */
+            uint64_t *out = (uint64_t *)a2;
+            if (out) *out = p->fs_base;
+            ret = 0;
+            break;
+        }
+        case 0x1001: /* ARCH_SET_GS — nope, next~ */ ret = 0; break;
+        case 0x1004: /* ARCH_GET_GS — tbm nope~ */ ret = 0; break;
+        default: ret = -1; break;
+        }
+        break;
+    }
+
+    /* ~~ Linux brk (231) ~ "Me mais memoria!" ~~
+     * Se arg for 0, retorna o break atual sem mudar nada~
+     * Se arg > break, atualiza (assume que deu certo~ confia)
+     * Musl chama brk(0) só pra saber onde o heap começa~
+     * (tipo quando você pergunta "que horas são?" e o relógio
+     *  responde "sim" — utilidade duvidosa mas todo mundo usa) */
+    case SYS_brk: {
+        pcb_t *p = process_current();
+        if (!p) { ret = -1; break; }
+        if (a1 == 0) {
+            ret = p->program_break;
+        } else if (a1 > p->program_break) {
+            p->program_break = a1;
+            ret = p->program_break;
+        } else {
+            /* ~~ Shrinking brk (raro mas permitido) ~~
+             * Tipo devolver um pedaço do bolo depois de já
+             * ter comido — estranho, mas a gente deixa~ */
+            p->program_break = a1;
+            ret = p->program_break;
+        }
+        break;
+    }
+
+    /* ~~ Linux exit_group (212) ~ "Mata todo mundo!" ~~
+     * No nosso caso sem thread groups, vira um exit normal~
+     * (você é grupo de um só, hihi~ solidão mode on) */
+    case SYS_exit_group:
+        process_exit_current((int)a1);
+        for (;;) __asm__ volatile("hlt");
+        break;
+
+    /* ~~ Linux set_tid_address (258) ~ "Aqui, guarda meu TID!" ~~
+     * Musl passa o endereço de uma variável onde o kernel
+     * deveria escrever o TID quando a thread morre~
+     * Mas como somos um kernel ~fofo~ e sem threads de verdade,
+     * a gente só devolve o PID e ignora o endereço~ */
+    case SYS_set_tid_address:
+        ret = process_current_pid();
+        break;
+
+    /* ~~ Linux clock_gettime (228) ~ "Que horas são?" ~~
+     * Recebe clock_id (a1) e struct timespec *tp (a2).
+     * Ignora o clock_id (todo relógio é relógio quando se é
+     *  um kernel minimalista~) e usa timer_ticks.
+     * timespec: { tv_sec, tv_nsec } — sim, segundos e nanossegundos~
+     * Pode não ser preciso mas pelo menos não é monotônico~ */
+    case SYS_clock_gettime: {
+        struct { uint64_t tv_sec; uint64_t tv_nsec; } *tp = (void *)a2;
+        if (tp) {
+            uint64_t t = timer_ticks;
+            tp->tv_sec = t / 100;
+            tp->tv_nsec = (t % 100) * 10000000ULL;
+        }
+        ret = 0;
+        break;
+    }
+
+    /* ~~ Linux nanosleep (234) ~ "Dorme um pouquinho!" ~~
+     * Só retorna 0 — sem sleep real nesse stub~
+     * (dormir é pra fracos, a gente só finge que dormiu~
+     *  igual quando você diz que vai dormir cedo e fica
+     *  vendo video até as 3 da manhã~ hihi) */
+    case SYS_nanosleep:
+        ret = 0;
+        break;
 
     default:
         ret = -1;

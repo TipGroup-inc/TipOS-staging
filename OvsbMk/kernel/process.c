@@ -375,4 +375,52 @@ void proc_yield(void) {
 
 
 
+/* ~~ setup_linux_user_stack ~~
+ * Monta a pilha do usuário no formato Linux x86_64:
+ *   argc, argv[NULL], envp[NULL], auxv[], strings
+ * Tudo no estilo que o musl espera~ escreve no topo da pilha
+ * (user_stack_top) e devolve o novo RSP apontando pro argc.
+ * Se phdr/phent/phnum = 0, omite AT_PHDR/PHENT/PHNUM (ninguém
+ *  sente falta mesmo~ mas o musl chora sem AT_PHDR as vezes)
+ * ~~ kyun! ~~ */
+uint64_t setup_linux_user_stack(pcb_t *pcb, uint64_t user_stack_top,
+                                 uint64_t phdr, uint64_t phent, uint64_t phnum) {
+    uint64_t *sp = (uint64_t *)user_stack_top;
+
+    /* ~~ 16 bytes pseudo-aleatórios pro AT_RANDOM ~~
+     * O kernel Linux de verdade pega do /dev/random~
+     * A gente pega do /dev/memes — igualmente seguro! */
+    *--sp = 0xBAADF00DBEEFCACEULL;
+    *--sp = 0xDEADBEEFCAFEBABEULL;
+    uint64_t random_addr = (uint64_t)sp;
+
+    /* ~~ Vetor auxiliar (empilhado em ordem reversa) ~~
+     * O Linux espera os pares tipo/valor na pilha~
+     * A gente empilha de trás pra frente, igual
+     * quando você calça a meia antes do sapato~ */
+    *--sp = 15;  *--sp = random_addr;  /* AT_RANDOM — "sorteia um numero ai!" */
+    *--sp = 6;   *--sp = 0x1000;       /* AT_PAGESZ — 4KB, padrao~ */
+    *--sp = 23;  *--sp = 0;            /* AT_SECURE — "to suave, sem seccomp" */
+    if (phnum) {
+        *--sp = 5;  *--sp = phnum;    /* AT_PHNUM — quantos program headers~ */
+        *--sp = 4;  *--sp = phent;    /* AT_PHENT — tamanho de cada um~ */
+        *--sp = 3;  *--sp = phdr;     /* AT_PHDR — onde tao os headers~ */
+    }
+    *--sp = 0;  *--sp = 0;             /* AT_NULL — "acabou, tchau!" */
+
+    /* ~~ Ambiente: lista terminada por NULL (vazia) ~~
+     * Sem variaveis de ambiente por enquanto~
+     * (quem precisa de PATH quando se tem amor?) */
+    *--sp = 0;
+    /* ~~ Argumentos: lista terminada por NULL (vazia) ~~
+     * O programa recebe 0 argumentos~
+     * (trabalhar sem argumentos é igual programar sem cafe~
+     *  possível mas triste~) */
+    *--sp = 0;
+    /* ~~ Contagem de argumentos (argc) ~~ */
+    *--sp = 0;
+
+    return (uint64_t)sp;
+}
+
 /* ♥ process.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */

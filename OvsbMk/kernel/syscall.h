@@ -45,6 +45,18 @@
 #define SYS_spawn        210
 #define SYS_spawn_shared 211
 
+/* ~~ Poll/Select pra st não morrer de tédio ~~ */
+#define SYS_poll         7
+#define SYS_select       23
+
+/* ~~ Linux compat syscalls ~~ */
+#define SYS_arch_prctl   158
+#define SYS_clock_gettime 228
+#define SYS_brk          231
+#define SYS_nanosleep    234
+#define SYS_set_tid_address 258
+#define SYS_exit_group   212
+
 void syscall_init(void);
 void syscall_handler(uint64_t *regs);
 

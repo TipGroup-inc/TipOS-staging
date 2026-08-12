@@ -148,6 +148,11 @@ export fn elf64_load_into_pml4(data: [*]const u8, len: u32, pml4: u64) ?*anyopaq
 
     serial_puts("elf64: load into pml4\n");
 
+    // Track already-mapped 2MB chunks so overlapping PT_LOAD segments
+    // don't allocate+zero each other's data. Each entry = (va_base << 32) | phys.
+    var mapped: [32]u64 = [_]u64{0} ** 32;
+    var mapped_count: u32 = 0;
+
     var i: u16 = 0;
     while (i < ehdr.e_phnum) : (i += 1) {
         const phdr_off = ehdr.e_phoff + i * ehdr.e_phentsize;
@@ -168,18 +173,56 @@ export fn elf64_load_into_pml4(data: [*]const u8, len: u32, pml4: u64) ?*anyopaq
 
         var va: u64 = aligned_start;
         while (va < aligned_end) : (va += 0x200000) {
-            const phys = mmap_user(null, 0x200000, 3, 0) orelse {
+            // ~~ Ja mapeou esse chunk de 2MB antes? ~~
+            // mapped[] guarda: upper 32 bits = va>>32 (tag de VA),
+            // lower 32 bits = phys (endereco fisico).
+            // Se o VA da proxima carga cai na mesma tag,
+            // reusa o mesmo bloco fisico~ (sem OR corrupto!)
+            var phys: ?[*]u8 = null;
+            var mi: u32 = 0;
+            while (mi < mapped_count) : (mi += 1) {
+                if ((mapped[mi] >> 32) == (va >> 32)) {
+                    phys = @ptrFromInt(@as(usize, @intCast(mapped[mi] & 0xFFFF_FFFF)));
+                    break;
+                }
+            }
+
+            if (phys) |p| {
+                // ~~ Ja ta mapeado! So copia os dados no offset certo ~~
+                // O ELF tem segmentos sobrepostos (code e data no mesmo
+                // bloco de 2MB) — entao em vez de alocar de novo, a gente
+                // copia o que falta no offset certo~
+                // (tipo quando voce divide o miojo com um amigo~
+                //  metade vai pra cada um mas é o mesmo pacote!)
+                if (va == (dst_va & ~@as(u64, 0x1FFFFF))) {
+                    const off = dst_va & 0x1FFFFF;
+                    const src = data + phdr.p_offset;
+                    var j: u64 = 0;
+                    while (j < phdr.p_filesz) : (j += 1) p[off + j] = src[j];
+                }
+                continue;
+            }
+
+            const raw = mmap_user(null, 0x200000, 3, 0) orelse {
                 serial_puts("elf64: alloc fail\n");
                 return null;
             };
-            if (map_2mb_in_pml4(pml4, va, @intFromPtr(phys)) < 0) {
+            if (map_2mb_in_pml4(pml4, va, @intFromPtr(raw)) < 0) {
                 serial_puts("elf64: map fail\n");
                 return null;
             }
 
-            const page = @as([*]u8, @ptrCast(phys));
+            const page = @as([*]u8, @ptrCast(raw));
             var z: u64 = 0;
             while (z < 0x200000) : (z += 1) page[z] = 0;
+
+            // ~~ Salva no mapped[]: (VA_hi << 32) | PA_lo ~~
+            // Nada de OR bit a bit! O upper 32 bits é do VA,
+            // o lower 32 bits é do PA. Separadinhos~
+            // (igual casal que dorme em cama de casal mas cada
+            //  um com seu cobertor~ cada um no seu quadrado!)
+            mapped[mapped_count] = ((va >> 32) << 32) | (@as(u64, @intFromPtr(raw)) & 0xFFFF_FFFF);
+            mapped_count += 1;
 
             if (va == (dst_va & ~@as(u64, 0x1FFFFF))) {
                 const off = dst_va & 0x1FFFFF;

@@ -106,6 +106,13 @@ const linux_to_tipos: [256]u8 = brk: {
     map[107] = 25;    // geteuid
     map[108] = 48;    // getegid
     map[186] = 186;   // gettid via getpid
+    map[231] = 212;   // ~~ exit_group ~~
+                       // Linux exit_group = 231, mas brk também = 231!
+                       // Colisão! Então mapeamos pra 212 (nosso exit_group).
+                       // Brk vai ser tratado direto no dispatcher C~
+                       // (231 é tipo um numero de onibus que TODO
+                       //  mundo quer pegar — aí a gente separa as
+                       //  filas pra ninguem se machucar~)
     break :brk map;
 };
 

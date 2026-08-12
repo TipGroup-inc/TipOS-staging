@@ -97,10 +97,16 @@ void *mach_o_load(void *data, unsigned int len) {
 
 /* Helper: map a 2MB virtual page in pml4 to a freshly allocated physical page.
  * Modifies pml4 page tables directly without switching CR3. */
-/* Deep-clone the identity-mapped page tables (PML4→PDP→PD for slot 0).
- * Returns new PML4 physical address, or 0 on failure.
- * The caller can then modify PD entries without affecting the original. */
-/* ~ essa funcao aqui e a mais importante, presta atencao baka! */
+/* ~~ clone_identity_tables ~~
+ * Clona as tabelas de paginação identity-mapped (PML4→PDP→PD do slot 0).
+ * Retorna o endereço físico da nova PML4, ou 0 se falhar.
+ * Quem chamar pode modificar as entradas PD sem afetar a original~
+ * (tipo quando você tira xerox da sua chave de casa pra dar pro
+ *  amigo — ele entra mas não mexe nos seus móveis~)
+ * IMPORTANTE: tira o bit U/S (0x04) de TUDO!
+ * O spawn handler adiciona U/S de volta só pros endereços necessários~
+ * (code, stack, framebuffer — o basico pra sobreviver no ring 3)
+ * ~~ kyun! ~~ */
 uint64_t clone_identity_tables(void) {
     uint64_t *old_pml4 = (uint64_t *)(uintptr_t)pml4_get_current();
 
@@ -152,9 +158,12 @@ uint64_t clone_identity_tables(void) {
     return (uint64_t)(uintptr_t)new_pml4;
 }
 
-/* Map a 2MB virtual page in the given pml4 by modifying the PD entry.
- * The pml4 must already have its own private PD table (use clone_identity_tables). */
-/* ~ essa funcao aqui e a mais importante, presta atencao baka! */
+/* ~~ map_2mb_in_pml4 ~~
+ * Mapeia uma página virtual de 2MB na PML4 alterando a PD entry~
+ * A PML4 já precisa ter a PD privada (usa clone_identity_tables).
+ * virt = endereço virtual, phys = endereço físico~
+ * O PD entry usa flags 0x87 = P|RW|US|PS (huge page ativada!).
+ * ~~ nani? hardcoded? sim, confia em mim~ hihi ~~ */
 int map_2mb_in_pml4(uint64_t pml4_pa, uint64_t virt, uint64_t phys) {
     int pml4_idx = (virt >> 39) & 0x1FF;
     int pdpt_idx = (virt >> 30) & 0x1FF;
@@ -165,7 +174,7 @@ int map_2mb_in_pml4(uint64_t pml4_pa, uint64_t virt, uint64_t phys) {
     uint64_t *pdpt = (uint64_t *)(uintptr_t)(pml4[pml4_idx] & ~0xFFFULL);
     if (!(pdpt[pdpt_idx] & 1)) return -1;
     uint64_t *pd = (uint64_t *)(uintptr_t)(pdpt[pdpt_idx] & ~0xFFFULL);
-    pd[pd_idx] = (phys & ~0x1FFFFFULL) | 0x87;
+    pd[pd_idx] = (phys & ~0x1FFFFFULL) | 0x87; /* P|RW|US|PS = 2MB huge page */
     return 0;
 }
 

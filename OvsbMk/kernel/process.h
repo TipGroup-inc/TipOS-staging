@@ -78,6 +78,13 @@ void schedule(void);
 
 void context_switch(pcb_t *current, pcb_t *next);
 
+/* ~~ setup_linux_user_stack ~~
+ * Monta a pilha Linux pro usuario! argc, argv, envp, auxv~
+ * Tudo que o musl precisa pra nao reclamar da vida~
+ * Recebe o topo da pilha e devolve o novo RSP~ */
+uint64_t setup_linux_user_stack(pcb_t *pcb, uint64_t user_stack_top,
+                                 uint64_t phdr, uint64_t phent, uint64_t phnum);
+
 #endif
 
 /* ♥ USER STACK ~ pilha do usuario em user accessible memory! */

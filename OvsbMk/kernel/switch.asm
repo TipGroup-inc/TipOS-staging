@@ -93,13 +93,16 @@ context_switch:
     mov [rdi + S_R15], r15
 
     ; Save FS.base (MSR 0xC0000100) — pra TLS do usuário~
-    ; Usa rdmsr pq 'rdfsbase' precisaria CR4.FSGSBASE, e a gente
-    ; prefere não depender disso~ rdmsr funciona sempre em ring 0~ ☆
-    mov ecx, 0xC0000100      ; MSR_FS_BASE
-    rdmsr                     ; edx:eax = fs_base
+    ; Cada processo tem seu proprio TLS (quem mandou o musl ser
+    ;  exigente?) — então a gente salva o MSR antes de trocar~
+    ; Usa rdmsr em vez de rdfsbase pq isso precisaria CR4.FSGSBASE,
+    ; e a gente prefere não depender disso~ rdmsr funciona sempre
+    ; em ring 0~ ☆
+    mov ecx, 0xC0000100      ; MSR_FS_BASE — o "endereço" magico~
+    rdmsr                     ; edx:eax = fs_base (64 bits em dois 32-bit)
     shl rdx, 32
-    or rax, rdx               ; rax = fs_base completo
-    mov [rdi + FS_BASE], rax  ; salva no PCB atual
+    or rax, rdx               ; rax = fs_base completo (junta as partes)
+    mov [rdi + FS_BASE], rax  ; salva no PCB atual pro futuro~
 
     ; Restore next process state
     mov rsp, [rsi + KRNL_RSP]      ; 1. Troca RSP pro kernel stack do next ~
@@ -116,11 +119,13 @@ context_switch:
     mov [current_rsp0], rax        ;    syscall_entry usa xchg com essa variável~
 
     ; 3b. Restaura FS.base (MSR 0xC0000100) — TLS do usuário~
+    ; Sem isso o musl chora "onde ta meu TLS?! >_<"
+    ; rdmsr/wrmsr pra ler/escrever o MSR ~ funciona sempre em ring 0~
     mov rax, [rsi + FS_BASE]       ;    carrega FS_BASE salvo do next processo~
-    mov rcx, 0xC0000100            ;    MSR_FS_BASE
+    mov rcx, 0xC0000100            ;    MSR_FS_BASE — o segredo da felicidade do musl
     mov rdx, rax
     shr rdx, 32                    ;    edx = upper 32 bits
-    wrmsr                          ;    escreve MSR
+    wrmsr                          ;    escreve MSR (e o musl sorri~)
 
     mov rbx, [rsi + S_RBX]         ; Restaura callee-saved do next
     mov rbp, [rsi + S_RBP]

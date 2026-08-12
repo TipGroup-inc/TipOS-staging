@@ -42,6 +42,23 @@ static int  cmd_pos = 0;
 extern framebuffer_t g_fb;
 extern void user_prog_launch(void);
 extern void owt_demo(void);
+extern void *elf64_load_into_pml4(const uint8_t *data, uint32_t len, uint64_t pml4);
+
+/* ELF64 header structs for Linux ABI */
+typedef struct {
+    unsigned char e_ident[16];
+    uint16_t e_type, e_machine;
+    uint32_t e_version;
+    uint64_t e_entry, e_phoff, e_shoff;
+    uint32_t e_flags;
+    uint16_t e_ehsize, e_phentsize, e_phnum;
+    uint16_t e_shentsize, e_shnum, e_shstrndx;
+} Elf64_Ehdr;
+typedef struct {
+    uint32_t p_type, p_flags;
+    uint64_t p_offset, p_vaddr, p_paddr, p_filesz, p_memsz, p_align;
+} Elf64_Phdr;
+#define PT_LOAD 1
 
 /* ~ cuidado que essa aqui morde ~ */
 static void prompt(void) {
@@ -150,6 +167,85 @@ static void cmd_exec(const char *args) {
         return;
     }
     console_printf("exec: carregando %s (%d bytes)\n", args, (unsigned)fsize);
+
+    /* Detect ELF vs Mach-O */
+    int is_elf = (fsize >= 4 && buf[0] == 0x7F && buf[1] == 'E' && buf[2] == 'L' && buf[3] == 'F');
+
+    if (is_elf) {
+        /* ~~ ELF binary: o novo queridinho do pedaço! ~~
+         * Clona a PML4, carrega o binario, monta a pilha Linux~
+         * e cria o processo com proc_spawn (a API nova!) */
+        uint64_t child_pml4 = clone_identity_tables();
+        if (!child_pml4) { kfree(buf); console_write("exec: pml4 falhou\n"); return; }
+
+        Elf64_Ehdr *ehdr = (Elf64_Ehdr *)buf;
+        uint64_t elf_phdr = 0, elf_phent = ehdr->e_phentsize, elf_phnum = ehdr->e_phnum;
+        if (elf_phnum) {
+            Elf64_Phdr *pp = (Elf64_Phdr *)(buf + ehdr->e_phoff);
+            for (uint32_t k = 0; k < elf_phnum; k++) {
+                if (pp->p_type == PT_LOAD) {
+                    /* Guarda o primeiro PHDR pra por no auxv~ */
+                    if (elf_phdr == 0)
+                        elf_phdr = pp->p_vaddr + (ehdr->e_phoff - pp->p_offset);
+                    uint64_t seg_end = pp->p_vaddr + pp->p_memsz;
+                    uint64_t a_start = pp->p_vaddr & ~(0x1FFFFFULL);
+                    uint64_t a_end = (seg_end + 0x1FFFFF) & ~(0x1FFFFFULL);
+                    /* ~~ Libera o U/S pros segmentos do ELF ~~
+                     * clone_identity_tables tirou o bit de usuario~
+                     * A gente devolve pros paginas que o programa
+                     * precisa acessar~ */
+                    for (uint64_t va = a_start; va < a_end; va += 0x200000)
+                        pml4_add_user(child_pml4, va);
+                }
+                pp = (Elf64_Phdr *)((uint8_t *)pp + elf_phent);
+            }
+        }
+
+        void *entry = elf64_load_into_pml4(buf, fsize, child_pml4);
+        kfree(buf);
+        if (!entry) { console_write("exec: ELF invalido\n"); return; }
+        console_printf("exec: entry=%x\n", (unsigned int)(uint64_t)entry);
+
+        /* ~~ Aloca pilha do usuario ~~
+         * O kmalloc pega do heap (0xA00000+)~
+         * Depois a gente libera o U/S pro processo acessar~ */
+        void *ustack = kmalloc(EXEC_USER_STACK_SIZE);
+        if (!ustack) { console_write("exec: sem stack\n"); return; }
+        uint64_t stack_addr = (uint64_t)ustack;
+        for (uint64_t va = stack_addr & ~0x1FFFFFULL;
+             va < stack_addr + EXEC_USER_STACK_SIZE; va += 0x200000)
+            pml4_add_user(child_pml4, va);
+
+        int pid = proc_spawn(args, entry, (uint8_t *)ustack + EXEC_USER_STACK_SIZE);
+        if (pid < 0) { console_write("exec: spawn falhou\n"); kfree(ustack); return; }
+
+        /* ~~ Troca a PML4 e monta o vetor auxiliar ~~
+         * A PML4 vazia do proc_spawn é substituida pela
+         * child_pml4 que tem o binario carregado~
+         * E o setup_linux_user_stack escreve argc, argv,
+         * envp, auxv na pilha do usuario~ (formato Linux!) */
+        for (int i = 0; i < MAX_PROC; i++) {
+            if (pcb_table[i].pid == pid) {
+                pml4_destroy(pcb_table[i].pml4);
+                pcb_table[i].pml4 = child_pml4;
+                uint64_t *kframe = (uint64_t *)pcb_table[i].kernel_rsp;
+                kframe[18] = setup_linux_user_stack(&pcb_table[i], kframe[18],
+                                                     elf_phdr, elf_phent, elf_phnum);
+                break;
+            }
+        }
+
+        console_printf("exec: PID %d rodando\n", pid);
+        process_switch_to(pid);
+        int code = -1;
+        for (int i = 0; i < MAX_PROC; i++)
+            if (pcb_table[i].pid == pid) { code = pcb_table[i].exit_code; break; }
+        kfree(ustack);
+        console_printf("exec: processo encerrou (exit code %d)\n", code);
+        return;
+    }
+
+    /* ~~ Mach-O binary: existing path ~~ */
     void *entry = mach_o_load(buf, fsize);
     if (!entry) {
         console_write("exec: formato Mach-O invalido\n");
@@ -164,34 +260,6 @@ static void cmd_exec(const char *args) {
     }
     serial_puts("exec: pages ok\r\n");
     console_printf("exec: entry=%x\n", (unsigned int)(uint64_t)entry);
-    console_printf("exec: first bytes: %x %x %x %x\n",
-        ((uint8_t*)entry)[0], ((uint8_t*)entry)[1],
-        ((uint8_t*)entry)[2], ((uint8_t*)entry)[3]);
-    /* Debug: dump crash RIP region */
-    serial_puts("exec: at 0x10001D20:");
-    uint8_t *cr = (uint8_t*)0x10001D20;
-    for (int i = 0; i < 32; i++) {
-        serial_puts(" ");
-        serial_puthex((uint32_t)cr[i]);
-    }
-    serial_puts("\r\n");
-    /* Debug: dump scr_w and next_cascade */
-    serial_puts("exec: scr_w=");
-    serial_puthex(*(uint32_t*)0x100034B8);
-    serial_puts(" next_cascade=");
-    serial_puthex(*(uint32_t*)0x100034A0);
-    serial_puts("\r\n");
-    /* Debug: dump DISP BSS data that causes PF */
-    serial_puts("exec: DISP BSS @0x2013260=");
-    serial_puthex(*(uint32_t*)0x02013260);
-    serial_puts(" @0x2013268=");
-    serial_puthex(*(uint64_t*)0x02013268);
-    serial_puts("\r\n");
-    serial_puts("exec: DISP data @0x2002EF4=");
-    serial_puthex(*(uint32_t*)0x02002EF4);
-    serial_puts(" @0x2002EF8=");
-    serial_puthex(*(uint32_t*)0x02002EF8);
-    serial_puts("\r\n");
     int pid = process_create_user(args, entry, ustack, EXEC_USER_STACK_SIZE);
     if (pid < 0) {
         console_write("exec: erro ao criar processo\n");
@@ -282,6 +350,13 @@ static int strieq(const char *a, const char *b, int n) {
 void shell_init(void) {
     cmd_pos = 0;
     console_write("OvsbMkM Kernel Console\n");
+    /* First test Linux ELF compatibility */
+    fat32_change_dir("/");
+    cmd_exec("HELLO");
+    /* Then try the terminal test (8.3 name pq FAT32 ~preguiça~) */
+    fat32_change_dir("/");
+    cmd_exec("TTEST");
+    /* Then start the WM */
     fat32_change_dir("/BIN");
     cmd_exec("DISP");
     prompt();
