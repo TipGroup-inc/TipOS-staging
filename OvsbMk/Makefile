@@ -23,8 +23,8 @@ BUILD_DIR := build
 # ♥ VPATH: procura sources em kernel, drivers, libs, e fs~
 VPATH := kernel:drivers:lib/gui:lib/owt:lib/wm:fs
 
-# ♥ C_SRCS: todos .c menos keyboard/mouse (reescritos em Zig)
-C_SRCS := $(filter-out keyboard.c mouse.c,$(notdir $(wildcard kernel/*.c drivers/*.c lib/gui/*.c lib/owt/*.c lib/wm/*.c fs/*.c)))
+# ♥ C_SRCS: todos .c (keyboard/mouse em Zig, não em C)
+C_SRCS := $(notdir $(wildcard kernel/*.c drivers/*.c lib/gui/*.c lib/owt/*.c lib/wm/*.c fs/*.c))
 # ♥ ASM_SRCS: boot, IDT assembly, keyboard asm, context switch, syscall entry
 ASM_SRCS := boot64.o idt_asm.o keyboard_asm.o switch_asm.o syscall_entry.o
 # ♥ ZIG_SRCS: syscall handler, ELF loader, ext2, initramfs
@@ -123,17 +123,9 @@ disk.img: $(BUILD_TESTS)
 	@echo "  Instalando TTEST..."
 	@mcopy -o -i $@ /tmp/TTEST ::/TTEST 2>/dev/null && echo "    OK" || echo "    FAIL"
 
-# ♥ user_prog.rebuild: monta user_prog.asm e atualiza user_prog_bin.h
-# Gera array C com os bytes do binário via script Python
-user_prog.rebuild: user_prog.asm
-	nasm -f bin -o user_prog.bin $<
-	python3 -c "import sys; data=open('user_prog.bin','rb').read(); print('const uint8_t _binary_user_prog_start[] = {'); [print('    '+','.join(f'0x{b:02x}' for b in data[i:i+16])+',') for i in range(0,len(data),16)]; print('};'); print(f'const int _binary_user_prog_size = {len(data)};')" > kernel/user_prog_bin.h
-	rm -f user_prog.bin
-	@echo "user_prog_bin.h atualizado!"
-
 # ♥ clean: limpa tudo (build/, isos, bins)
 clean:
-	rm -rf $(BUILD_DIR) *.o kernel.elf OvsbMkM.iso user_prog.bin
+	rm -rf $(BUILD_DIR) *.o kernel.elf OvsbMkM.iso
 	rm -rf iso/boot/kernel.elf
 
 # ♥ run: gera ISO + disco, sobe QEMU com VGA virtio, 512MB RAM, serial, KVM
@@ -150,4 +142,4 @@ OvsbMkM.iso: $(BUILD_DIR)/kernel.elf
 	cp $(BUILD_DIR)/kernel.elf iso/boot/
 	grub-mkrescue -o OvsbMkM.iso iso 2>/dev/null || true
 
-.PHONY: all clean run iso user_prog.rebuild
+.PHONY: all clean run iso
