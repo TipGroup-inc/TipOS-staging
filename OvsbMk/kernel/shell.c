@@ -40,7 +40,6 @@ static char cmd_buf[MAX_CMD];
 static int  cmd_pos = 0;
 
 extern framebuffer_t g_fb;
-extern void user_prog_launch(void);
 extern void owt_demo(void);
 extern void *elf64_load_into_pml4(const uint8_t *data, uint32_t len, uint64_t pml4);
 
@@ -134,10 +133,6 @@ static void cmd_hexdump(const char *args) {
 }
 
 /* ~ kyun~ mais uma funcao pra fazer o kernel n morrer */
-static void cmd_run(void) {
-    user_prog_launch();
-}
-
 #define EXEC_USER_STACK_SIZE 65536
 
 /* ~ simples mas essencial, n mexe sem saber oq ta fazendo */
@@ -322,7 +317,6 @@ void execute(const char *cmd) {
     else if (strieq(cmd, "echo", 4) && cmd_len == 4) cmd_echo(args);
     else if (strieq(cmd, "info", 4) && cmd_len == 4) cmd_info();
     else if (strieq(cmd, "hexdump", 7) && cmd_len == 7) cmd_hexdump(args);
-    else if (strieq(cmd, "run", 3) && cmd_len == 3) cmd_run();
     else if (strieq(cmd, "exec", 4) && cmd_len == 4) cmd_exec(args);
     else if (strieq(cmd, "ls", 2) && cmd_len == 2) cmd_ls();
     else if (strieq(cmd, "cd", 2) && cmd_len == 2) cmd_cd(args);
