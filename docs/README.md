@@ -20,6 +20,22 @@
 - **`tipos-tutorial.md`** — passo a passo de programas userland (libc própria, Mach-O).
 - **`tipos-dev-stack.md`** — fluxo de desenvolvimento e stack (ferramentas, build).
 
+## 📊 UML — Diagramas do projeto
+
+Gerados com **PlantUML** a partir dos `.puml` (edite o `.puml` e rode `plantuml -tpng <arquivo>` pra regenerar):
+
+| Diagrama | O que mostra |
+|----------|--------------|
+| `uml/arquitetura.png` | Componentes: kernel OvsbMk, userland, repos irmãos, QEMU |
+| `uml/boot.png` | Sequência: GRUB → boot64.asm → kmain → shell_init (HELLO + DISP) |
+| `uml/syscall.png` | Caminho do ring 3 ao ring 0 (int 0x80, XNU, tradução Linux) |
+| `uml/exec_elf64.png` | Exec de ELF64 musl (child PML4, hugepages, aux vector) |
+| `uml/processos.png` | Ciclo de vida dos processos (PCB, scheduler RR) |
+| `uml/kernel_modulos.png` | Módulos do kernel e dependências (drivers, fs, lib) |
+| `uml/deploy.png` | Build (make all/userland) → ISO + disk.img → QEMU |
+
+Exemplos diretos: `![Arquitetura](uml/arquitetura.png)`
+
 ## 🕰️ Histórico / arquivado
 
 > Documentos da época da migração OvsbMkM → TipOS, do planejamento ou de subsistemas

@@ -1,0 +1,83 @@
+@startuml
+' moe moe kyun <3
+' TipOS — módulos do kernel OvsbMk (dependências principais)
+' árvore real pós-limpeza (2026-08)
+
+title Kernel OvsbMk — módulos
+
+skinparam shadowing false
+skinparam defaultFontName "SansSerif"
+skinparam componentStyle rectangle
+
+package "kernel/" as kern {
+    component "boot64.asm" as boot
+    component "kernel.c (kmain)" as kmain
+    component "console.c\n(VGA texto + ANSI)" as console
+    component "shell.c\n(execute, history, PATH)" as shell
+    component "idt.c / idt.asm" as idt
+    component "syscall.c\n(30 syscalls XNU)" as sysc
+    component "syscall_entry.asm" as se
+    component "syscall_linux.zig\n(tradução Linux)" as trl
+    component "memory.c\n(bump/buddy/SLAB)" as mem
+    component "vm_map.c\n(mmap_user)" as vm
+    component "process.c\n(PCB, spawn, auxv)" as proc
+    component "switch.asm\n(contexto + FS.base)" as sw
+    component "tss.c (ring 3)" as tss
+    component "mach_o.c\n(Mach-O loader)" as macho
+    component "elf64.zig\n(ELF64 loader)" as elf
+    component "env.c / utils.c" as env
+}
+
+package "drivers/" as drv {
+    component "ata.c (PIO LBA28)" as ata
+    component "pci.c" as pci
+    component "usb.c (stub)" as usb
+    component "virtio_gpu.c" as vgpu
+    component "keyboard_asm.asm" as kas
+}
+
+package "kernel/drivers/" as zdrv {
+    component "keyboard.zig" as kzig
+    component "mouse.zig" as mzig
+}
+
+package "fs/" as fs {
+    component "fat32.c" as fat
+    component "ext2.zig (parcial)" as ext
+    component "initramfs.zig" as ini
+}
+
+package "lib/" as lib {
+    component "gui/vesa.c\n(1024x768x32)" as vesa
+    component "owt/\n(widget toolkit)" as owt
+    component "wm/\n(janela, backbuffer)" as wm
+}
+
+kmain --> boot : chama (setup)
+kmain --> console
+kmain --> idt
+kmain --> sysc
+sysc --> se
+sysc --> trl
+kmain --> mem
+kmain --> vm
+kmain --> proc
+proc --> sw
+proc --> tss
+kmain --> shell
+shell --> macho
+shell --> elf
+kmain --> env
+kmain --> ata
+kmain --> pci
+kmain --> usb
+kmain --> vgpu
+kas --> kzig : IRQ1 → handler Zig
+kzig --> mzig
+kmain --> fat
+kmain --> ext
+kmain --> ini
+kmain --> vesa
+vesa --> owt
+owt --> wm
+@enduml

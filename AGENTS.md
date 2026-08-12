@@ -64,8 +64,9 @@
 2. Leia `docs/README.md` (índice) e `docs/KERNEL.md` — a vida do kernel em detalhe
 3. Quer fazer um programa? `docs/tipos-tutorial.md` e `TUTORIAL_APPS.txt`
 4. `README.md` — subsistemas, tabela de syscalls e compat Linux ELF
-5. Repos irmãos: `../disp` (compositor) e `../term` (terminal) — precisam estar clonados
-6. Cuidado com docs históricos: os marcados como "histórico/arquivado" contam o passado, não o presente
+5. Diagramas UML: `docs/uml/` (PlantUML — arquitetura, boot, syscall, exec, processos)
+6. Repos irmãos: `../disp` (compositor) e `../term` (terminal) — precisam estar clonados
+7. Cuidado com docs históricos: os marcados como "histórico/arquivado" contam o passado, não o presente
 
 ## Como Buildar
 

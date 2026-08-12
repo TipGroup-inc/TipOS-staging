@@ -1,0 +1,33 @@
+@startuml
+' moe moe kyun <3
+' TipOS — ciclo de vida dos processos (PCB estático, 64 slots, scheduler RR)
+
+title Ciclo de vida de um processo
+
+skinparam shadowing false
+skinparam defaultFontName "SansSerif"
+
+[*] --> Spawn : exec / spawn
+Spawn --> Ready : PCB alocado\n(TSS, PML4, stack)
+Ready --> Running : scheduler RR
+Running --> Ready : quantum esgotado
+Running --> Waiting : read/waitpid/ioctl\n(bloqueante)
+Waiting --> Ready : evento / desbloqueio
+Running --> Exited : exit() / sinal
+Exited --> [*] : waitpid coleta\nPCB liberado
+
+state "Spawn" as Spawn {
+    state "proc_spawn()\n(macho/elf)" as sp
+}
+state "Ready" as Ready {
+    state "fila de prontos" as rq
+}
+state "Waiting" as Waiting {
+    state "espera: FAT32 I/O,\ntimer, teclado" as wq
+}
+
+note bottom of Running
+  switch.asm troca contexto:
+  GPRs + FS.base (MSR_FS_BASE)
+end note
+@enduml
