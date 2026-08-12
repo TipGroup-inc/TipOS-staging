@@ -38,28 +38,6 @@ volatile int sigint_pending = 0;
 framebuffer_t g_fb;
 int g_fb_active = 0;
 
-/* ♥ Endereco do programinha ring 3 (2MB ~ livre!) */
-#define USER_PROG_ADDR ((void *)0x200000)
-extern const int _binary_user_prog_size;
-
-/* Pilha do usuario */
-#define USER_STACK_SIZE 4096
-static char user_stack[USER_STACK_SIZE] __attribute__((aligned(16)));
-
-extern const uint8_t _binary_user_prog_start[];
-extern void owt_demo(void);
-/* ~ simples mas essencial, n mexe sem saber oq ta fazendo */
-void user_prog_launch(void) {
-    console_write("Iniciando programa ring 3...\n");
-    uint8_t *dst = (uint8_t *)USER_PROG_ADDR;
-    for (int i = 0; i < _binary_user_prog_size; i++)
-        dst[i] = _binary_user_prog_start[i];
-    int pid = process_create_user("ring3test", USER_PROG_ADDR, user_stack, USER_STACK_SIZE);
-    if (pid < 0) { console_write("Erro!\n"); return; }
-    process_switch_to(pid);
-    console_write("Programa ring 3 encerrou!\n");
-}
-
 /* ~ essa demorou pra debugar, respeita ~ */
 void kmain(uint32_t magic, uint32_t mb_info) {
     serial_init();

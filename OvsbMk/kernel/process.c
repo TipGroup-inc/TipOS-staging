@@ -30,7 +30,6 @@ static int pcb_count = 0;
 int next_pid = 1;
 
 extern void context_switch(pcb_t *current, pcb_t *next);
-#include "user_prog_bin.h"
 
 /* ~ cuidado que essa aqui morde ~ */
 static void idle_entry(void) {
