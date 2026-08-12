@@ -1,4 +1,10 @@
 <!-- moe moe kyun <3 -->
+> **🕰️ HISTÓRICO — este documento descreve o passado do projeto**
+> O código atual mudou bastante: `OvsbMkM` virou `OvsbMk`, `src/dock`, `src/rust` e o
+> `src/userland/disp` foram removidos, e o kernel ganhou Zig + ELF64 (musl) compat.
+> Para a verdade de hoje: leia `README.md`, `AGENTS.md` e `KERNEL.md`.
+
+---
 # TipOS — Visão do Sistema
 
 ## 1. Arquitetura Geral

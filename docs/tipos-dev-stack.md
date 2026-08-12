@@ -199,7 +199,7 @@ Baseado no protótipo existente (boot 64-bit, VGA, teclado PS/2, IDT/PIC), o que
 
 | Decisão | Opção escolhida | Alternativa |
 |---------|----------------|-------------|
-| **Bootloader** | Manter o próprio (OvsbMkM) por enquanto. Se precisar de UEFI/GOP, migrar para **Limine** | GRUB legado (mais complexo para UEFI) |
+| **Bootloader** | **GRUB2 (Multiboot2)** via `grub-mkrescue` — atual | Limine (para migrar a UEFI/GOP no futuro) |
 | **IPC** | Mach-style portas (conforme doc) — mensagens assíncronas com memória partilhada | seL4-style sync IPC (mais rápido, mas API diferente) |
 | **Syscall gate** | `syscall`/`sysret` (x86-64) — mais rápido que `int 0x80` | `int 0x80` (legado) |
 | **Scheduler** | Round-robin com prioridades (começar simples) | Lottery scheduling, O(1) |

@@ -1,4 +1,10 @@
 <!-- moe moe kyun <3 -->
+> **🕰️ HISTÓRICO — este documento descreve o passado do projeto**
+> O código atual mudou bastante: `OvsbMkM` virou `OvsbMk`, `src/dock`, `src/rust` e o
+> `src/userland/disp` foram removidos, e o kernel ganhou Zig + ELF64 (musl) compat.
+> Para a verdade de hoje: leia `README.md`, `AGENTS.md` e `KERNEL.md`.
+
+---
 # TipOS — Plano de Desenvolvimento
 
 Base: OvsbMkM (https://github.com/Bugsappetit-inc/OvsbMkM) — kernel 64-bit com boot, IDT, PS/2, VGA, syscalls XNU, Mach-O.
@@ -120,8 +126,4 @@ tipos/
 3. Ajusta nomes
 4. `make run` mostra a splash "TipOS" + prompt
 
-Depois disso, decide qual marco atacar: IPC? Terminal? Editor?
-
----
-
-Quer começar? Posso montar a estrutura agora — copiar os arquivos do OvsbMkM, criar os diretórios e fazer o `make run` funcionar em menos de 5 minutos.
+Depois disso, decidir qual marco atacar: IPC? Terminal? Editor?

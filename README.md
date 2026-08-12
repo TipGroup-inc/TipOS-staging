@@ -24,7 +24,7 @@ editor TUI e suporte a execução de binários **musl-linked static PIE ELF**
 
 ### src/userland — Userland
 - libc freestanding: stdio (printf, fopen/fread/fwrite), stdlib (malloc), string, ctype, TUI
-- Programas: graphy (editor TUI com syntax highlight C), disp-wm (compositor ring 3)
+- Programas: graphy (editor TUI com syntax highlight C); disp-wm (compositor) e term vivem nos repos irmãos `../disp` e `../term`
 - Build: C → ELF → binary → Mach-O 64-bit, instalado no disco FAT32
 
 ## Build & Run
@@ -33,7 +33,7 @@ editor TUI e suporte a execução de binários **musl-linked static PIE ELF**
 # Tudo
 make all                  # kernel.elf → TipOS.iso
 make disk.img             # FAT32 64MB (cria se não existir)
-make userland             # compila + instala userland no disco
+make userland             # compila + instala userland no disco (precisa de ../disp e ../term clonados)
 make run                  # QEMU (512MB, VGA std, serial stdio)
 
 # Ou passo a passo

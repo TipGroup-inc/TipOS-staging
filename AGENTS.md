@@ -29,12 +29,15 @@
 │   └── iso/         grub.cfg + kernel.elf para ISO
 │
 ├── src/
-│   └── userland/    ← ring 3 (libc, graphy, disp-wm)
+│   └── userland/    ← ring 3 (libc, progs/graphy) + repos irmãos ../disp, ../term
 │
-├── docs/            docs técnicos (arquitetura, roadmap, tutoriais)
+├── docs/            docs técnicos (KERNEL.md, tutorial de apps, histórico)
 ├── Discord_docc/    docs do Discord do projeto
 └── AGENTS.md        ← este arquivo
 ```
+
+> **Repos irmãos:** `../disp` (disp-wm, compositor ring 3) e `../term` (terminal) —
+> o Makefile raiz os instala no disco via `TIPOS_SDK=$(CURDIR)`.
 
 ## 3 Subsistemas
 
@@ -53,8 +56,16 @@
 ### 2. src/userland — Userland (ring 3)
 - **Linguagem**: C freestanding
 - **libc**: stdio (printf, fopen/fclose/fread/fwrite), stdlib (malloc freelist), string, ctype, tui
-- **Programas**: graphy (editor TUI com syntax highlight C), disp-wm (compositor gráfico ring 3)
+- **Programas**: graphy (editor TUI com syntax highlight C); disp-wm e term ficam nos repos irmãos
 - **Build**: .c → .elf → .bin → .macho (Mach-O 64-bit, loaded em 0x2000000)
+
+## Novo no projeto? Comece por aqui <3
+1. `make kernel && make run` — se o QEMU bootar, o ambiente tá certo
+2. Leia `docs/README.md` (índice) e `docs/KERNEL.md` — a vida do kernel em detalhe
+3. Quer fazer um programa? `docs/tipos-tutorial.md` e `TUTORIAL_APPS.txt`
+4. `README.md` — subsistemas, tabela de syscalls e compat Linux ELF
+5. Repos irmãos: `../disp` (compositor) e `../term` (terminal) — precisam estar clonados
+6. Cuidado com docs históricos: os marcados como "histórico/arquivado" contam o passado, não o presente
 
 ## Como Buildar
 

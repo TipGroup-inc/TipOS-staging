@@ -15,7 +15,7 @@ ISO        := TipOS.iso
 all: kernel iso
 
 # ── kernel: compila o kernel OvsbMk via delegação ao Makefile interno ──
-# Chama make -C OvsbMk, que gera kernel.elf com C + ASM + Rust (staticlib)
+# Chama make -C OvsbMk, que gera kernel.elf com C + ASM + Zig
 kernel:
 	$(MAKE) -C $(KERNEL_DIR)
 

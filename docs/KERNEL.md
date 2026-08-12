@@ -42,9 +42,9 @@
 
 ```
                     ┌─────────────────────────────────────────┐
-                    │             USERLAND (ring 0)           │
-                    │   graphy (editor)  |  bash (embedded)   │
-                    │   ls (embedded)    |  dyld (embedded)   │
+                    │             USERLAND (ring 3)           │
+                    │   graphy (TUI)  |  disp-wm (compositor) │
+                    │   ELF64 (musl)  |  Mach-O (libc própria)│
                     └──────────────┬──────────────────────────┘
                                    │ int 0x80 (XNU convention)
                     ┌──────────────┴──────────────────────────┐
@@ -73,7 +73,7 @@ MBR → GRUB stage 1+2 → kernel.elf (multiboot2) → boot64.asm → kmain()
 ```
 
 1. **GRUB** carrega `kernel.elf` via Multiboot2 (grub.cfg: `multiboot2 /boot/kernel.elf`).
-2. **boot64.asm** (`OvsbMkM/src/kernel/boot64.asm`):
+2. **boot64.asm** (`OvsbMk/kernel/boot64.asm`):
    - Recebe controle em 32-bit protected mode.
    - Configura **PML4 → PDP → PD** com páginas de 2MB (identity mapping dos primeiros 1GB).
    - Habilita **PAE**, **long mode** (EFER.LME = 1), **paging** (CR0.PG = 1).
@@ -426,7 +426,7 @@ O comando `disp` ativa o modo gráfico com janelas sobrepostas:
 - **VESA ativo** (`g_fb_active == 1`): fundo azul escuro (`0x00224466`),
   janelas com título em `vesa_draw_char()`, cursor branco WASD,
   resolução real do framebuffer (ex: 1024×768)
-- **Fallback VGA**: modo 13h (320×200×256) via `vga_gfx.c`
+- **Fallback VGA**: modo texto 80×25 (ANSI parser) via `console.c`, sem framebuffer
 
 ```c
 void disp_init(void) {
@@ -445,11 +445,11 @@ void disp_init(void) {
 
 | Arquivo | Função |
 |---------|--------|
-| `src/lib/libgui/vesa.c` | Driver VESA + font 8×8 |
-| `src/lib/libgui/vesa.h` | Struct framebuffer_t, declarações |
-| `src/lib/libgui/gui.c` | GUI helpers (futuro) |
-| `src/kernel/boot64.asm` | Header Multiboot2 com tag framebuffer type 5 |
-| `src/commands/compositor.c` | Compositor VESA/VGA |
+| `OvsbMk/lib/gui/vesa.c` | Driver VESA + font 8×8 |
+| `OvsbMk/lib/gui/vesa.h` | Struct framebuffer_t, declarações |
+| `OvsbMk/lib/gui/gui.c` | GUI helpers (futuro) |
+| `OvsbMk/kernel/boot64.asm` | Header Multiboot2 com tag framebuffer type 5 |
+| `src/userland/disp-wm` | Compositor ring 3 (repo irmão, `exec DISP`) |
 
 ---
 
@@ -460,7 +460,7 @@ void disp_init(void) {
 - Controlador PS/2, porta de dados `0x60`, porta de status `0x64`.
 - IRQ1 (vetor 33) dispara quando uma tecla é pressionada/solta.
 
-### 8.2 Keyboard Handler (keyboard_asm.asm + keyboard.c)
+### 8.2 Keyboard Handler (keyboard_asm.asm + keyboard.zig)
 
 ```
 IRQ1 → keyboard_irq_handler (asm) → keyboard_handler() (C)
@@ -499,7 +499,7 @@ static volatile uint64_t last_repeat_tick; // timer_ticks do último repeat emit
 //       return last_repeat_char
 ```
 
-**Para ajustar:** mude `REPEAT_DELAY` (ticks) e `REPEAT_RATE` (tick interval) em `keyboard.c`.
+**Para ajustar:** mude `REPEAT_DELAY` (ticks) e `REPEAT_RATE` (tick interval) em `keyboard.zig`.
 
 ### 8.5 keyboard_read() — Bloqueante (buffer-only)
 
@@ -537,7 +537,7 @@ char keyboard_read(void) {
 O compilador GCC 15+ gera `inw %edx` em vez de `inw %dx`. O Makefile aplica um `sed` para corrigir o assembly gerado por GCC:
 
 ```makefile
-OvsbMkM/build/src/drivers/ata.o: OvsbMkM/src/drivers/ata.c
+OvsbMk/build/drivers/ata.o: OvsbMk/drivers/ata.c
     $(CC) $(CFLAGS) -S $< -o $*.s
     sed -i 's/inw %edx/inw %dx/g; s/outw %edx/outw %dx/g' $*.s
     as --64 $*.s -o $@
@@ -1066,13 +1066,12 @@ Atualmente mostra `[pipe not fully implemented yet]`. Para implementar:
 
 ### 15.2 Como Adicionar Comando
 
-1. **shell_cmds.h:** declare `void cmd_meucomando(void);`
-2. **shell_cmds.c:** implemente a função
-3. **kernel.c** (`execute_command`): adicione o dispatch:
+1. **`OvsbMk/kernel/shell.c`:** declare a função estática (ex: `static void cmd_meucomando(const char *args);`)
+2. **`shell.c` (`execute`):** adicione o dispatch na cadeia de `else if`:
    ```c
-   else if (strcmp(work, "meucomando") == 0) cmd_meucomando();
+   else if (strieq(cmd, "meucomando", 10) && cmd_len == 10) cmd_meucomando(args);
    ```
-4. **kernel.c** (`cmd_help`): adicione à lista de help
+3. **`shell.c` (`cmd_help`):** adicione à lista de ajuda
 
 ---
 
@@ -1233,29 +1232,26 @@ static inline int64_t minha_syscall(int a1, int a2) {
 
 ## 19. Como Adicionar um Comando
 
-### Passo 1: shell_cmds.h
+Todos os comandos vivem em `OvsbMk/kernel/shell.c` (comandos de sistema ficam no kernel; userland roda via `exec`).
+
+### Passo 1: Implemente em shell.c
 
 ```c
-void cmd_hello(void);
-```
-
-### Passo 2: shell_cmds.c
-
-```c
-void cmd_hello(void) {
-    vga_puts("Hello, world!\n");
+static void cmd_hello(const char *args) {
+    console_write("Hello, world!\n");
 }
 ```
 
-### Passo 3: kernel.c
+### Passo 2: Dispatch em execute()
 
 ```c
-else if (strcmp(work, "hello") == 0) cmd_hello();
+else if (strieq(cmd, "hello", 5) && cmd_len == 5) cmd_hello(args);
 ```
 
-Adicione também ao `cmd_help`:
+### Passo 3: cmd_help
+
 ```c
-vga_puts("hello   ...\n");
+console_write("  hello                Diz oi pra você, baka\n");
 ```
 
 ---
@@ -1303,7 +1299,7 @@ qemu-system-x86_64 -cdrom TipOS.iso -drive file=disk.img,format=raw -s -S
 
 # Terminal 2:
 gdb -ex "target remote :1234" \
-    -ex "symbol-file OvsbMkM/build/kernel.elf" \
+    -ex "symbol-file OvsbMk/build/kernel.elf" \
     -ex "break kmain" \
     -ex "continue"
 ```
@@ -1504,65 +1500,55 @@ escreve no stdout e sai com código 0.
 ## Apêndice A: Estrutura de Diretórios
 
 ```
-OvsbMkM/src/
-├── kernel/
-│   ├── boot64.asm         # Entry point, long mode, GDT, paging
-│   ├── kernel.c           # kmain, VGA (ANSI), shell, RTC, PIT, redirect
-│   ├── kernel.h           # Declarações públicas do kernel
-│   ├── idt.c              # IDT setup
-│   ├── idt.h              # Structs IDT
-│   ├── idt.asm            # ISR stubs, IRQ handlers
-│   ├── test_idt.c         # idt_handler (exceções)
-│   ├── syscall.c          # 30 syscalls (XNU convention)
-│   ├── syscall_entry.asm  # Entry point da syscall
-│   ├── memory.c           # Bump allocator, page allocator
-│   ├── memory.h           # Declarações de memória
-│   ├── mach_o.c           # Carregador Mach-O 64-bit
-│   ├── mach_o.h           # Structs Mach-O
-│   ├── dyld.c             # Dynamic linker
-│   ├── dyld.h             # Structs dyld
-│   ├── dyld_bin.c         # dyld binário embutido
-│   ├── bash_bin.c         # bash binário embutido
-│   ├── libsystem_bin.c    # libSystem binário embutido
-│   ├── ls_bin.c           # ls binário embutido
-│   ├── test_macho.c       # Teste Mach-O
-│   ├── pic.c              # PIC 8259 init
-│   ├── smc.c              # SMC stub
-│   ├── smc.h
-│   ├── nvram.c            # NVRAM stub
-│   ├── nvram.h
-│   └── linker.ld          # Linker script
-├── drivers/
-│   ├── keyboard.c         # PS/2 keyboard (scancode→ASCII, repeat)
-│   ├── keyboard.h
-│   ├── keyboard_asm.asm   # IRQ1 handler asm
-│   ├── ata.c              # ATA PIO LBA28
-│   ├── ata.h
-│   ├── vga_gfx.c          # VGA graphics mode 320x200
-│   └── vga_gfx.h
-├── commands/
-│   ├── shell_cmds.c       # 21 comandos builtin
-│   └── shell_cmds.h
-├── fs/
-│   ├── fat32.c            # FAT32 completo (748 linhas)
-│   └── fat32.h
+/
+├── OvsbMk/                  ← KERNEL (ring 0)
+│   ├── kernel/
+│   │   ├── boot64.asm         # Entry point, long mode, GDT, paging
+│   │   ├── kernel.c           # kmain, init de tudo (VGA, IDT, FS, shell)
+│   │   ├── console.c          # VGA texto 80x25 + parser ANSI
+│   │   ├── shell.c            # Shell (execute, history, autocomplete, PATH)
+│   │   ├── idt.c / idt.asm    # IDT setup + ISR/IRQ stubs
+│   │   ├── syscall.c          # 30 syscalls (XNU convention)
+│   │   ├── syscall_entry.asm  # Entry point da syscall
+│   │   ├── syscall_linux.zig  # Tradução Linux→TipOS (compat)
+│   │   ├── memory.c           # Bump + buddy (4KB frames) + SLAB
+│   │   ├── vm_map.c           # Mapeamentos virtuais (mmap_user)
+│   │   ├── process.c          # PCB (64 slots), spawn/exit/waitpid, aux vector
+│   │   ├── switch.asm         # Context switch + FS.base (MSR_FS_BASE)
+│   │   ├── tss.c              # Ring 3 (TSS, iretq)
+│   │   ├── mach_o.c           # Carregador Mach-O 64-bit
+│   │   ├── elf64.zig          # ELF64 loader (musl static PIE, child PML4)
+│   │   ├── pic.c / pit.c / rtc.c / serial.c / env.c / utils.c
+│   │   ├── owt_app.c          # Demo do OWT (widget toolkit)
+│   │   └── linker.ld          # Linker script
+│   ├── kernel/drivers/
+│   │   ├── keyboard.zig       # PS/2 keyboard (scancode→ASCII, repeat)
+│   │   └── mouse.zig          # PS/2 mouse
+│   ├── drivers/
+│   │   ├── ata.c              # ATA PIO LBA28
+│   │   ├── pci.c              # PCI enumeration
+│   │   ├── usb.c              # USB (stub)
+│   │   ├── virtio_gpu.c       # Virtio GPU
+│   │   └── keyboard_asm.asm   # IRQ1 handler asm
+│   ├── fs/
+│   │   ├── fat32.c            # FAT32 completo (read/write/create/delete)
+│   │   ├── ext2.zig           # ext2 parcial
+│   │   └── initramfs.zig      # Initramfs
+│   ├── lib/
+│   │   ├── gui/               # vesa.c (framebuffer 1024x768x32)
+│   │   ├── owt/               # Widget toolkit (button, label, textbox...)
+│   │   └── wm/                # Window manager (multi-janela, backbuffer)
+│   ├── iso/                   # grub.cfg + kernel.elf para ISO
+│   ├── tests/                 # HELLO/TTEST (musl static PIE, demo ELF)
+│   └── Makefile               # Build do kernel (C + ASM + Zig)
 
-src/userland/
-├── libc/
-│   ├── crt0.c             # Runtime C startup
-│   ├── stdio.c            # printf, fopen, fread, fwrite, etc
-│   ├── stdlib.c           # malloc, free, atoi, exit
-│   ├── string.c           # string.h completo
-│   └── link.ld            # Linker script userland
-├── include/
-│   ├── stdio.h / stdlib.h / string.h / ctype.h
-│   └── sys/stat.h
+src/userland/                 ← Userland (ring 3) — + repos irmãos ../disp, ../term
+├── libc/                     # crt0, stdio, stdlib, string, ctype
+├── include/                  # stdio.h, stdlib.h, string.h, ctype.h, sys/stat.h
 ├── progs/
-│   └── graphy.c           # Editor TUI (~620 linhas)
-├── disp/
-│   └── compositor.c       # Compositor gráfico
+│   └── graphy.c              # Editor TUI (~620 linhas, syntax highlight)
 └── tools/
-    └── macho_pack.py      # Empacota .bin → Mach-O
+    └── macho_pack.py         # Empacota .bin → Mach-O
 ```
 
 ---
