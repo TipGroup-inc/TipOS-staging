@@ -14,14 +14,16 @@ if [ -z "$NAME" ]; then
     exit 1
 fi
 
-DISK="/root/projects/TipOS/disk.img"
-ULIB="/root/projects/TipOS/src/userland"
-BUILD="/root/projects/TipOS/build/userland"
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+DISK="$ROOT/disk.img"
+ULIB="$ROOT/src/userland"
+BUILD="$ROOT/build/userland"
 SRC_FILE="${NAME}.c"
 MACHO_FILE="${NAME}.macho"
 
 WORK=$(mktemp -d)
 trap "rm -rf $WORK" EXIT
+mkdir -p "$BUILD"
 
 # Extrai fonte do disco
 if ! mcopy -i "$DISK" -o "::/SRC/${SRC_FILE}" "$WORK/${SRC_FILE}" 2>/dev/null; then
