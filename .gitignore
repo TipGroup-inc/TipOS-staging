@@ -9,9 +9,10 @@ build/
 *.rmeta
 *.a
 target/
-src/rust/target/
 *.tmp
 *.bak
+*.swp
+*.swo
 temp.*
 *.log
 .DS_Store
