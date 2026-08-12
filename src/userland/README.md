@@ -3,8 +3,8 @@
 # TipOS Userland
 
 Programas userland rodam em **ring 3** via `int $0x80` para syscalls.
-O kernel carrega binários Mach-O 64-bit em `0x2000000` e entra em
-CPL=3 via `iretq`.
+O kernel carrega binários **Mach-O 64-bit** (nativos) ou **ELF64** (musl static PIE)
+em `0x2000000` e entra em CPL=3 via `iretq`.
 
 ## Quickstart
 
@@ -13,6 +13,7 @@ make install          # compila + copia pro disk.img
 ```
 
 No shell do kernel: `exec GRAPHY` (PATH search automático).
+`exec HELLO` executa o demo ELF Linux compat ("Hello from musl ELF!").
 
 ## Como escrever um programa
 
@@ -141,6 +142,16 @@ meuprog.macho            (Mach-O 64-bit)
     ↓
 FAT32 /BIN/MEUPROG
 ```
+
+## Linux ELF Compatibility
+
+TipOS pode executar **musl-linked static PIE ELF64** (Linux x86-64) nativamente:
+
+- **ELF loader** (`elf64.zig`): carrega ELF64 em child PML4, PT_LOAD com 2MB hugepages
+- **Syscall translation** (`syscall_linux.zig`): mapeia Linux→TipOS (read=0→3, write=1→4, exit_group=231→212, etc.)
+- **Auxiliary vector**: `setup_linux_user_stack()` empurra AT_RANDOM, AT_PAGESZ, AT_SECURE, AT_PHNUM, AT_PHENT, AT_PHDR
+- **TLS**: FS.base MSR save/restore (`switch.asm`), `arch_prctl` via MSR_FS_BASE
+- **Demo**: `HELLO` → "Hello from musl ELF!" (executado automaticamente no boot)
 
 ## PATH
 

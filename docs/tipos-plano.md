@@ -96,9 +96,12 @@ tipos/
 - [ ] `ls`, `cat`, `echo >` funcional
 
 ### Marco 6 — Carregador ELF (1-2 semanas)
-- [ ] Fazer ELF loader rodar
-- [ ] Executar binários ELF estáticos (busybox?)
-- [ ] Compatibilidade Linux básica
+- [x] **ELF loader** — `elf64.zig` carrega musl static PIE em child PML4 (2MB hugepages)
+- [x] **Syscall translation** — `syscall_linux.zig` mapeia Linux→TipOS (read=0, write=1, exit_group=231, etc.)
+- [x] **Auxiliary vector** — `setup_linux_user_stack()` empurra AT_RANDOM, AT_PAGESZ, AT_SECURE, AT_PHNUM, AT_PHENT, AT_PHDR
+- [x] **TLS via FS.base** — `switch.asm` salva/restaura MSR_FS_BASE por processo
+- [x] **Demo `exec HELLO`** — "Hello from musl ELF!"
+- [ ] **Executar busybox**, depois bash, depois GCC do Linux
 
 ### Marco 7 — Auto-hospedagem (meta final)
 - [ ] Compilar um .c com um compilador portado

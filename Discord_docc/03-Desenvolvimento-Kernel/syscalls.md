@@ -64,3 +64,25 @@ static inline int64_t minha_syscall(int a1, int a2) {
 **Roadmap:** expandir de 30 pra 150+ syscalls (Fase 1 do roadmap em equipe), depois migrar o gate de `int 0x80` pra `syscall`/`sysret` (mais rápido, decisão em `tipos-dev-stack.md`). Também em avaliação: manter convenção XNU ou migrar pra ABI SysV.
 
 Muitos stubs aqui (`ioctl`, `mprotect`, `sigaction`, `access`) — bom ponto de entrada pra quem quer contribuir sem mexer em nada crítico.
+
+---
+
+**🧪 Linux Syscall Translation (`syscall_linux.zig`)**
+
+Para executar binários ELF musl static PIE, o TipOS implementa uma camada de
+tradução que mapeia syscalls Linux para as nativas:
+
+| Linux # | Nome | → TipOS # | Notas |
+|---------|------|-----------|-------|
+| 0 | read | 3 | |
+| 1 | write | 4 | |
+| 12 | brk | 12 | Stub (retorna sucesso) |
+| 60 | exit | 1 | |
+| 158 | arch_prctl | 158 | FS.base via MSR |
+| 186 | set_tid_address | 186 | Stub |
+| 228 | clock_gettime | 116 | RTC-based |
+| 231 | exit_group | 212 | Re-mapeado para evitar colisão |
+| 35 | nanosleep | - | Busy-wait |
+
+O `syscall_linux.zig` intercepta o número Linux, traduz para o número TipOS
+e despacha para o handler nativo. Demo: `exec HELLO` → "Hello from musl ELF!".

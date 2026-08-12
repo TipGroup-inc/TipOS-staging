@@ -29,6 +29,13 @@ Adiciona no `Makefile` (`PROGS = graphy hello`), `make -C src/userland install` 
 
 ---
 
+**HELLO — Linux ELF demo:**
+O binário `HELLO` é um musl-linked static PIE ELF64 que escreve "Hello from musl ELF!"
+no stdout e sai com código 0. É carregado via `elf64.zig` e executado automaticamente
+pela `shell_init()` antes do `DISP`. Testa toda a pilha de compatibilidade Linux:
+loader ELF, tradução de syscalls (read=0→3, write=1→4, exit_group=231→212),
+auxiliary vector, TLS via FS.base.
+
 **Roadmap de apps (ainda não implementados):**
 - `hello` — programa exemplo (já no tutorial)
 - **TCC** (Tiny C Compiler) portado + comandos `cc`, `make`, `as`

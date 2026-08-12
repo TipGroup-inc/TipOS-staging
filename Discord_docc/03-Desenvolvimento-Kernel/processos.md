@@ -1,9 +1,11 @@
 <!-- moe moe kyun <3 -->
 🧩 **PROCESSOS — TipOS**
 
-**Status atual: ainda não existe.** O TipOS hoje é **single-address-space**, sem PCB, sem scheduler, sem isolamento entre processos — kernel e userland rodam tudo em ring 0, compartilhando o mesmo espaço de memória.
+**Status atual: funcional.** O TipOS agora tem **PCB**, **scheduler preemptivo** (round-robin via PIT), **paginação por processo** (PML4 próprio por execução), **TSS com RSP0 separado por processo**, e **FS.base save/restore** (TLS) para compatibilidade Linux.
 
-Isso é o próximo grande marco de kernel (Marco 2 do `tipos-plano.md` / Fase 2 do roadmap em equipe).
+O scheduler roda via PIT IRQ0, `context_switch` em `switch.asm`, pop+iretq. A tabela de processos tem 64 slots, com estados RUNNING/READY/BLOCKED/ZOMBIE.
+
+Para a camada de compatibilidade Linux, o `switch.asm` também salva/restaura o **MSR_FS_BASE** (TLS por thread), necessário para binários musl-linked static PIE.
 
 ---
 

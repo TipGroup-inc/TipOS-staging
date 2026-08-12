@@ -1468,6 +1468,135 @@ vga[2] = (0x0E << 8) | ('0' + (num % 10));
 
 ---
 
+## 24. ELF64 Loader (musl static PIE)
+
+### 25.1 Visão Geral
+
+O `elf64.zig` carrega binários **ELF64** para execução nativa no TipOS,
+suportando especificamente **musl-linked static PIE** (Position Independent
+Executable). O loader cria um **child PML4** por processo e mapeia os segmentos
+PT_LOAD com páginas de **2MB (hugepages)**.
+
+### 25.2 Fluxo de Carga
+
+```
+elf64_load(name, binary, size) → proc_entry * (ou NULL)
+  1. Verifica magic ELF (0x7F 'ELF')
+  2. Valida e_machine=EM_X86_64, e_type=ET_DYN (PIE)
+  3. Itera program headers (e_phoff, e_phnum)
+  4. Para cada PT_LOAD:
+     a. Alinha VA base com 2MB (hugepage)
+     b. Aloca páginas físicas no page allocator
+     c. Mapeia no child PML4 (clone da identidade, U/S gerenciado)
+     d. Copia dados do segmento do binário
+  5. Salta para entry point (e_entry)
+```
+
+### 25.3 mapped[] Bugfix
+
+```zig
+// ANTES (bug): bitwise OR entre VA e PA
+mapped[slot] = va | phys;  // corrompe phys se VA e PA têm bits 23:21 sobrepostos
+
+// DEPOIS (fix):
+mapped[slot] = (va >> 32) << 32 | phys;
+```
+
+O `mapped[]` array armazena 32 mapeamentos de VA→PA. O bug ocorria porque
+VA (ex: `0x1000000`) e PA (ex: `0x1XX000`) compartilhavam bits na faixa 23:21,
+e o OR bitwise corrompia o endereço físico armazenado, causando crashes ao
+acessar a memória do ELF carregado.
+
+### 25.4 Arquivo
+
+| Arquivo | Função |
+|---------|--------|
+| `OvsbMk/kernel/elf64.zig` | ELF64 loader (PML4 child, PT_LOAD, 2MB hugepages) |
+
+---
+
+## 25. Linux x86-64 Compatibility
+
+### 25.1 Visão Geral
+
+Para executar binários Linux não-modificados, o TipOS implementa uma **camada
+de tradução de syscalls** que mapeia números de syscall Linux para os números
+nativos do TipOS, mais stubs para syscalls Linux não presentes no TipOS nativo.
+
+### 25.2 Syscall Translation (`syscall_linux.zig`)
+
+| Linux # | Nome | → TipOS # | Notas |
+|---------|------|-----------|-------|
+| 0 | read | 3 | Mapeado diretamente |
+| 1 | write | 4 | Mapeado diretamente |
+| 12 | brk | 12 | Stub (retorna sucesso) |
+| 60 | exit | 1 | Linux exit → TipOS exit |
+| 186 | set_tid_address | 186 | Stub (retorna 0) |
+| 218 | set_tid_address (alt) | 186 | Stub |
+| 228 | clock_gettime | 116 | RTC-based |
+| 231 | exit_group | 212 | Mapeado para 212 para evitar colisão |
+| 35 | nanosleep | - | Stub (busy-wait) |
+| 158 | arch_prctl | 158 | Configura FS.base via MSR |
+
+### 25.3 Auxiliary Vector (`setup_linux_user_stack()`)
+
+Em `process.c`, `setup_linux_user_stack()` empurra o **auxiliary vector**
+no topo da stack do usuário, seguindo o layout Linux x86-64:
+
+```
+[stack top]
+  AT_RANDOM (16 bytes random)
+  AT_PAGESZ (4096)
+  AT_SECURE (0)
+  AT_PHNUM  (nº de program headers)
+  AT_PHENT  (sizeof(Elf64_Phdr))
+  AT_PHDR   (endereço base dos program headers)
+  NULL      (terminador)
+  environ   (NULL)
+  argv[1]   (NULL)
+  argv[0]   (nome do binário)
+  argc      (1)
+```
+
+### 25.4 TLS via FS.base
+
+O `switch.asm` salva/restaura o **MSR_FS_BASE** durante a troca de contexto,
+permitindo que cada processo tenha seu próprio **Thread Local Storage** (TLS).
+A syscall `arch_prctl` (Linux #158) permite que o binário musl configure o
+FS.base apontando para o descritor de thread (TLS).
+
+### 25.5 U/S Bit Management
+
+- **`clone_identity_tables()`** — clona as PML4/PDP/PD do kernel mas **strips
+  o bit U/S** (User/Supervisor) de todas as entradas, garantindo que ring 3
+  não acesse páginas do kernel.
+- **Spawn paths** — ao carregar um ELF, as páginas de código e stack recebem
+  explicitamente o bit U/S (0x07 em vez de 0x03 para PDE/PML4E).
+
+### 25.6 Demo: `HELLO`
+
+```
+[/]# exec HELLO
+Hello from musl ELF!
+[/]#
+```
+
+O comando `shell_init` executa `HELLO` primeiro, depois `DISP`, demonstrando
+a execução ELF no boot. O binário HELLO é um musl-linked static PIE que
+escreve no stdout e sai com código 0.
+
+### 25.7 Arquivos
+
+| Arquivo | Função |
+|---------|--------|
+| `OvsbMk/kernel/elf64.zig` | ELF64 loader (PML4 child, 2MB hugepages) |
+| `OvsbMk/kernel/syscall_linux.zig` | Tradução Linux→TipOS |
+| `OvsbMk/kernel/switch.asm` | FS.base (MSR_FS_BASE) save/restore |
+| `OvsbMk/kernel/process.c` | `setup_linux_user_stack()` aux vector |
+| `OvsbMk/kernel/memory.c` | `clone_identity_tables()`, U/S management |
+
+---
+
 ## Apêndice A: Estrutura de Diretórios
 
 ```

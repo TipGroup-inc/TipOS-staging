@@ -160,12 +160,12 @@ tipos/
 |--------|--------|----------|
 | **Dev C1** | libc mínima (printf, sprintf, strlen, memcpy) | `libs/libc/` |
 | **Dev C2** | Carregador Mach-O (completar) | `kernel/ipc/ ou kernel/syscall/ — mach_o.c` |
-| **Dev C3** | Carregador ELF | `kernel/syscall/elf_loader.c` (novo) |
+| **Dev C3** | Carregador ELF | `OvsbMk/kernel/elf64.zig` ✅ |
 | **Dev C4** | Syscalls XNU (expandir) | `kernel/syscall/syscall.c` (junto com A6) |
 | **Dev C5** | Shell nativo | `apps/shell/shell.c` ← mini_shell.c |
-| **Dev C6** | Tradutor Linux (futuro) | `translators/linux/` |
+| **Dev C6** | Tradutor Linux | `OvsbMk/kernel/syscall_linux.zig` ✅ |
 
-**Milestone:** Executar binário ELF estático (busybox) via shell.
+**Milestone:** ✅ Executar binário ELF estático (musl static PIE) via `exec HELLO`.
 
 ---
 
@@ -265,11 +265,13 @@ Time A (kernel core) ── fornece syscalls ──► Time C (libc/shell)
 
 ### Fase 5 — Compatibilidade Linux (semanas 17-20) → Time C
 
-| Tarefa | Time |
-|--------|------|
-| Carregador ELF | C3 |
-| Mapeamento 150 syscalls Linux → nativas | C4 + A6 |
-| Shell Linux (busybox) rodando | C5 |
+| Tarefa | Time | Status |
+|--------|------|--------|
+| Carregador ELF (musl static PIE) | C3 | ✅ `elf64.zig` |
+| Mapeamento syscalls Linux → nativas | C4 + A6 | ✅ `syscall_linux.zig` (read, write, exit_group, arch_prctl, brk, etc.) |
+| Auxiliary vector (AT_RANDOM, AT_PHDR, etc.) | C3 | ✅ `setup_linux_user_stack()` |
+| TLS FS.base save/restore | A1 | ✅ `switch.asm` (MSR_FS_BASE) |
+| Shell Linux (busybox) rodando | C5 | 🔸 `exec HELLO` demo funcional |
 
 ### Fase 6 — Modos de Performance (semanas 21-24) → Time A
 

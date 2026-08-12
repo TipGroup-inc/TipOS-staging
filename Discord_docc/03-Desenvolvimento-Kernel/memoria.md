@@ -17,17 +17,21 @@
 - Page allocator: bitmap de 1024 páginas de 4096 bytes
 - `mmap_user` / `munmap_user` — syscalls 197/73, alocam/liberam páginas anônimas
 
-**Userland `malloc()`:** bump allocator de 64KB heap estático próprio (libc), `free()` é no-op — igual ao do kernel.
+**Userland `malloc()`:** freelist circular com coalescência (stdlib.c), `mmap` para alocações >= 2048 bytes.
 
 ---
 
-**O que falta (mesma ordem do roadmap):**
-- Paginação **por processo** (hoje é single-address-space — todo mundo enxerga a mesma memória)
-- Transição ring 0 → ring 3 (TSS)
+**O que já foi implementado recentemente:**
+- **Paginação por processo** — cada execução ring 3 tem PML4 próprio (clone da identidade do kernel), switch cr3 na entry/exit
+- **clone_identity_tables()** — clona PML4/PDP/PD mas **strips o bit U/S** de todas as entradas; spawn paths re-adicionam U/S para code/stack pages
+- **TLB flush implícito** no `mov cr3` na troca de contexto
+- **Transição ring 0 → ring 3** via TSS + iretq (CS=0x1B/RPL=3)
+- **Bugfix `mapped[32]`** — VA|PA OR corrompia phys addr no ELF loader; fix `(va>>32)<<32 | phys`
+
+**O que falta:**
+- Isolar o kernel em página alta (0xFFFF800000000000+)
+- Substituir bump allocator do kernel por um allocator real (free list)
 - Copy-on-write pro `fork`
-- TLB flush correto na troca de contexto
-- Isolar o kernel em página alta (hoje kernel e userland dividem o mesmo range)
-- Substituir bump allocator do kernel por um allocator real (free list) — hoje `kfree()` não recicla nada
 
 **Referência de mudança planejada:** `memory.c` → 70% aproveitável, vai virar `kernel/mm/pmm.c` (físico) + novo `kernel/mm/vmm.c` (virtual, identidade → demanda).
 

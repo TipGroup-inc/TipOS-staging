@@ -7,10 +7,10 @@ Base do projeto: **OvsbMkM** (kernel 64-bit, monolítico, single-address-space) 
 
 ---
 
-**Estado atual (v0.5.0.0):**
-> STAGE 5 = Editor maduro + RTC + timer + repeat + shell editing + history + PATH + redirect + syntax highlight + undo + clipboard
+**Estado atual (v0.7.4.0):**
+> STAGE 7 = Ring 3 + proteção de memória + scheduler preemptivo + VESA framebuffer + ELF64 loader + Linux compat
 
-Já funciona: boot GRUB/Multiboot2 → long mode → 30 syscalls (convenção XNU) → VGA com parser ANSI → teclado PS/2 com repeat → ATA PIO → FAT32 completo → shell `MkM>` com history/autocomplete → editor TUI `graphy`.
+Já funciona: boot GRUB/Multiboot2 → long mode → 30 syscalls (convenção XNU) → VGA com parser ANSI → teclado PS/2 com repeat → ATA PIO → FAT32 completo → shell `MkM>` com history/autocomplete → editor TUI `graphy` → **ELF64 loader (musl static PIE)** + **Linux syscall translation** + **`exec HELLO` demo**.
 
 ---
 
@@ -23,7 +23,7 @@ Já funciona: boot GRUB/Multiboot2 → long mode → 30 syscalls (convenção XN
 | 3 — Terminal TUI | Multiplexação de janelas de texto, teclado via IPC | 1 semana |
 | 4 — Editor de Texto | Editor modal, syntax highlight básico | 1 semana |
 | 5 — Armazenamento | VFS + FAT32 real (`ls`, `cat`, `echo >`) | 2 semanas |
-| 6 — Carregador ELF | Rodar binários ELF estáticos (busybox) | 1-2 semanas |
+| 6 — Carregador ELF | ✅ ELF64 loader + syscall translation + `exec HELLO` | ✅ Feito |
 | 7 — Auto-hospedagem | Compilar `.c` dentro do próprio TipOS | meta final |
 
 **🎯 Milestone imediato:** OvsbMkM reorganizado bootando com o nome "TipOS" (splash + prompt).

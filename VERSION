@@ -1,9 +1,10 @@
 /* moe moe kyun <3 */
-v0.7.3.0
+v0.7.4.0
 
 Format: v0.STAGE.RELEASE.FEATURE
   STAGE  = 7 = Ring 3 + proteção de memória + scheduler preemptivo +
                 VESA framebuffer 1024x768 32-bit
-  RELEASE = 3 = boot selector (C/R), integração Rust (no_std, GlobalAlloc,
-                nightly, staticlib linkado no kernel), ATA BSY polling fix
+  RELEASE = 4 = ELF64 loader (musl static PIE), Linux syscall translation,
+                FS.base TLS save/restore, auxiliary vector, U/S bit mgmt,
+                `exec HELLO` demo
   FEATURE = 0 = initial feature set

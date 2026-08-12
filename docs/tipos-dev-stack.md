@@ -183,8 +183,10 @@ Baseado no protótipo existente (boot 64-bit, VGA, teclado PS/2, IDT/PIC), o que
 
 ### 5.4 Carregadores
 
-- [ ] Carregador **Mach-O** (já prototipado no doc) — completar
-- [ ] Carregador **ELF** básico (cabeçalhos, segmentos, entry point)
+- [x] Carregador **Mach-O** (já prototipado) — funcional (`mach_o.c`)
+- [x] Carregador **ELF** (musl static PIE) — funcional (`elf64.zig`, child PML4, 2MB hugepages)
+- [x] **Syscall translation** Linux→TipOS (`syscall_linux.zig`)
+- [x] **Auxiliary vector** (`setup_linux_user_stack()`: AT_RANDOM, AT_PAGESZ, AT_SECURE, AT_PHNUM, AT_PHENT, AT_PHDR)
 
 ### 5.5 IPC básico
 

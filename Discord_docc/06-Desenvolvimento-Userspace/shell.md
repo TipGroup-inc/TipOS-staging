@@ -17,6 +17,17 @@ mv cp rmdir stat exec disp date uptime sleep
 - **Autocomplete (TAB):** completa builtins + PATH na 1ª palavra, arquivos/dirs do CWD nas seguintes. Match único completa direto; múltiplos matches preenchem o prefixo comum; TAB duplo lista todos os matches.
 - **^C** interrompe o comando atual
 
+**NOVO — `exec HELLO` (ELF Linux compat):**
+A `shell_init()` agora executa `HELLO` primeiro (antes de `DISP`), demonstrando
+a execução de binários **musl-linked static PIE ELF64**:
+```
+[/]# exec HELLO
+Hello from musl ELF!
+[/]#
+```
+Isso usa `elf64.zig` (ELF loader) + `syscall_linux.zig` (tradução Linux→TipOS)
++ `setup_linux_user_stack()` (auxiliary vector) + FS.base save/restore (TLS).
+
 **Ainda não funcional:**
 - **Pipe (`|`)** — hoje só mostra `[pipe not fully implemented yet]`. Pra implementar de verdade: capturar saída do 1º comando no `redir_buf` e alimentar como "teclado virtual" pro 2º comando.
 - Prompt customizável (PS1-like), aliases, background jobs (`&`, `jobs`, `fg`, `bg`), variáveis de ambiente (`$PATH`, `$HOME`, `$EDITOR`), scripting (`.sh`)
