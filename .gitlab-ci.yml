@@ -14,12 +14,12 @@ build-kernel:
   stage: build
   image: gcc:latest
   script:
-    - cd OvsbMkM
+    - cd OvsbMk
     - make clean
     - make all
   artifacts:
     paths:
-      - OvsbMkM/build/kernel.elf
+      - OvsbMk/build/kernel.elf
     expire_in: 1 week
 
 build-iso:
@@ -28,11 +28,11 @@ build-iso:
   needs:
     - build-kernel
   script:
-    - cd OvsbMkM
+    - cd OvsbMk
     - make iso
   artifacts:
     paths:
-      - OvsbMkM/OvsbMkM.iso
+      - OvsbMk/OvsbMkM.iso
     expire_in: 1 week
 
 build-userland:
@@ -52,15 +52,15 @@ test-kernel:
   needs:
     - build-kernel
   script:
-    - ls -la OvsbMkM/build/kernel.elf
-    - file OvsbMkM/build/kernel.elf | grep -q ELF && echo "Kernel ELF OK" || (echo "Not an ELF!"; exit 1)
+    - ls -la OvsbMk/build/kernel.elf
+    - file OvsbMk/build/kernel.elf | grep -q ELF && echo "Kernel ELF OK" || (echo "Not an ELF!"; exit 1)
 
 pages:
   stage: deploy
   image: alpine:latest
   script:
     - mkdir -p public
-    - cp OvsbMkM/README.md public/ || true
+    - cp README.md public/ || true
   artifacts:
     paths:
       - public
