@@ -28,12 +28,13 @@
 15. [Comandos](#15-comandos)
 16. [Userland e Libc](#16-userland)
 17. [Graphy — Editor TUI](#17-graphy)
-18. [Integração Rust](#18-integração-rust)
-19. [Como Adicionar uma Syscall](#19-como-adicionar-uma-syscall)
-20. [Como Adicionar um Comando](#20-como-adicionar-um-comando)
-21. [Como Adicionar uma Função Libc](#21-como-adicionar-uma-função-libc)
-22. [Debugging](#22-debugging)
-23. [Problemas Comuns](#23-problemas-comuns)
+18. [Como Adicionar uma Syscall](#18-como-adicionar-uma-syscall)
+19. [Como Adicionar um Comando](#19-como-adicionar-um-comando)
+20. [Como Adicionar uma Função Libc](#20-como-adicionar-uma-função-libc)
+21. [Debugging](#21-debugging)
+22. [Problemas Comuns](#22-problemas-comuns)
+23. [ELF64 Loader (musl static PIE)](#23-elf64-loader-musl-static-pie)
+24. [Linux x86-64 Compatibility](#24-linux-x86-64-compatibility)
 
 ---
 
@@ -97,14 +98,12 @@ void kmain(uint32_t magic, uint32_t mb_info) {
     __asm__ ("sti");         // 11. Habilita interrupções
     parse_multiboot2(        // 12. Lê tags Multiboot2 (framebuffer VESA)
         magic, mb_info);
-    boot_selector();         // 13. Prompt [C]/[R] — escolhe memory manager
-                             //     C: continua com C, R: chama rust_entry()
-    mouse_init();            // 14. Inicializa mouse PS/2 (se fb ativo)
-    ata_init();              // 15. ATA PIO init (primary master)
-    fat32_init();            // 16. Lê BPB, monta FAT32
-    disp_init();             // 17. Compositor gráfico (se fb ativo)
-    vga_puts("TipOS...\n");  // 18. Mensagens de boot
-    shell_loop();            // 19. → SHELL (nunca retorna)
+    mouse_init();            // 13. Inicializa mouse PS/2 (se fb ativo)
+    ata_init();              // 14. ATA PIO init (primary master)
+    fat32_init();            // 15. Lê BPB, monta FAT32
+    disp_init();             // 16. Compositor gráfico (se fb ativo)
+    vga_puts("TipOS...\n");  // 17. Mensagens de boot
+    shell_loop();            // 18. → SHELL (nunca retorna)
 }
 ```
 
@@ -1196,103 +1195,8 @@ for (int i = 0; i < ind; i++) ins(co + 1 + i, ' ');
 
 ---
 
-## 18. Integração Rust
 
-### 18.1 Visão Geral
-
-O kernel TipOS pode ser extendido com código Rust, compilado como uma staticlib
-(`.a`) e linkado diretamente no `kernel.elf`. A crate live em `src/rust/` e usa
-`#![no_std]` com `build-std = ["core", "alloc"]` (nightly).
-
-### 18.2 Estrutura
-
-```
-src/rust/
-├── Cargo.toml              # [lib] crate-type = ["staticlib"]
-├── .cargo/config.toml      # target = "x86_64-unknown-none", rustflags
-└── src/
-    ├── lib.rs              # rust_entry(), panic_handler, alloc_error_handler
-    ├── ffi.rs              # extern "C" declarations (serial_putc, kmalloc, kfree)
-    └── allocator.rs        # TiposAllocator: GlobalAlloc wrappando kmalloc/kfree
-```
-
-### 18.3 Boot Selector
-
-No início do `kmain()`, um **boot selector** pergunta:
-
-```
-TipOS Boot Selector
-Press [R] for Rust memory manager
-Press [C] for C memory manager
-Default: C in 5s...
-```
-
-- **C (default):** continua com o memory manager C (bump allocator).
-- **R:** chama `rust_entry()` (código Rust), que testa o `TiposAllocator`
-  alocando e escrevendo um `u64` na heap, depois continua o boot normal.
-
-### 18.4 FFI — C chamando Rust
-
-Rust exporta `extern "C" fn rust_entry()`, que é chamada do `kmain()`.
-A declaração em C:
-
-```c
-extern void rust_entry(void);
-```
-
-E a implementação em Rust:
-
-```rust
-#[no_mangle]
-pub extern "C" fn rust_entry() { ... }
-```
-
-### 18.5 FFI — Rust chamando C
-
-Funções C são declaradas como `extern "C"` no Rust:
-
-```rust
-extern "C" {
-    fn kmalloc(size: usize) -> *mut u8;
-    fn kfree(ptr: *mut u8);
-    fn serial_putc(c: u8);
-}
-```
-
-### 18.6 Global Allocator
-
-`TiposAllocator` implementa `GlobalAlloc` e wrappa `kmalloc`/`kfree` do C:
-
-```rust
-use core::alloc::{GlobalAlloc, Layout};
-
-pub struct TiposAllocator;
-
-unsafe impl GlobalAlloc for TiposAllocator {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        extern "C" { fn kmalloc(size: usize) -> *mut u8; }
-        kmalloc(layout.size())
-    }
-    unsafe fn dealloc(&self, ptr: *mut u8, _layout: Layout) {
-        extern "C" { fn kfree(ptr: *mut u8); }
-        kfree(ptr);
-    }
-}
-```
-
-### 18.7 Build
-
-```bash
-make rust    # cargo build — release, target x86_64-unknown-none
-make kernel  # .elf + .a linkados (automático)
-```
-
-O Makefile do `OvsbMk/` tem o target `$(RUST_LIB)` que chama `cargo build`,
-e o link do `kernel.elf` inclui `$(RUST_LIB)` nos objetos.
-
----
-
-## 19. Como Adicionar uma Syscall
+## 18. Como Adicionar uma Syscall
 
 ### Passo 1: Defina o número
 
@@ -1327,7 +1231,7 @@ static inline int64_t minha_syscall(int a1, int a2) {
 
 ---
 
-## 20. Como Adicionar um Comando
+## 19. Como Adicionar um Comando
 
 ### Passo 1: shell_cmds.h
 
@@ -1356,7 +1260,7 @@ vga_puts("hello   ...\n");
 
 ---
 
-## 21. Como Adicionar uma Função na Libc
+## 20. Como Adicionar uma Função na Libc
 
 ### Exemplo: Adicionar `strdup`
 
@@ -1378,7 +1282,7 @@ vga_puts("hello   ...\n");
 
 ---
 
-## 22. Debugging
+## 21. Debugging
 
 ### 21.1 QEMU + Serial
 
@@ -1423,7 +1327,7 @@ vga[2] = (0x0E << 8) | ('0' + (num % 10));
 
 ---
 
-## 23. Problemas Comuns
+## 22. Problemas Comuns
 
 ### "Kernel panic: no working init found"
 - FAT32 não foi inicializado. Verifique `fat32_init()` > 0.
@@ -1468,16 +1372,16 @@ vga[2] = (0x0E << 8) | ('0' + (num % 10));
 
 ---
 
-## 24. ELF64 Loader (musl static PIE)
+## 23. ELF64 Loader (musl static PIE)
 
-### 25.1 Visão Geral
+### 23.1 Visão Geral
 
 O `elf64.zig` carrega binários **ELF64** para execução nativa no TipOS,
 suportando especificamente **musl-linked static PIE** (Position Independent
 Executable). O loader cria um **child PML4** por processo e mapeia os segmentos
 PT_LOAD com páginas de **2MB (hugepages)**.
 
-### 25.2 Fluxo de Carga
+### 23.2 Fluxo de Carga
 
 ```
 elf64_load(name, binary, size) → proc_entry * (ou NULL)
@@ -1492,7 +1396,7 @@ elf64_load(name, binary, size) → proc_entry * (ou NULL)
   5. Salta para entry point (e_entry)
 ```
 
-### 25.3 mapped[] Bugfix
+### 23.3 mapped[] Bugfix
 
 ```zig
 // ANTES (bug): bitwise OR entre VA e PA
@@ -1507,7 +1411,7 @@ VA (ex: `0x1000000`) e PA (ex: `0x1XX000`) compartilhavam bits na faixa 23:21,
 e o OR bitwise corrompia o endereço físico armazenado, causando crashes ao
 acessar a memória do ELF carregado.
 
-### 25.4 Arquivo
+### 23.4 Arquivo
 
 | Arquivo | Função |
 |---------|--------|
@@ -1515,15 +1419,15 @@ acessar a memória do ELF carregado.
 
 ---
 
-## 25. Linux x86-64 Compatibility
+## 24. Linux x86-64 Compatibility
 
-### 25.1 Visão Geral
+### 24.1 Visão Geral
 
 Para executar binários Linux não-modificados, o TipOS implementa uma **camada
 de tradução de syscalls** que mapeia números de syscall Linux para os números
 nativos do TipOS, mais stubs para syscalls Linux não presentes no TipOS nativo.
 
-### 25.2 Syscall Translation (`syscall_linux.zig`)
+### 24.2 Syscall Translation (`syscall_linux.zig`)
 
 | Linux # | Nome | → TipOS # | Notas |
 |---------|------|-----------|-------|
@@ -1538,7 +1442,7 @@ nativos do TipOS, mais stubs para syscalls Linux não presentes no TipOS nativo.
 | 35 | nanosleep | - | Stub (busy-wait) |
 | 158 | arch_prctl | 158 | Configura FS.base via MSR |
 
-### 25.3 Auxiliary Vector (`setup_linux_user_stack()`)
+### 24.3 Auxiliary Vector (`setup_linux_user_stack()`)
 
 Em `process.c`, `setup_linux_user_stack()` empurra o **auxiliary vector**
 no topo da stack do usuário, seguindo o layout Linux x86-64:
@@ -1558,14 +1462,14 @@ no topo da stack do usuário, seguindo o layout Linux x86-64:
   argc      (1)
 ```
 
-### 25.4 TLS via FS.base
+### 24.4 TLS via FS.base
 
 O `switch.asm` salva/restaura o **MSR_FS_BASE** durante a troca de contexto,
 permitindo que cada processo tenha seu próprio **Thread Local Storage** (TLS).
 A syscall `arch_prctl` (Linux #158) permite que o binário musl configure o
 FS.base apontando para o descritor de thread (TLS).
 
-### 25.5 U/S Bit Management
+### 24.5 U/S Bit Management
 
 - **`clone_identity_tables()`** — clona as PML4/PDP/PD do kernel mas **strips
   o bit U/S** (User/Supervisor) de todas as entradas, garantindo que ring 3
@@ -1573,7 +1477,7 @@ FS.base apontando para o descritor de thread (TLS).
 - **Spawn paths** — ao carregar um ELF, as páginas de código e stack recebem
   explicitamente o bit U/S (0x07 em vez de 0x03 para PDE/PML4E).
 
-### 25.6 Demo: `HELLO`
+### 24.6 Demo: `HELLO`
 
 ```
 [/]# exec HELLO
@@ -1585,7 +1489,7 @@ O comando `shell_init` executa `HELLO` primeiro, depois `DISP`, demonstrando
 a execução ELF no boot. O binário HELLO é um musl-linked static PIE que
 escreve no stdout e sai com código 0.
 
-### 25.7 Arquivos
+### 24.7 Arquivos
 
 | Arquivo | Função |
 |---------|--------|

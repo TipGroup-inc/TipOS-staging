@@ -1,15 +1,13 @@
 # TipOS v0.7.4.0
 
 Sistema operacional x86-64 com kernel OvsbMk, libc própria, compositor gráfico,
-editor TUI, e sistema de containers (dock). Suporta execução de binários
-**musl-linked static PIE ELF** (Linux x86-64 compat).
+editor TUI e suporte a execução de binários **musl-linked static PIE ELF**
+(Linux x86-64 compat).
 
 ```
 /
-├── OvsbMk/          ─── KERNEL (ring 0)     ─── C + ASM + Zig + Rust
-├── src/userland/    ─── Userland (ring 3)   ─── C freestanding
-├── src/dock/        ─── App container       ─── C
-└── src/rust/        ─── Módulo Rust kernel  ─── Rust (staticlib)
+├── OvsbMk/          ─── KERNEL (ring 0)     ─── C + ASM + Zig
+└── src/userland/    ─── Userland (ring 3)   ─── C freestanding
 ```
 
 ## Subsystems
@@ -28,12 +26,6 @@ editor TUI, e sistema de containers (dock). Suporta execução de binários
 - libc freestanding: stdio (printf, fopen/fread/fwrite), stdlib (malloc), string, ctype, TUI
 - Programas: graphy (editor TUI com syntax highlight C), disp-wm (compositor ring 3)
 - Build: C → ELF → binary → Mach-O 64-bit, instalado no disco FAT32
-
-### src/dock — App Container
-- Gerenciador de aplicativos: lifecycle, loader, manifest, registry, ABI resolver
-
-### src/rust — Rust no Kernel
-- GlobalAlloc wrappando kmalloc/kfree, panic handler, boot selector C/R
 
 ## Build & Run
 
@@ -63,7 +55,6 @@ qemu-system-x86_64 -cdrom TipOS.iso -drive file=disk.img,format=raw,index=0 -m 5
 | `echo <txt>` | Imprime texto                 |
 | `info`       | Info do sistema (VESA, heap)  |
 | `hexdump`    | Exibe 64 bytes de um endereço |
-| `run`        | Executa programa ring 3 demo  |
 | `exec <file>`| Carrega e executa Mach-O ou ELF64 do FAT32 |
 | `exec HELLO`| Demo ELF: "Hello from musl ELF!" (Linux compat) |
 | `ls`         | Lista diretório FAT32         |

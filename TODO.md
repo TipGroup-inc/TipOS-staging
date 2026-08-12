@@ -247,42 +247,6 @@
 
 ---
 
-243,76 +247,6 @@
-## 🦀 13. INTEGRAÇÃO RUST NO KERNEL
-
-*Adicionar Rust como linguagem de kernel, compilando para freestanding x86_64 e linkando com o C existente.*
-
-### 13.1 Toolchain & Target
-
-
-### 13.2 Rust Runtime Mínimo
-
-
-### 13.3 FFI com C (Interface Externa)
-
-  - `serial_puts`, `serial_putc`
-  - `kmalloc`, `kfree`
-  - ([futuro] framebuffer_t, window_t, process_t, etc.)
-
-### 13.4 Global Allocator para Rust
-
-
-### 13.5 Boot Selector (C vs Rust)
-
-
-### 13.6 Próximos Passos
-
-
-### 13.6 Rust no Userland
-
-
-### 13.7 Build Pipeline
-
-
-### 13.8 Dependências e Crates (só se necessário)
-
-
-
 ## 🛠️ 4. FERRAMENTAS DE DESENVOLVIMENTO (Meses 2-3)
 
 *O que faz programadores sérios se interessarem.*
