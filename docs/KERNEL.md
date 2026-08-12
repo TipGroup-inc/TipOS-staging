@@ -4,7 +4,7 @@
 > **Nível:** Bizarro. Até uma pedra consegue continuar o desenvolvimento.
 >
 > **Arquitetura:** x86-64, long mode, ring 0, GRUB/Multiboot2, single-address-space.
-> **Linguagens:** C11 (GCC) + NASM (assembly) + Rust (nightly, `x86_64-unknown-none`).
+> **Linguagens:** C11 (GCC) + NASM (assembly) + Zig (`zig build-obj`, `x86_64-freestanding`).
 > **Build:** Makefile + GRUB + QEMU.
 
 ---

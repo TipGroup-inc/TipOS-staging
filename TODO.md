@@ -636,7 +636,6 @@ Ring 3 / Proteção ───────────┬────────
 | **v0.7.3.0** | **disp-wm separado** — WM extraído para repositório próprio (`disp-wm/`), kernel expõe syscalls 200 (disp_get_fb) e 201 (disp_flush), cmd_disp exec disp-wm.macho como userland ring 3 |
 | **v0.7.3.0** | **lseek movido para syscall 202** — desocupa 200/201 para as syscalls de display |
 | **v0.7.3.0** | **ATA fix (BSY polling)** — wait BSY==0 antes de enviar comando ATA, polling `BSY==0 && DRQ==1` evita hangs |
-| **v0.7.3.0** | **Integração Rust** — crate `src/rust/` compila como staticlib (nightly, `x86_64-unknown-none`), linkada no kernel. GlobalAlloc wrappa `kmalloc`/`kfree` do C |
 | **v0.7.3.0** | **Boot selector** — prompt C/R na inicialização, timeout 5s default C. VGA + serial output |
 | **v0.7.4.0** | **ELF loader para musl static PIE** — `elf64.zig` carrega ELF64 em child PML4, suporta PT_LOAD com 2MB hugepages |
 | **v0.7.4.0** | **Bugfix `mapped[32]`** — VA|PA OR corrompia phys addr; fix `(va>>32)<<32 | phys` |

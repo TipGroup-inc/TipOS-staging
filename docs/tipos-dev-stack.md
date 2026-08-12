@@ -18,7 +18,7 @@ Motivo: nome curto, sem conflito com outros projetos.
 |--------|-----------|--------|
 | **Kernel** (microkernel) | **C11** (GCC) | Padrão da indústria para kernels. Controle total sobre memória, sem runtime. Cross-compiler maduro. |
 | **Bootloader / assembly** | **NASM** (x86-64) | Obrigatório para entry point, IDT, APIC, transição pra long mode. |
-| **Drivers & Servidores** (user-space) | **C** (inicial) / **Rust** (futuro) | C pra começar (compartilha libc com kernel). Rust depois pra drivers de GPU/rede onde safety compensa. |
+| **Drivers & Servidores** (user-space) | **C** | Compartilha libc com o kernel; userland atual (libc própria + graphy/disp-wm) |
 | **Scripts de build** | **Make** + Bash | Universal, sem dependências pesadas. |
 
 ### Toolchain (cross-compiler)
@@ -217,7 +217,6 @@ Baseado no protótipo existente (boot 64-bit, VGA, teclado PS/2, IDT/PIC), o que
 | OSDev Wiki (bíblia do dev de SO) | https://wiki.osdev.org |
 | Limine bootloader (moderno, UEFI + BIOS) | https://github.com/limine-bootloader/limine |
 | lwIP (stack TCP/IP leve) | https://savannah.nongnu.org/projects/lwip/ |
-| Redox OS (referência de SO em Rust) | https://doc.redox-os.org |
 | ToaruOS (microkernel educacional em C) | https://github.com/klange/toaruos |
 | seL4 (microkernel verificado) | https://sel4.systems |
 | Mach IPC spec (original CMU) | https://www.cs.cit.tum.de/fileadmin/w00cfhd/papers/1991-mach-ipc.pdf |
