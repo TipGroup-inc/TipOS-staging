@@ -97,11 +97,31 @@ $(BUILD_DIR)/kernel.elf: $(OBJS)
 iso: OvsbMkM.iso
 	@echo "OvsbMkM.iso gerada!"
 
+# ♥ Tests: ELF test binaries compilados com musl-gcc
+TESTS_DIR := tests
+BUILD_TESTS := /tmp/HELLO /tmp/TTEST
+
+$(BUILD_TESTS): $(TESTS_DIR)/hello.c $(TESTS_DIR)/ttest.c
+	@echo "  Compilando HELLO..."
+	@test -f /tmp/musl-gcc-custom && \
+		/tmp/musl-gcc-custom -static -O2 -nostartfiles -fno-stack-protector \
+			-nostdlib -ffreestanding -e _start $(TESTS_DIR)/hello.c -o /tmp/HELLO \
+			-Wl,--build-id=none 2>/dev/null || true
+	@echo "  Compilando TTEST..."
+	@test -f /tmp/musl-gcc-custom && \
+		/tmp/musl-gcc-custom -static -O2 -nostartfiles -fno-stack-protector \
+			-nostdlib -ffreestanding -e _start $(TESTS_DIR)/ttest.c -o /tmp/TTEST \
+			-Wl,--build-id=none 2>/dev/null || true
+
 # ♥ disk.img: disco virtual de 64MB com FAT32 (pra testes)
-disk.img:
+disk.img: $(BUILD_TESTS)
 	dd if=/dev/zero of=$@ bs=1M count=64
-	mkfs.fat -F 32 $@
+	/sbin/mkfs.fat -F 32 $@
 	@echo "disk.img criado!"
+	@echo "  Instalando HELLO..."
+	@mcopy -o -i $@ /tmp/HELLO ::/HELLO 2>/dev/null && echo "    OK" || echo "    FAIL"
+	@echo "  Instalando TTEST..."
+	@mcopy -o -i $@ /tmp/TTEST ::/TTEST 2>/dev/null && echo "    OK" || echo "    FAIL"
 
 # ♥ user_prog.rebuild: monta user_prog.asm e atualiza user_prog_bin.h
 # Gera array C com os bytes do binário via script Python
