@@ -6,7 +6,10 @@
 # ♥ Toolchain: GCC pra C, NASM pra assembly, Zig pros drivers modernos~
 CC := gcc
 NASM := nasm
-ZIG := /home/vinberkuko/.local/zig-x86_64-linux-0.16.0/zig
+ZIG ?= zig
+ifeq (,$(shell command -v $(ZIG) 2>/dev/null))
+ZIG := $(HOME)/.local/zig-x86_64-linux-0.16.0/zig
+endif
 # ♥ CFLAGS: freestanding (sem libc), no-red-zone, sem SSE/MMX~
 # Só registradores de propósito geral ~ modo 64 bits puro!
 CFLAGS := -ffreestanding -nostdlib -mno-red-zone -mno-mmx -mno-sse
