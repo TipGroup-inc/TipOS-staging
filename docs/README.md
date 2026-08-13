@@ -10,8 +10,9 @@
 | 1 | `../README.md` | Visão geral, subsistemas, syscalls, Linux ELF compat |
 | 2 | `../AGENTS.md` | Contexto rápido + como buildar + convenções |
 | 3 | `KERNEL.md` | **A bíblia do kernel** — boot, IDT, syscalls, drivers, FS, shell, ELF64 |
-| 4 | `tipos-tutorial.md` | Como escrever/compilar/rodar programas pro TipOS |
-| 5 | `../TUTORIAL_APPS.txt` | Protocolo dos apps gráficos (DISP, memória compartilhada) |
+| 4 | `KANBAN.md` | **Board + regras de fluxo** (Kanban/Lean + XP, squads, sprints) |
+| 5 | `tipos-tutorial.md` | Como escrever/compilar/rodar programas pro TipOS |
+| 6 | `../TUTORIAL_APPS.txt` | Protocolo dos apps gráficos (DISP, memória compartilhada) |
 
 ## ✅ Atual
 
