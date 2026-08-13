@@ -3,7 +3,7 @@
 ## Stack
 - **Kernel**: C + NASM (`gcc`, `nasm`) + Zig (`zig build-obj`)
 - **Userland**: C freestanding, linkado como Mach-O 64-bit
-- **Build**: Makefile raiz em `/home/vinberkuko/repo/TipOS-staging/Makefile`
+- **Build**: Makefile raiz (`Makefile`) e Makefile do kernel (`OvsbMk/Makefile`)
 - **Alvo**: `x86_64-freestanding` (sem libc, sem red-zone, sem SSE/MMX)
 - **Emulador**: QEMU (`qemu-system-x86_64`)
 - **ISO**: GRUB2 (Multiboot2) via `grub-mkrescue`
