@@ -11,8 +11,13 @@
 | 2 | `../AGENTS.md` | Contexto rápido + como buildar + convenções |
 | 3 | `KERNEL.md` | **A bíblia do kernel** — boot, IDT, syscalls, drivers, FS, shell, ELF64 |
 | 4 | `KANBAN.md` | **Board + regras de fluxo** (Kanban/Lean + XP, squads, sprints) |
-| 5 | `tipos-tutorial.md` | Como escrever/compilar/rodar programas pro TipOS |
+| 5 | `tipos-tutorial.md` | Como escrever/compilar/rodar programas pro TipOS (libc própria, Mach-O) |
 | 6 | `../TUTORIAL_APPS.txt` | Protocolo dos apps gráficos (DISP, memória compartilhada) |
+
+> **Programas nativos novos?** O tutorial de apps mora no repo
+> **TipGroup-inc/TipOS-programs** (README dele): fluxo Zig freestanding → ELF
+> (sem libc) + o fluxo C com libc própria. O `tipos-tutorial.md` abaixo é a
+> versão local/legada do fluxo C.
 
 ## ✅ Atual
 
