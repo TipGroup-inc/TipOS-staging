@@ -1,5 +1,4 @@
-/* moe moe kyun <3 */
-/* moe moe kyun <3 */
+# moe moe kyun <3
 # ♥ userland ~ programinha de ring 3, longe do kernel!
 # arquivo: macho_pack.py ~ funcoes anotadas: 1
 # ~*~ macho_pack.py ~*~

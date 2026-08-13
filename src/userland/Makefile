@@ -1,5 +1,4 @@
-/* moe moe kyun <3 */
-/* moe moe kyun <3 */
+# moe moe kyun <3
 # ~~ Makefile do userland TipOS ~~
 # Compila programas de usuário como flat binary → Mach-O via packer.
 # Tudo freestanding (sem libc do sistema, só a nossa~)
@@ -37,7 +36,7 @@ LIBC_SRC = libc/crt0.c libc/stdio.c libc/stdlib.c libc/string.c libc/tui.c
 # ~~ Lista de programas ~~
 # Por enquanto vazia, mas quando tiver programa, é só adicionar o nome
 # (sem .c) que o Make cuida do resto~ (mágica~)
-PROGS =
+PROGS = graphy
 PROGS_SRC = $(addsuffix .c, $(addprefix progs/, $(PROGS)))
 PROGS_ELF = $(addsuffix .elf, $(addprefix ../../build/userland/, $(PROGS)))
 PROGS_BIN = $(addsuffix .bin, $(addprefix ../../build/userland/, $(PROGS)))
