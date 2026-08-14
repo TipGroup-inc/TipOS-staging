@@ -1,0 +1,18 @@
+# TipOS - Dependências
+# Para instalação automática, use: ./install-deps.sh
+
+# Build essencial
+gcc
+nasm
+make
+
+# Emulação
+qemu-system-x86
+
+# Ferramentas de disco/ISO
+mtools
+grub2-common
+xorriso
+
+# Zig 0.16.0 (instalado pelo install-deps.sh)
+# https://ziglang.org/download/

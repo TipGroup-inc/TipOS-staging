@@ -28,7 +28,7 @@ static inline uint8_t inb_(uint16_t p) {
 /* ~ kyun~ mais uma funcao pra fazer o kernel n morrer */
 static inline uint16_t inw_(uint16_t p) {
     uint16_t v;
-    __asm__ volatile ("inw %1, %0" : "=a"(v) : "Nd"(p));
+    __asm__ volatile ("inw %w1, %0" : "=a"(v) : "d"(p));
     return v;
 }
 /* ~ cuidado que essa aqui morde ~ */
@@ -43,7 +43,7 @@ static inline void outb_(uint16_t p, uint8_t v) {
 }
 /* ~ essa funcao aqui e a mais importante, presta atencao baka! */
 static inline void outw_(uint16_t p, uint16_t v) {
-    __asm__ volatile ("outw %0, %1" :: "a"(v), "Nd"(p));
+    __asm__ volatile ("outw %0, %w1" :: "a"(v), "d"(p));
 }
 /* ~ simples mas essencial, n mexe sem saber oq ta fazendo */
 static inline void outl_(uint16_t p, uint32_t v) {
