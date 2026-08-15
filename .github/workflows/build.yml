@@ -15,9 +15,11 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Zig 0.16.0
-        uses: mlugg/setup-zig@v1
-        with:
-          version: 0.16.0
+        run: |
+          curl -fsSL -o /tmp/zig.tar.xz https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz
+          sudo tar -xf /tmp/zig.tar.xz -C /usr/local
+          echo "/usr/local/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
+          zig version
 
       - name: Dependencias (nasm, grub, qemu, mtools)
         run: sudo apt-get update && sudo apt-get install -y nasm grub-pc-bin grub-common mtools dosfstools qemu-system-x86
