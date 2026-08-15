@@ -24,7 +24,7 @@ jobs:
         run: zig version
 
       - name: Dependencias (nasm, grub, qemu, mtools)
-        run: sudo apt-get update && sudo apt-get install -y nasm grub-pc-bin grub-common mtools dosfstools qemu-system-x86
+        run: sudo apt-get update && sudo apt-get install -y nasm grub-pc-bin grub-common mtools dosfstools qemu-system-x86 xorriso
 
       - name: Build kernel + ISO
         run: make all
