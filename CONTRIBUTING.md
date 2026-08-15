@@ -36,7 +36,7 @@ git push origin <sua-branch>
 - **Política de commit**: `feat:`, `fix:`, `docs:`, `chore:` — seguida dessa vez, tá?
 - **PR**: usa o template (tem checklist automático). Linka o card/issue na descrição.
 - **Reviews**: precisa de 2 approvals. Review automático do time dono da pasta via CODEOWNERS.
-- **CI**: `make run-test` headless no QEMU — precisa ficar verde (quando o Actions existir, issue #28).
+- **CI**: workflow `build` (GitHub Actions): compila kernel + ISO e boota headless no QEMU conferindo o log serial — precisa ficar verde.
 
 ## 5. Regras que não têm discussão (>_<)
 
