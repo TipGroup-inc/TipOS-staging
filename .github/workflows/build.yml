@@ -26,13 +26,16 @@ jobs:
       - name: Dependencias (nasm, grub, qemu, mtools)
         run: sudo apt-get update && sudo apt-get install -y nasm grub-pc-bin grub-common mtools dosfstools qemu-system-x86 xorriso
 
-      - name: Build kernel + ISO
-        run: make all
+      - name: Build kernel + ISO + disco
+        run: |
+          make all
+          make disk.img
 
-      - name: Checa kernel.elf e ISO
+      - name: Checa kernel.elf, ISO e disco
         run: |
           test -f OvsbMk/build/kernel.elf && echo "kernel.elf OK"
           test -f TipOS.iso && echo "TipOS.iso OK"
+          test -f disk.img && echo "disk.img OK"
 
       - name: Boot test headless (log em /tmp/tipos-boot.log)
         run: |
@@ -40,3 +43,12 @@ jobs:
             -m 512M -no-reboot -serial file:/tmp/tipos-boot.log -display none || true
           test -s /tmp/tipos-boot.log && echo "log serial gerado ($(wc -c < /tmp/tipos-boot.log) bytes)"
           grep -q "OvsbMkM] Iniciando" /tmp/tipos-boot.log && echo "BOOT OK: kernel iniciou <3"
+
+      - name: Upload artefatos (TipOS.iso + disk.img)
+        uses: actions/upload-artifact@v4
+        with:
+          name: TipOS-build
+          path: |
+            TipOS.iso
+            disk.img
+          if-no-files-found: error
