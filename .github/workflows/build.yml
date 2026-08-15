@@ -1,0 +1,42 @@
+name: build
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-boot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Zig 0.16.0
+        run: |
+          curl -fsSL -o /tmp/zig.tar.xz https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz
+          sudo tar -xf /tmp/zig.tar.xz -C /usr/local
+          echo "/usr/local/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
+
+      - name: Confirma zig
+        run: zig version
+
+      - name: Dependencias (nasm, grub, qemu, mtools)
+        run: sudo apt-get update && sudo apt-get install -y nasm grub-pc-bin grub-common mtools dosfstools qemu-system-x86 xorriso
+
+      - name: Build kernel + ISO
+        run: make all
+
+      - name: Checa kernel.elf e ISO
+        run: |
+          test -f OvsbMk/build/kernel.elf && echo "kernel.elf OK"
+          test -f TipOS.iso && echo "TipOS.iso OK"
+
+      - name: Boot test headless (log em /tmp/tipos-boot.log)
+        run: |
+          timeout 90s qemu-system-x86_64 -boot order=d -cdrom TipOS.iso \
+            -m 512M -no-reboot -serial file:/tmp/tipos-boot.log -display none || true
+          test -s /tmp/tipos-boot.log && echo "log serial gerado ($(wc -c < /tmp/tipos-boot.log) bytes)"
+          grep -q "OvsbMkM] Iniciando" /tmp/tipos-boot.log && echo "BOOT OK: kernel iniciou <3"

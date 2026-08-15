@@ -18,4 +18,4 @@
 
 **Depois de abrir:**
 - [ ] Aguardar 2 approvals do time (ou 1 se for bugfix urgente combinado no daily)
-- [ ] CI verde quando existir (GitHub Actions, issue #28)
+- [ ] CI verde (workflow `build`: kernel + ISO + boot test no QEMU)

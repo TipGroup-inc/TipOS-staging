@@ -147,7 +147,7 @@ de cor qnd aperta tecla, kyun~
               [a2]  "{rsi}" (len),
               [a3]  "{rdx}" (prot),
               [a4]  "{rcx}" (flags),
-            : "memory"
+            : .{ .memory = true }
         );
         return ret;
     }
@@ -161,7 +161,7 @@ de cor qnd aperta tecla, kyun~
         SHARED_INFO.dirty = 1;
     }
 
-    export fn main(argc: i32, argv: [*][*]u8) callconv(.C) i32 {
+    export fn main(argc: i32, argv: [*][*]u8) callconv(.c) i32 {
         _ = argc; _ = argv;
 
         g_scr_w = @intCast(SHARED_INFO.width);
@@ -338,7 +338,7 @@ PAGE TABLE. é por isso q recomendo zig msm. >_>
           [a2]  "{rsi}" (arg2),
           [a3]  "{rdx}" (arg3),
           [a4]  "{rcx}" (arg4),
-        : "memory"
+        : .{ .memory = true }
     );
 
   registrador: RAX=número, RDI=arg1, RSI=arg2, RDX=arg3,
