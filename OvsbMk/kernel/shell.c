@@ -33,6 +33,7 @@ static inline void outb(uint16_t port, uint8_t val) {
 }
 
 static int strieq(const char *a, const char *b, int n);
+void execute(const char *cmd);
 
 #define MAX_CMD 256
 
@@ -64,7 +65,7 @@ static void prompt(void) {
     console_write("ovsb> ");
 }
 
-/* ~ kyun~ mais uma funcao pra fazer o kernel n morrer */
+/* ♥ cmd_help ~ "Ajuda fofinha pro usuario nao se perder!" ~~ kyun~ */
 static void cmd_help(void) {
     console_write("Comandos:\n");
     console_write("  help                  Mostra esta ajuda\n");
@@ -73,7 +74,9 @@ static void cmd_help(void) {
     console_write("  info                  Info do sistema (VESA, heap)\n");
     console_write("  hexdump <addr>        Exibe 64 bytes do endereco\n");
     console_write("  run                   Executa programa ring 3 (embutido)\n");
-    console_write("  exec <arquivo>        Carrega e executa Mach-O do FAT32\n");
+    console_write("  exec <arquivo>        Carrega e executa Mach-O/ELF do FAT32\n");
+    console_write("  cc <arquivo.c>        Copia fonte para /SRC/ (pro cc-host.sh)\n");
+    console_write("  make                  Parser Makefile + timestamp check + exec\n");
     console_write("  ls                    Lista diretorio FAT32\n");
     console_write("  cd <dir>              Muda diretorio FAT32\n");
     console_write("  owt                   Demo do OWT (widget toolkit)\n");
@@ -302,6 +305,248 @@ static void cmd_reboot(void) {
     for(;;);
 }
 
+/* ♥ cmd_cc ~ "Copia fonte pro /SRC/ pro cc-host.sh compilar!" ~ kyun~
+ * Uso: cc <arquivo.c> -> joga em /SRC/ARQUIVO.C (uppercase 8.3)
+ * O cc-host.sh no host le de la, compila com toolchain freestanding,
+ * empacota Mach-O e escreve em /BIN/. Gambiarra consciente <3 */
+static void cmd_cc(const char *args) {
+    if (!args || !args[0]) {
+        console_write("uso: cc <arquivo.c>\n");
+        return;
+    }
+    while (*args == ' ') args++;
+    if (!args[0]) {
+        console_write("uso: cc <arquivo.c>\n");
+        return;
+    }
+
+    uint32_t fsize;
+    uint8_t attr;
+    if (fat32_stat(args, &fsize, &attr, 0, 0) < 0) {
+        console_write("cc: arquivo nao encontrado: ");
+        console_write(args);
+        console_write("\n");
+        return;
+    }
+    if (attr & 0x10) {
+        console_write("cc: eh um diretorio\n");
+        return;
+    }
+
+    uint8_t *buf = kmalloc(fsize + 1);
+    if (!buf) {
+        console_write("cc: sem memoria\n");
+        return;
+    }
+    if (fat32_read_file(args, buf, fsize) < 0) {
+        console_write("cc: erro de leitura\n");
+        kfree(buf);
+        return;
+    }
+    buf[fsize] = '\0';
+
+    uint32_t saved_cwd = fat32_get_cwd();
+    fat32_change_dir("/");
+    if (fat32_stat("SRC", &fsize, &attr, 0, 0) < 0) {
+        if (fat32_mkdir("SRC") < 0) {
+            console_write("cc: falha ao criar /SRC\n");
+            kfree(buf);
+            fat32_set_cwd(saved_cwd);
+            return;
+        }
+    }
+    fat32_change_dir("/SRC");
+
+    char dst_name[13];
+    int len = 0;
+    const char *src = args;
+    while (*src && len < 12) {
+        char c = *src++;
+        if (c >= 'a' && c <= 'z') c -= 32;
+        dst_name[len++] = c;
+    }
+    dst_name[len] = '\0';
+
+    if (fat32_create_file(dst_name) < 0) {
+        fat32_delete_file(dst_name);
+    }
+    if (fat32_write_file(dst_name, buf, fsize) < 0) {
+        console_write("cc: erro ao escrever /SRC/");
+        console_write(dst_name);
+        console_write("\n");
+    } else {
+        console_printf("cc: %s -> /SRC/%s (%d bytes)\n", args, dst_name, (unsigned)fsize);
+    }
+
+    kfree(buf);
+    fat32_set_cwd(saved_cwd);
+}
+
+/* ♥ make builtin ~ "Parser de Makefile pra compilar dentro do TipOS!" ~ kyun~
+ * ~~ parser simples: target: deps<TAB>receita ~~ n suporta variaveis, pattern rules, etc
+ * Checa timestamps via FAT32 (mtime/mdate), roda receita via execute() se target velho
+ * Integra com cc bridge: receita pode chamar 'cc arquivo.c' + 'cc-host.sh' no host <3 */
+#define MAX_MAKE_LINES 64
+#define MAX_LINE_LEN 256
+#define MAX_DEPS 8
+
+typedef struct {
+    char target[64];
+    char deps[MAX_DEPS][64];
+    int num_deps;
+    char recipe[MAX_LINE_LEN];
+    int has_recipe;
+} make_rule_t;
+
+static make_rule_t make_rules[MAX_MAKE_LINES];
+static int num_make_rules = 0;
+
+/* ~~ parse_makefile ~ le Makefile do diretorio atual ~~
+ * Gambiarra: buffer temporario na stack pra cada linha (tmp[256]) ~
+ * Nao suporta continuacao de linha (\) nem variaveis, mas serve pro basico~ */
+static int parse_makefile(void) {
+    num_make_rules = 0;
+    uint32_t fsize;
+    uint8_t attr;
+    if (fat32_stat("Makefile", &fsize, &attr, 0, 0) < 0) {
+        console_write("make: Makefile nao encontrado\n");
+        return -1;
+    }
+    if (fsize > 8192) {
+        console_write("make: Makefile muito grande\n");
+        return -1;
+    }
+
+    uint8_t *buf = kmalloc(fsize + 1);
+    if (!buf) return -1;
+    if (fat32_read_file("Makefile", buf, fsize) < 0) {
+        kfree(buf);
+        return -1;
+    }
+    buf[fsize] = '\0';
+
+    char *line = (char *)buf;
+    char *end;
+    make_rule_t *current = 0;
+    while (*line && num_make_rules < MAX_MAKE_LINES) {
+        end = line;
+        while (*end && *end != '\n') end++;
+        int line_len = end - line;
+        if (line_len > 0 && line[line_len - 1] == '\r') line_len--;
+        
+        if (line_len > 0) {
+            char tmp[MAX_LINE_LEN];
+            for (int i = 0; i < line_len && i < MAX_LINE_LEN - 1; i++) tmp[i] = line[i];
+            tmp[line_len] = '\0';
+
+            char *p = tmp;
+            while (*p == ' ' || *p == '\t') p++;
+            if (*p == '#' || *p == '\0') {
+                /* comentario ou linha vazia */
+            } else if (*p == '\t') {
+                /* receita */
+                if (current && !current->has_recipe) {
+                    p++;
+                    while (*p == ' ') p++;
+                    int rlen = 0;
+                    while (*p && rlen < MAX_LINE_LEN - 1) {
+                        current->recipe[rlen++] = *p++;
+                    }
+                    current->recipe[rlen] = '\0';
+                    current->has_recipe = 1;
+                }
+            } else {
+                /* target: deps */
+                char *colon = p;
+                while (*colon && *colon != ':') colon++;
+                if (*colon == ':') {
+                    *colon = '\0';
+                    char *target = p;
+                    char *deps = colon + 1;
+                    while (*deps == ' ') deps++;
+
+                    current = &make_rules[num_make_rules++];
+                    int tlen = 0;
+                    while (*target && tlen < 63) {
+                        current->target[tlen++] = *target++;
+                    }
+                    current->target[tlen] = '\0';
+                    current->num_deps = 0;
+                    current->has_recipe = 0;
+                    current->recipe[0] = '\0';
+
+                    char *d = deps;
+                    while (*d && current->num_deps < MAX_DEPS) {
+                        while (*d == ' ') d++;
+                        if (!*d) break;
+                        int dlen = 0;
+                        while (*d && *d != ' ' && dlen < 63) {
+                            current->deps[current->num_deps][dlen++] = *d++;
+                        }
+                        current->deps[current->num_deps][dlen] = '\0';
+                        current->num_deps++;
+                    }
+                }
+            }
+        }
+        if (*end == '\n') end++;
+        line = end;
+    }
+
+    kfree(buf);
+    console_printf("make: %d regra(s) carregada(s)\n", num_make_rules);
+    return 0;
+}
+
+/* ♥ target_older_than_dep ~ "O target ta mais velho que a dep?" ~~
+ * Usa mdate/mtime do FAT32 (16 bits cada, resolucao 2s/10ms~)
+ * Se target nao existe, retorna 1 (precisa buildar) ~ o make agradece <3 */
+static int target_older_than_dep(const char *target, const char *dep) {
+    uint16_t t_mtime, t_mdate, d_mtime, d_mdate;
+    uint32_t t_size, d_size;
+    uint8_t t_attr, d_attr;
+
+    if (fat32_stat(target, &t_size, &t_attr, &t_mtime, &t_mdate) < 0) return 1;
+    if (fat32_stat(dep, &d_size, &d_attr, &d_mtime, &d_mdate) < 0) return 1;
+
+    if (t_mdate != d_mdate) return t_mdate < d_mdate;
+    return t_mtime < d_mtime;
+}
+
+/* ♥ execute_recipe ~ "Manda a receita pro shell executar!" ~~
+ * So printa e chama execute() ~ a receita pode ser 'cc foo.c' ou qualquer comando <3 */
+static void execute_recipe(const char *recipe) {
+    console_printf("make: %s\n", recipe);
+    execute(recipe);
+}
+
+/* ♥ cmd_make ~ "O make do TipOS! Parser + timestamp check + exec!" ~~
+ * Carrega Makefile, checa cada target contra deps, roda receita se velho
+ * Nao tem -j, -k, nem .PHONY ~ mas compila C dentro do OS, ja e vitoria~ kyun! */
+static void cmd_make(const char *args) {
+    (void)args;
+    if (parse_makefile() < 0) return;
+
+    int rebuilt = 0;
+    for (int i = 0; i < num_make_rules; i++) {
+        make_rule_t *r = &make_rules[i];
+        int need_rebuild = 0;
+        for (int d = 0; d < r->num_deps; d++) {
+            if (target_older_than_dep(r->target, r->deps[d])) {
+                need_rebuild = 1;
+                break;
+            }
+        }
+        if (need_rebuild && r->has_recipe) {
+            execute_recipe(r->recipe);
+            rebuilt = 1;
+        }
+    }
+    if (!rebuilt) {
+        console_write("make: nada para fazer\n");
+    }
+}
+
 /* ~ essa funcao aqui e a mais importante, presta atencao baka! */
 void execute(const char *cmd) {
     while (*cmd == ' ') cmd++;
@@ -318,6 +563,8 @@ void execute(const char *cmd) {
     else if (strieq(cmd, "info", 4) && cmd_len == 4) cmd_info();
     else if (strieq(cmd, "hexdump", 7) && cmd_len == 7) cmd_hexdump(args);
     else if (strieq(cmd, "exec", 4) && cmd_len == 4) cmd_exec(args);
+    else if (strieq(cmd, "cc", 2) && cmd_len == 2) cmd_cc(args);
+    else if (strieq(cmd, "make", 4) && cmd_len == 4) cmd_make(args);
     else if (strieq(cmd, "ls", 2) && cmd_len == 2) cmd_ls();
     else if (strieq(cmd, "cd", 2) && cmd_len == 2) cmd_cd(args);
         else if (strieq(cmd, "desktop", 7) && cmd_len == 7) cmd_desktop();
