@@ -465,9 +465,16 @@ static int parse_makefile(void) {
                     char *deps = colon + 1;
                     while (*deps == ' ') deps++;
 
+                    /* ~~ rtrim no target: FAT32 nao guarda espacos trailing ~~
+                     * Makefile "target : dep" -> target = "target " quebra fat32_stat
+                     * Volta ate achar char nao-espaco antes do ':' ~ kyun~ */
+                    char *target_end = colon - 1;
+                    while (target_end >= target && (*target_end == ' ' || *target_end == '\t'))
+                        target_end--;
+
                     current = &make_rules[num_make_rules++];
                     int tlen = 0;
-                    while (*target && tlen < 63) {
+                    while (target <= target_end && tlen < 63) {
                         current->target[tlen++] = *target++;
                     }
                     current->target[tlen] = '\0';
@@ -514,10 +521,32 @@ static int target_older_than_dep(const char *target, const char *dep) {
 }
 
 /* ♥ execute_recipe ~ "Manda a receita pro shell executar!" ~~
- * So printa e chama execute() ~ a receita pode ser 'cc foo.c' ou qualquer comando <3 */
+ * Split por ';' e roda cada comando em sequencia (Makefile: cmd1; cmd2)
+ * execute() so aceita um comando por vez, entao a gente separa na mao~ <3 */
 static void execute_recipe(const char *recipe) {
-    console_printf("make: %s\n", recipe);
-    execute(recipe);
+    char buf[MAX_LINE_LEN];
+    int len = 0;
+    while (recipe[len] && len < MAX_LINE_LEN - 1) {
+        buf[len] = recipe[len];
+        len++;
+    }
+    buf[len] = '\0';
+
+    char *cmd = buf;
+    while (*cmd) {
+        while (*cmd == ' ' || *cmd == '\t') cmd++;
+        if (!*cmd) break;
+
+        char *semi = cmd;
+        while (*semi && *semi != ';') semi++;
+        if (*semi == ';') *semi = '\0';
+
+        console_printf("make: %s\n", cmd);
+        execute(cmd);
+
+        if (*semi == '\0') semi++;
+        cmd = semi;
+    }
 }
 
 /* ♥ cmd_make ~ "O make do TipOS! Parser + timestamp check + exec!" ~~
