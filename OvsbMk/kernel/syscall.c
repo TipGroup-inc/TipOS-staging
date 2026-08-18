@@ -39,11 +39,25 @@ extern void execute(const char *cmd);
 #define MAX_FDS 16
 static struct {
     int used;
-    int type;          /* 0=arquivo, 1=eventfd, 2=timerfd */
+    int type;          /* 0=arquivo, 1=eventfd, 2=timerfd, 3=pipe */
+    int flags;         /* O_NONBLOCK etc (fcntl) */
+    int pipe_idx;      /* pipe: indice na tabela de pipes */
     char name[256];
     uint32_t pos;
     uint64_t counter;  /* eventfd: contador; timerfd: intervalo (ms) */
 } fds[MAX_FDS];
+
+/* ~~ pipes (issue #52) ~~ um buffer por pipe, read/write pos separados */
+#define MAX_PIPES 8
+static struct {
+    int used;
+    uint8_t buf[4096];
+    uint32_t rpos, wpos;
+} pipes[MAX_PIPES];
+
+/* ~~ O_NONBLOCK (fcntl) ~~ */
+#define O_NONBLOCK 0x800
+#define O_CLOEXEC  0x80000
 
 struct timeval { uint64_t tv_sec; uint64_t tv_usec; };
 struct stat   { uint32_t st_size; };
@@ -69,6 +83,7 @@ extern void *elf64_load_into_pml4(const uint8_t *data, uint32_t len, uint64_t pm
 /* ~ cuidado que essa aqui morde ~ */
 void syscall_init(void) {
     for (int i = 0; i < MAX_FDS; i++) fds[i].used = 0;
+    for (int i = 0; i < MAX_PIPES; i++) pipes[i].used = 0;
 }
 
 /* ~ essa demorou pra debugar, respeita ~ */
@@ -84,7 +99,13 @@ static int alloc_fd(void) {
 
 /* ~ kyun~ mais uma funcao pra fazer o kernel n morrer */
 static void close_fd(int fd) {
-    if (fd >= 3 && fd < MAX_FDS) fds[fd].used = 0;
+    if (fd >= 3 && fd < MAX_FDS && fds[fd].used) {
+        if (fds[fd].type == 3) {
+            int p = fds[fd].pipe_idx;
+            if (p >= 0 && p < MAX_PIPES) pipes[p].used = 0;
+        }
+        fds[fd].used = 0;
+    }
 }
 
 /* ~ kyun~ mais uma funcao pra fazer o kernel n morrer */
@@ -123,6 +144,23 @@ void syscall_handler(uint64_t *regs) {
             ret = count;
             break;
         }
+        if (fd >= 3 && fd < MAX_FDS && fds[fd].used && fds[fd].type == 3) {
+            /* pipe write: copia pro buffer compartilhado */
+            int p = fds[fd].pipe_idx;
+            if (p < 0 || p >= MAX_PIPES || !pipes[p].used) { ret = -1; break; }
+            if (pipes[p].wpos - pipes[p].rpos >= 4096) {
+                if (fds[fd].flags & O_NONBLOCK) ret = (uint64_t)-11;
+                else ret = -1;
+                break;
+            }
+            int n = 0;
+            while (n < count && pipes[p].wpos - pipes[p].rpos < 4096) {
+                pipes[p].buf[pipes[p].wpos & 4095] = (uint8_t)buf[n++];
+                pipes[p].wpos++;
+            }
+            ret = n;
+            break;
+        }
         if (fd >= 3 && fd < MAX_FDS && fds[fd].used) {
             int r = fat32_write_file(fds[fd].name, (const uint8_t *)buf, count);
             ret = (r >= 0) ? count : -1;
@@ -142,6 +180,12 @@ void syscall_handler(uint64_t *regs) {
         char *buf = (char *)a2;
         int count = (int)a3;
         if (fd == 0 && buf && count > 0) {
+            /* ~~ O_NONBLOCK no stdin ~ weston configura nonblock e
+             * espera EAGAIN em vez de travar a thread~ */
+            if ((fds[0].flags & O_NONBLOCK) && !keyboard_avail()) {
+                ret = (uint64_t)-11; /* -EAGAIN */
+                break;
+            }
             int i;
             for (i = 0; i < count; i++) {
                 while (!keyboard_avail())
@@ -151,6 +195,23 @@ void syscall_handler(uint64_t *regs) {
                 if (buf[i] == 3) break;
             }
             ret = i;
+            break;
+        }
+        if (fd >= 3 && fd < MAX_FDS && fds[fd].used && fds[fd].type == 3) {
+            /* pipe read: copia do buffer, respeita O_NONBLOCK */
+            int p = fds[fd].pipe_idx;
+            if (p < 0 || p >= MAX_PIPES || !pipes[p].used) { ret = -1; break; }
+            if (pipes[p].rpos == pipes[p].wpos) {
+                if (fds[fd].flags & O_NONBLOCK) ret = (uint64_t)-11;
+                else ret = 0;
+                break;
+            }
+            int n = 0;
+            while (n < count && pipes[p].rpos != pipes[p].wpos) {
+                buf[n++] = pipes[p].buf[pipes[p].rpos & 4095];
+                pipes[p].rpos++;
+            }
+            ret = n;
             break;
         }
         if (fd >= 3 && fd < MAX_FDS && fds[fd].used && fds[fd].type == 1) {
@@ -1077,6 +1138,247 @@ void syscall_handler(uint64_t *regs) {
     case SYS_nanosleep:
         ret = 0;
         break;
+
+    /* ~~ Linux uname (63) ~ "Quem sou eu?" ~~
+     * Preenche struct utsname com identidade do sistema.
+     * sysname=Linux (pra libc não reclamar), release=TipOS~
+     * machine=x86_64 (que é a verdade mesmo~ kyun) */
+    case SYS_uname: {
+        char *uts = (char *)a1;
+        if (!uts) { ret = -1; break; }
+        const char *fields[] = {
+            "Linux", "tipos", "6.1-tipos", "TipOS 1.0", "x86_64", "(none)"
+        };
+        /* cada campo tem 65 bytes (__UTS_LEN+1) */
+        for (int f = 0; f < 6; f++) {
+            const char *s = fields[f];
+            char *dst = uts + f * 65;
+            int i = 0;
+            while (s[i] && i < 64) { dst[i] = s[i]; i++; }
+            dst[i] = '\0';
+        }
+        ret = 0;
+        break;
+    }
+
+    /* ~~ Linux getrandom (318) ~ "Me da sorte aleatória!" ~~
+     * Preenche o buffer com bytes do xorshift (PRNG do kernel)~
+     * Não é criptográfico de verdade, mas pro boot do weston
+     * (que usa pra seeds) já serve~ confia~ */
+    case SYS_getrandom: {
+        uint8_t *buf = (uint8_t *)a1;
+        size_t len = (size_t)a2;
+        static uint64_t x = 0x9E3779B97F4A7C15ULL;
+        if (!buf || len == 0) { ret = 0; break; }
+        for (size_t i = 0; i < len; i++) {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            buf[i] = (uint8_t)x;
+        }
+        ret = (int)len;
+        break;
+    }
+
+    /* ~~ Linux clock_getres (229) ~ "Quão preciso é teu relógio?" ~~
+     * PIT a 100Hz → resolução de 10ms. Devidamente humilde~ */
+    case SYS_clock_getres: {
+        struct { uint64_t tv_sec; uint64_t tv_nsec; } *tp = (void *)a2;
+        if (tp) {
+            tp->tv_sec = 0;
+            tp->tv_nsec = 10000000ULL; /* 10ms */
+        }
+        ret = 0;
+        break;
+    }
+
+    /* ~~ Linux getrusage (98) ~ "Quanto CPU eu usei?" ~~
+     * Zerado por preguiça — sem preempção real, ninguém mede~ */
+    case SYS_getrusage: {
+        uint8_t *ru = (uint8_t *)a2;
+        if (ru) {
+            /* struct rusage tem 18 longs (144 bytes) */
+            for (int i = 0; i < 144; i++) ru[i] = 0;
+        }
+        ret = 0;
+        break;
+    }
+
+    /* ~~ Linux times (100) ~ "Ticks do processo!" ~~
+     * struct tms { tms_utime, tms_stime, tms_cutime, tms_cstime }
+     * Devolve o relógio global e ticks zerados~ */
+    case SYS_times: {
+        uint64_t *tms = (uint64_t *)a1;
+        if (tms) {
+            tms[0] = timer_ticks; /* utime */
+            tms[1] = 0;           /* stime */
+            tms[2] = 0;           /* cutime */
+            tms[3] = 0;           /* cstime */
+        }
+        ret = timer_ticks;
+        break;
+    }
+
+    /* ~~ Linux sysinfo (99) ~ "Quanta RAM tem?" ~~
+     * struct sysinfo: uptime, loads[3], totalram, freeram, ...~
+     * O heap do kernel tem 64MB; reportamos isso honestamente~ */
+    case SYS_sysinfo: {
+        uint64_t *si = (uint64_t *)a1;
+        if (si) {
+            si[0] = timer_ticks / 100;   /* uptime (s) */
+            si[1] = 0; si[2] = 0; si[3] = 0; /* loads[3] */
+            si[4] = 64u * 1024u * 1024u;  /* totalram (64MB heap) */
+            si[5] = 32u * 1024u * 1024u;  /* freeram (chute otimista~) */
+            si[6] = 0;                     /* sharedram */
+            si[7] = 0;                     /* bufferram */
+            si[8] = 0; si[9] = 0;          /* totalswap, freeswap */
+            /* si[10] = procs (unsigned short) — cai no byte alto de si[5]? */
+        }
+        ret = 0;
+        break;
+    }
+
+    /* ~~ Linux getppid (110) ~ "Meu pai é o quê?" ~~
+     * O PCB guarda parent_pid, é só devolver~ */
+    case SYS_getppid: {
+        pcb_t *p = process_current();
+        ret = p ? p->parent_pid : 1;
+        break;
+    }
+
+    /* ~~ Linux getpgid (121) ~ "Meu grupo?" ~~
+     * Sem grupos de processo de verdade, cada um é grupo de si~ */
+    case SYS_getpgid: {
+        pcb_t *p = process_current();
+        ret = p ? p->pid : 0;
+        break;
+    }
+
+    /* ~~ Linux umask (95) ~ "Máscara de permissão!" ~~
+     * Guarda e devolve a anterior. Fácil~ */
+    case SYS_umask: {
+        static int cur_umask = 0x1FF; /* 0777 — sem restrição */
+        int old = cur_umask;
+        cur_umask = (int)a1 & 0x1FF;
+        ret = old;
+        break;
+    }
+
+    /* ~~ Linux fcntl (72) ~ "Configura fd!" ~~
+     * Mínimo: F_GETFD (1), F_SETFD (2), F_GETFL (3), F_SETFL (4).
+     * F_SETFL O_NONBLOCK é o que weston pede no stdin~
+     * (código 0x800 no Linux x86_64) */
+    case SYS_fcntl: {
+        int fd = (int)a1;
+        int cmd = (int)a2;
+        int arg = (int)a3;
+        if (fd < 0 || fd >= MAX_FDS) { ret = -1; break; }
+        switch (cmd) {
+        case 1: /* F_GETFD */ ret = fds[fd].flags & O_CLOEXEC ? 1 : 0; break;
+        case 2: /* F_SETFD */ fds[fd].flags = (fds[fd].flags & ~O_CLOEXEC) | (arg & O_CLOEXEC); ret = 0; break;
+        case 3: /* F_GETFL */ ret = fds[fd].flags; break;
+        case 4: /* F_SETFL */ fds[fd].flags = arg; ret = 0; break;
+        default: ret = -1; break;
+        }
+        break;
+    }
+
+    /* ~~ Linux dup (32) ~ "Clona um fd!" ~~
+     * Procura o menor fd livre e copia o apontamento~ */
+    case SYS_dup: {
+        int oldfd = (int)a1;
+        if (oldfd < 0 || oldfd >= MAX_FDS || (!fds[oldfd].used && oldfd >= 3)) { ret = -1; break; }
+        int nfd = alloc_fd();
+        if (nfd < 0) { ret = -1; break; }
+        fds[nfd] = fds[oldfd];
+        ret = nfd;
+        break;
+    }
+
+    /* ~~ Linux dup2 (91) ~ "Duplica num fd específico!" ~~
+     * Se newfd já tá aberto, fecha antes~ (Linux semantics) */
+    case SYS_dup2: {
+        int oldfd = (int)a1;
+        int newfd = (int)a2;
+        if (oldfd < 0 || oldfd >= MAX_FDS || (!fds[oldfd].used && oldfd >= 3)) { ret = -1; break; }
+        if (newfd < 0 || newfd >= MAX_FDS) { ret = -1; break; }
+        if (newfd >= 3 && fds[newfd].used) {
+            if (fds[newfd].type == 3) {
+                int p = fds[newfd].pipe_idx;
+                if (p >= 0 && p < MAX_PIPES) pipes[p].used = 0;
+            }
+            fds[newfd].used = 0;
+        }
+        fds[newfd] = fds[oldfd];
+        ret = newfd;
+        break;
+    }
+
+    /* ~~ Linux dup3 (292) ~ "dup2 + O_CLOEXEC!" ~~
+     * Mesma coisa do dup2, guarda o flag de CLOEXEC~ */
+    case SYS_dup3: {
+        int oldfd = (int)a1;
+        int newfd = (int)a2;
+        int flags = (int)a3;
+        if (oldfd < 0 || oldfd >= MAX_FDS || (!fds[oldfd].used && oldfd >= 3)) { ret = -1; break; }
+        if (newfd < 0 || newfd >= MAX_FDS) { ret = -1; break; }
+        if (newfd >= 3 && fds[newfd].used) {
+            if (fds[newfd].type == 3) {
+                int p = fds[newfd].pipe_idx;
+                if (p >= 0 && p < MAX_PIPES) pipes[p].used = 0;
+            }
+            fds[newfd].used = 0;
+        }
+        fds[newfd] = fds[oldfd];
+        fds[newfd].flags = flags;
+        ret = newfd;
+        break;
+    }
+
+    /* ~~ Linux pipe (22) ~ "Um canudinho pra conversar!" ~~
+     * Cria um par de fds (leitura/escrita) com buffer compartilhado~ */
+    case SYS_pipe: {
+        int *out = (int *)a1;
+        if (!out) { ret = -1; break; }
+        int pi = -1;
+        for (int i = 0; i < MAX_PIPES; i++) if (!pipes[i].used) { pi = i; break; }
+        if (pi < 0) { ret = -1; break; }
+        int rfd = alloc_fd();
+        int wfd = alloc_fd();
+        if (rfd < 0 || wfd < 0) { ret = -1; break; }
+        pipes[pi].used = 1;
+        pipes[pi].rpos = pipes[pi].wpos = 0;
+        for (int i = 0; i < 4096; i++) pipes[pi].buf[i] = 0;
+        fds[rfd].used = 1; fds[rfd].type = 3; fds[rfd].pipe_idx = pi; fds[rfd].flags = 0;
+        fds[wfd].used = 1; fds[wfd].type = 3; fds[wfd].pipe_idx = pi; fds[wfd].flags = 0;
+        out[0] = rfd;
+        out[1] = wfd;
+        ret = 0;
+        break;
+    }
+
+    /* ~~ Linux pipe2 (293) ~ "pipe + O_NONBLOCK/O_CLOEXEC!" ~~
+     * Mesma coisa do pipe, aplica os flags~ */
+    case SYS_pipe2: {
+        int *out = (int *)a1;
+        int flags = (int)a2;
+        if (!out) { ret = -1; break; }
+        int pi = -1;
+        for (int i = 0; i < MAX_PIPES; i++) if (!pipes[i].used) { pi = i; break; }
+        if (pi < 0) { ret = -1; break; }
+        int rfd = alloc_fd();
+        int wfd = alloc_fd();
+        if (rfd < 0 || wfd < 0) { ret = -1; break; }
+        pipes[pi].used = 1;
+        pipes[pi].rpos = pipes[pi].wpos = 0;
+        for (int i = 0; i < 4096; i++) pipes[pi].buf[i] = 0;
+        fds[rfd].used = 1; fds[rfd].type = 3; fds[rfd].pipe_idx = pi; fds[rfd].flags = flags;
+        fds[wfd].used = 1; fds[wfd].type = 3; fds[wfd].pipe_idx = pi; fds[wfd].flags = flags;
+        out[0] = rfd;
+        out[1] = wfd;
+        ret = 0;
+        break;
+    }
 
     default:
         ret = -1;
