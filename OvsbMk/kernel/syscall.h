@@ -117,6 +117,22 @@
 /* ~~ AT_FDCWD ~ dirfd relativo ao cwd atual (Linux -100) ~~ */
 #define AT_FDCWD ((int)-100)
 
+/* ~~ threads e sinais (issue #50) ~~
+ * números Linux: rt_sigprocmask=14, rt_sigreturn=15, kill=62, wait4=61,
+ * sigaltstack=131, prctl=157, futex=202, tgkill=234, set_robust_list=273,
+ * rseq=334. Os que colidem c/ destinos do levemente viram números livres. */
+#define SYS_rt_sigprocmask 14
+#define SYS_rt_sigreturn   15
+#define SYS_wait4          61
+#define SYS_kill           62
+#define SYS_sigaltstack    131
+#define SYS_prctl          157
+#define SYS_futex          96   /* 202 colide c/ mouse_read → 96 livre */
+#define SYS_tgkill         103  /* 234 colide c/ nanosleep → 103 livre */
+#define SYS_set_robust_list 273
+#define SYS_get_robust_list 274
+#define SYS_rseq           334
+
 void syscall_init(void);
 void syscall_handler(uint64_t *regs);
 

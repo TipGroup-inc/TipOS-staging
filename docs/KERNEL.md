@@ -297,6 +297,26 @@ Gate:     int 0x80 (DPL=3, chamável de userland)
 > `linux_to_tipos` (sched_yield/dup2/recvmsg/fcntl/tkill/sched_setaffinity), então
 > os *at que precisam desses números foram mapeados para destinos livres 402-407.
 
+| 14 | `rt_sigprocmask` | Bloqueia/desbloqueia sinais (stub aceito) | syscall.c:1328 |
+| 15 | `rt_sigreturn` | Retorna de handler (stub) | syscall.c:1336 |
+| 61 | `wait4` | Espera filho (liga no proc_waitpid real!) | syscall.c:1306 |
+| 62 | `kill` | Envia sinal (stub, retorna 0) | syscall.c:1320 |
+| 96 | `futex` | WAIT/WAKE (202 colide c/ mouse_read → 96) | syscall.c:1393 |
+| 103 | `tgkill` | Sinal a thread (stub) | syscall.c:1320 |
+| 131 | `sigaltstack` | Stack p/ handler (stub) | syscall.c:1343 |
+| 157 | `prctl` | Opções de processo (stub) | syscall.c:1350 |
+| 273 | `set_robust_list` | Lista de futexes (aceita) | syscall.c:1358 |
+| 274 | `get_robust_list` | Devolve lista vazia | syscall.c:1364 |
+| 334 | `rseq` | Restartable sequences (aceita, libc desativa se ENOSYS) | syscall.c:1382 |
+
+> **Threads e sinais (issue #50):** stubs realistas pro weston/Xorg não abortarem
+> em `pthread_create`. Sem `clone` ainda, não há threads de verdade — mas futex
+> WAIT/WAKE, set_robust_list, rseq e os sinais aceitam sem ENOSYS, o que a musl
+> precisa pra não dar `pthread_create failed`. `wait4` é o único funcional de
+> verdade (usa `proc_waitpid` que bloqueia até o filho virar zombie). Testado com
+> `tests/ttest50.c`. **Correção de números:** wait4=61 (não getdents! getdents é 78),
+> rt_sigreturn=15 (não rt_sigpending), getdents é 78 e não 61.
+
 ### 5.3 Syscalls display/input (200-205) — para compositores
 
 Estáveis (ABI congelada para o disp-wm):

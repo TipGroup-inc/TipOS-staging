@@ -127,12 +127,14 @@ pub const linux = struct {
 
     // Signals
     pub const rt_sigprocmask = 14;
-    pub const rt_sigpending = 15;
+    pub const rt_sigreturn = 15;
     pub const rt_sigtimedwait = 130;
     pub const rt_sigqueueinfo = 129;
+    pub const sigaltstack = 131;
     pub const kill = 62;
     pub const tkill = 200;
     pub const tgkill = 234;
+    pub const prctl = 157;
 
     // Memory
     pub const mremap = 25;
@@ -152,7 +154,7 @@ pub const linux = struct {
     pub const fallocate64 = 285;
 
     // Directory
-    pub const getdents = 61;
+    pub const getdents = 78;
     pub const readdir = 78; // alias for getdents64
 
     // Process control
@@ -161,6 +163,7 @@ pub const linux = struct {
     pub const set_tid_address = 218;
     pub const set_robust_list = 273;
     pub const get_robust_list = 274;
+    pub const rseq = 334;
 
     // Arch prctl (TLS) ~~ pra musl ter TLS ~~
     pub const arch_prctl = 158;
@@ -215,7 +218,12 @@ const linux_to_tipos: [512]u16 = brk: {
     map[12]  = 231;   // brk (stub)
     map[13]  = 134;   // sigaction
     map[14]  = 14;    // rt_sigprocmask (livre no TipOS)
-    map[15]  = 15;    // rt_sigpending (livre no TipOS)
+    map[15]  = 15;    // rt_sigreturn (livre no TipOS)
+    map[131] = 131;   // sigaltstack (livre no TipOS)
+    map[157] = 157;   // prctl (livre no TipOS)
+    map[202] = 96;    // futex (202 colide c/ mouse_read) → 96 livre
+    map[234] = 103;   // tgkill (234 colide c/ nanosleep) → 103 livre
+    map[334] = 334;   // rseq (livre no TipOS)
     map[16]  = 54;    // ioctl (stub)
     map[21]  = 33;    // access
     map[22]  = 22;    // pipe (livre no TipOS)
@@ -244,10 +252,10 @@ const linux_to_tipos: [512]u16 = brk: {
     map[57]  = 210;   // fork via spawn
     map[59]  = 208;   // execve
     map[60]  = 1;     // exit
-    map[61]  = 61;    // getdents
+    map[61]  = 61;    // wait4 (61 livre no TipOS) — getdents é 78, não 61!
     map[62]  = 62;    // kill
     map[72]  = 72;    // fcntl
-    map[78]  = 207;   // getdents64 via readdir
+    map[78]  = 207;   // getdents via readdir
     map[83]  = 136;   // mkdir
     map[84]  = 137;   // rmdir
     map[87]  = 10;    // unlink
