@@ -1,5 +1,5 @@
-/* moe moe kyun <3 */
-/* moe moe kyun <3 */
+# moe moe kyun <3
+# moe moe kyun <3
 # ~~ Makefile do userland TipOS ~~
 # Compila programas de usuário como flat binary → Mach-O via packer.
 # Tudo freestanding (sem libc do sistema, só a nossa~)

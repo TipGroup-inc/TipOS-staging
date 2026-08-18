@@ -5,11 +5,11 @@
  */
 
 // ~~ stdio.c ~~ Libc: entrada e saída padrão~
-// Implementa tudo via int 0x80 (syscall). Sem bufferização complexa,
-// sem FILE* mágico - só o fd e fé~ ♡
+// Implementa tudo via syscall instruction (linux abi).
+// Mais rapido que int 0x80, preserva IF, clobbers rcx/r11~ ♡
 //
-// Syscalls usados:
-//   read(3), write(4), open(5), close(6), lseek(199)
+// Syscalls usados (numeros TipOS):
+//   read(3), write(4), open(5), close(6), lseek(204)
 //   stat(188), fstat(189), kbhit(198), mkdir(136), rmdir(137)
 
 /* ~*~ stdio.c ~*~
@@ -23,27 +23,11 @@
 #include <string.h>
 #include <ctype.h>
 #include <sys/stat.h>
+#include <syscall.h>
 
 FILE __stdin_file  = { .fd = 0 };
 FILE __stdout_file = { .fd = 1 };
 FILE __stderr_file = { .fd = 2 };
-
-// ~~ _syscall ~~
-// Chamada de syscall via int 0x80 (Linux-style).
-// num = número do syscall (traduzido pelo kernel~)
-// a1-a4 = argumentos em rdi, rsi, rdx, rcx
-// retorno em rax. Usa constraint "=a" pra pegar o resultado~ ☆
-/* ~ essa demorou pra debugar, respeita ~ */
-static long _syscall(long num, long a1, long a2, long a3, long a4) {
-    long ret;
-    __asm__ volatile (
-        "int $0x80"
-        : "=a"(ret)
-        : "a"(num), "D"(a1), "S"(a2), "d"(a3), "c"(a4)
-        : "r11", "memory"
-    );
-    return ret;
-}
 
 // ~~ open ~~
 // Syscall open(2): abre arquivo no path com flags.
@@ -78,7 +62,7 @@ int write(int fd, const void *buf, int count) {
 /* ~~ lseek ~~ */
 /* ~ essa demorou pra debugar, respeita ~ */
 int lseek(int fd, int offset, int whence) {
-    return _syscall(199, fd, offset, whence, 0);
+    return _syscall(204, fd, offset, whence, 0);
 }
 
 /* ~~ unlink ~~ */
