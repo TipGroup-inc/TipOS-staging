@@ -39,9 +39,10 @@ extern void execute(const char *cmd);
 #define MAX_FDS 16
 static struct {
     int used;
-    int type;          /* 0=arquivo, 1=eventfd, 2=timerfd, 3=pipe */
+    int type;          /* 0=arquivo, 1=eventfd, 2=timerfd, 3=pipe, 4=socket */
     int flags;         /* O_NONBLOCK etc (fcntl) */
     int pipe_idx;      /* pipe: indice na tabela de pipes */
+    int sock_idx;      /* socket: indice na tabela de sockets */
     char name[256];
     uint32_t pos;
     uint64_t counter;  /* eventfd: contador; timerfd: intervalo (ms) */
@@ -54,6 +55,25 @@ static struct {
     uint8_t buf[4096];
     uint32_t rpos, wpos;
 } pipes[MAX_PIPES];
+
+/* ~~ sockets AF_UNIX (issue #49) ~~
+ * Cada socket tem um buffer próprio (como um pipe) e aponta pro peer.
+ * write() grava no buffer do peer; read() lê do próprio buffer.
+ * socketpair cria dois fds já conectados (peer <-> peer).
+ * listener tem fila de pending: clientes que conectaram e esperam accept~ */
+#define MAX_SOCKS 16
+#define SOCK_QUEUE 8
+static struct {
+    int used;
+    char path[256];      /* path do bind (ex: /tmp/test.sock) */
+    int listening;       /* chamou listen() */
+    int peer;            /* índice do socket parceiro, -1 se sem */
+    int nonblock;        /* O_NONBLOCK herdado do fd */
+    int pending[SOCK_QUEUE]; /* fila de conexões aguardando accept */
+    int npending;
+    uint8_t buf[4096];   /* buffer de leitura (o peer escreve aqui) */
+    uint32_t rpos, wpos;
+} socks[MAX_SOCKS];
 
 /* ~~ O_NONBLOCK (fcntl) ~~ */
 #define O_NONBLOCK 0x800
@@ -84,6 +104,7 @@ extern void *elf64_load_into_pml4(const uint8_t *data, uint32_t len, uint64_t pm
 void syscall_init(void) {
     for (int i = 0; i < MAX_FDS; i++) fds[i].used = 0;
     for (int i = 0; i < MAX_PIPES; i++) pipes[i].used = 0;
+    for (int i = 0; i < MAX_SOCKS; i++) { socks[i].used = 0; socks[i].peer = -1; socks[i].npending = 0; }
 }
 
 /* ~ essa demorou pra debugar, respeita ~ */
@@ -103,6 +124,10 @@ static void close_fd(int fd) {
         if (fds[fd].type == 3) {
             int p = fds[fd].pipe_idx;
             if (p >= 0 && p < MAX_PIPES) pipes[p].used = 0;
+        }
+        if (fds[fd].type == 4) {
+            int s = fds[fd].sock_idx;
+            if (s >= 0 && s < MAX_SOCKS) socks[s].used = 0;
         }
         fds[fd].used = 0;
     }
@@ -153,6 +178,67 @@ static int resolve_at_path(int dirfd, const char *path, char *out, int maxlen) {
     return 0;
 }
 
+/* ~~ socket helpers (issue #49) ~~ kyun~ */
+static int sock_alloc(void) {
+    for (int i = 0; i < MAX_SOCKS; i++) if (!socks[i].used) return i;
+    return -1;
+}
+
+static int sock_by_path(const char *path) {
+    if (!path) return -1;
+    for (int i = 0; i < MAX_SOCKS; i++)
+        if (socks[i].used && socks[i].listening && str_equal(socks[i].path, path))
+            return i;
+    return -1;
+}
+
+/* devolve o endereço de destino (sun_path) do sockaddr_un */
+static const char *sock_path_from_addr(uint64_t addr, uint64_t len) {
+    if (!addr || len < 2) return NULL;
+    /* sockaddr_un: sa_family (2 bytes) + sun_path (cstring) */
+    return (const char *)(uintptr_t)addr + 2;
+}
+
+/* escreve count bytes no buffer do socket s (chamado pelo peer) */
+static int sock_push(int s, const uint8_t *buf, int count) {
+    if (s < 0 || s >= MAX_SOCKS || !socks[s].used) return -1;
+    if (socks[s].wpos - socks[s].rpos >= 4096) {
+        if (socks[s].nonblock) return -11; /* -EAGAIN */
+        return -1;
+    }
+    int n = 0;
+    while (n < count && socks[s].wpos - socks[s].rpos < 4096) {
+        socks[s].buf[socks[s].wpos & 4095] = buf[n++];
+        socks[s].wpos++;
+    }
+    return n;
+}
+
+/* lê count bytes do buffer do socket s */
+static int sock_pop(int s, uint8_t *buf, int count) {
+    if (s < 0 || s >= MAX_SOCKS || !socks[s].used) return -1;
+    if (socks[s].rpos == socks[s].wpos) {
+        if (socks[s].nonblock) return -11; /* -EAGAIN */
+        return 0;
+    }
+    int n = 0;
+    while (n < count && socks[s].rpos != socks[s].wpos) {
+        buf[n++] = socks[s].buf[socks[s].rpos & 4095];
+        socks[s].rpos++;
+    }
+    return n;
+}
+
+/* 1 se o fd tem dados pra ler (socket com buffer cheio ou listener com pending) */
+static int fd_readable(int fd) {
+    if (fd >= 3 && fd < MAX_FDS && fds[fd].used && fds[fd].type == 4) {
+        int s = fds[fd].sock_idx;
+        if (s >= 0 && s < MAX_SOCKS)
+            return (socks[s].rpos != socks[s].wpos || socks[s].npending > 0);
+    }
+    return 0;
+}
+
 void syscall_handler(uint64_t *regs) {
     uint64_t num  = regs[0];
     uint64_t a1 = regs[4];
@@ -196,6 +282,13 @@ void syscall_handler(uint64_t *regs) {
                 pipes[p].wpos++;
             }
             ret = n;
+            break;
+        }
+        if (fd >= 3 && fd < MAX_FDS && fds[fd].used && fds[fd].type == 4) {
+            /* socket write: empurra pro buffer do peer */
+            int s = fds[fd].sock_idx;
+            int peer = (s >= 0 && s < MAX_SOCKS) ? socks[s].peer : -1;
+            ret = sock_push(peer, (const uint8_t *)buf, count);
             break;
         }
         if (fd >= 3 && fd < MAX_FDS && fds[fd].used) {
@@ -268,6 +361,12 @@ void syscall_handler(uint64_t *regs) {
                 for (int i = 0; i < 8; i++) buf[i] = (char)(one >> (8 * i));
             }
             ret = count;
+            break;
+        }
+        if (fd >= 3 && fd < MAX_FDS && fds[fd].used && fds[fd].type == 4) {
+            /* socket read: lê do próprio buffer */
+            int s = fds[fd].sock_idx;
+            ret = sock_pop(s, (uint8_t *)buf, count);
             break;
         }
         if (fd >= 3 && fd < MAX_FDS && fds[fd].used) {
@@ -649,6 +748,10 @@ void syscall_handler(uint64_t *regs) {
                 *revents = 1;
                 ready++;
             }
+            if (fd_readable(pfd_fd)) {
+                *revents = 1;
+                ready++;
+            }
         }
         ret = ready;
         break;
@@ -688,6 +791,10 @@ void syscall_handler(uint64_t *regs) {
                 ready++;
             }
             if (pfd_fd >= 3 && pfd_fd < MAX_FDS && fds[pfd_fd].used && fds[pfd_fd].type == 1 && fds[pfd_fd].counter > 0) {
+                *revents = 1;
+                ready++;
+            }
+            if (fd_readable(pfd_fd)) {
                 *revents = 1;
                 ready++;
             }
@@ -1554,6 +1661,198 @@ void syscall_handler(uint64_t *regs) {
         fds[wfd].used = 1; fds[wfd].type = 3; fds[wfd].pipe_idx = pi; fds[wfd].flags = flags;
         out[0] = rfd;
         out[1] = wfd;
+        ret = 0;
+        break;
+    }
+
+    /* ~~ sockets AF_UNIX (issue #49) ~~
+     * A base pro wayland/X11: eles conversam por unix socket
+     * (/run/wayland-0, /tmp/.X11-unix/X0). A implementação é um
+     * "socket em memória": cada socket tem um buffer (como um pipe)
+     * e um peer. write grava no buffer do peer, read lê o próprio.
+     * SCM_RIGHTS (passar fd) é aceito mas não passa fd de verdade
+     * (fds são por-processo — num kernel single-user nem precisamos). */
+
+    case SYS_socket: {
+        int domain = (int)a1;
+        int type = (int)a2;
+        int proto = (int)a3;
+        (void)proto;
+        if (domain != AF_UNIX) { ret = -1; break; }
+        int s = sock_alloc();
+        if (s < 0) { ret = -1; break; }
+        int fd = alloc_fd();
+        if (fd < 0) { socks[s].used = 0; ret = -1; break; }
+        socks[s].used = 1;
+        socks[s].listening = 0;
+        socks[s].peer = -1;
+        socks[s].nonblock = 0;
+        socks[s].npending = 0;
+        socks[s].rpos = socks[s].wpos = 0;
+        socks[s].path[0] = '\0';
+        fds[fd].used = 1;
+        fds[fd].type = 4;
+        fds[fd].sock_idx = s;
+        fds[fd].flags = (type & O_NONBLOCK) ? O_NONBLOCK : 0;
+        ret = fd;
+        break;
+    }
+
+    case SYS_bind: {
+        int fd = (int)a1;
+        const char *path = sock_path_from_addr(a2, a3);
+        if (fd < 3 || fd >= MAX_FDS || !fds[fd].used || fds[fd].type != 4 || !path) {
+            ret = -1; break;
+        }
+        int s = fds[fd].sock_idx;
+        if (s < 0 || s >= MAX_SOCKS) { ret = -1; break; }
+        int i = 0;
+        while (path[i] && i < 255) { socks[s].path[i] = path[i]; i++; }
+        socks[s].path[i] = '\0';
+        ret = 0;
+        break;
+    }
+
+    case SYS_listen: {
+        int fd = (int)a1;
+        int backlog = (int)a2;
+        (void)backlog;
+        if (fd < 3 || fd >= MAX_FDS || !fds[fd].used || fds[fd].type != 4) {
+            ret = -1; break;
+        }
+        int s = fds[fd].sock_idx;
+        if (s >= 0 && s < MAX_SOCKS) socks[s].listening = 1;
+        ret = 0;
+        break;
+    }
+
+    case SYS_connect: {
+        int fd = (int)a1;
+        const char *path = sock_path_from_addr(a2, a3);
+        if (fd < 3 || fd >= MAX_FDS || !fds[fd].used || fds[fd].type != 4 || !path) {
+            ret = -1; break;
+        }
+        int s = fds[fd].sock_idx;
+        int srv = sock_by_path(path);
+        if (s < 0 || s >= MAX_SOCKS || srv < 0) { ret = -1; break; }
+        if (socks[srv].npending >= SOCK_QUEUE) { ret = -1; break; }
+        socks[s].peer = srv;
+        socks[srv].pending[socks[srv].npending++] = s;
+        ret = 0;
+        break;
+    }
+
+    case SYS_accept4:
+    case SYS_accept: {
+        int fd = (int)a1;
+        if (fd < 3 || fd >= MAX_FDS || !fds[fd].used || fds[fd].type != 4) {
+            ret = -1; break;
+        }
+        int s = fds[fd].sock_idx;
+        if (s < 0 || s >= MAX_SOCKS || socks[s].npending <= 0) { ret = -1; break; }
+        /* tira o primeiro cliente da fila */
+        int cli = socks[s].pending[0];
+        for (int i = 1; i < socks[s].npending; i++) socks[s].pending[i - 1] = socks[s].pending[i];
+        socks[s].npending--;
+        /* cria fd novo pro lado do servidor, conectado ao cliente */
+        int nfd = alloc_fd();
+        if (nfd < 0) { ret = -1; break; }
+        int ns = sock_alloc();
+        if (ns < 0) { ret = -1; break; }
+        socks[ns].used = 1;
+        socks[ns].listening = 0;
+        socks[ns].peer = cli;
+        socks[ns].nonblock = 0;
+        socks[ns].npending = 0;
+        socks[ns].rpos = socks[ns].wpos = 0;
+        socks[ns].path[0] = '\0';
+        socks[cli].peer = ns; /* cliente agora fala com o servidor */
+        fds[nfd].used = 1;
+        fds[nfd].type = 4;
+        fds[nfd].sock_idx = ns;
+        fds[nfd].flags = (num == SYS_accept4 && (a4 & O_NONBLOCK)) ? O_NONBLOCK : 0;
+        ret = nfd;
+        break;
+    }
+
+    case SYS_sendto:
+    case SYS_sendmsg: {
+        int fd = (int)a1;
+        const char *buf = (const char *)a2;
+        int count = (int)a3;
+        if (fd < 3 || fd >= MAX_FDS || !fds[fd].used || fds[fd].type != 4) {
+            ret = -1; break;
+        }
+        int s = fds[fd].sock_idx;
+        if (s < 0 || s >= MAX_SOCKS) { ret = -1; break; }
+        int peer = socks[s].peer;
+        ret = sock_push(peer, (const uint8_t *)buf, count);
+        break;
+    }
+
+    case SYS_recvfrom:
+    case SYS_recvmsg: {
+        int fd = (int)a1;
+        char *buf = (char *)a2;
+        int count = (int)a3;
+        if (fd < 3 || fd >= MAX_FDS || !fds[fd].used || fds[fd].type != 4) {
+            ret = -1; break;
+        }
+        int s = fds[fd].sock_idx;
+        if (s < 0 || s >= MAX_SOCKS) { ret = -1; break; }
+        ret = sock_pop(s, (uint8_t *)buf, count);
+        break;
+    }
+
+    case SYS_socketpair: {
+        int domain = (int)a1;
+        int type = (int)a2;
+        int *out = (int *)(uintptr_t)a4;
+        (void)type;
+        if (domain != AF_UNIX || !out) { ret = -1; break; }
+        int s1 = sock_alloc();
+        int s2 = sock_alloc();
+        int fd1 = alloc_fd();
+        int fd2 = alloc_fd();
+        if (s1 < 0 || s2 < 0 || fd1 < 0 || fd2 < 0) { ret = -1; break; }
+        socks[s1].used = 1; socks[s1].listening = 0; socks[s1].peer = s2;
+        socks[s1].nonblock = 0; socks[s1].npending = 0;
+        socks[s1].rpos = socks[s1].wpos = 0; socks[s1].path[0] = '\0';
+        socks[s2].used = 1; socks[s2].listening = 0; socks[s2].peer = s1;
+        socks[s2].nonblock = 0; socks[s2].npending = 0;
+        socks[s2].rpos = socks[s2].wpos = 0; socks[s2].path[0] = '\0';
+        fds[fd1].used = 1; fds[fd1].type = 4; fds[fd1].sock_idx = s1; fds[fd1].flags = 0;
+        fds[fd2].used = 1; fds[fd2].type = 4; fds[fd2].sock_idx = s2; fds[fd2].flags = 0;
+        out[0] = fd1;
+        out[1] = fd2;
+        ret = 0;
+        break;
+    }
+
+    case SYS_shutdown: {
+        int fd = (int)a1;
+        (void)fd;
+        /* só aceita e ignora — sem conexão de verdade pra derrubar~ */
+        ret = 0;
+        break;
+    }
+
+    case SYS_getsockname: {
+        int fd = (int)a1;
+        if (fd < 3 || fd >= MAX_FDS || !fds[fd].used || fds[fd].type != 4) {
+            ret = -1; break;
+        }
+        int s = fds[fd].sock_idx;
+        /* devolve sockaddr_un { AF_UNIX, path } no buffer do caller */
+        uint64_t addr = a2;
+        if (addr && s >= 0 && s < MAX_SOCKS) {
+            char *dst = (char *)(uintptr_t)addr;
+            dst[0] = AF_UNIX;
+            dst[1] = 0;
+            int i = 0;
+            while (socks[s].path[i] && i < 254) { dst[2 + i] = socks[s].path[i]; i++; }
+            dst[2 + i] = '\0';
+        }
         ret = 0;
         break;
     }

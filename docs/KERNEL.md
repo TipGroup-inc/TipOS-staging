@@ -269,6 +269,27 @@ Gate:     int 0x80 (DPL=3, chamável de userland)
 | 405 | `fchown` | No-op realista | syscall.c:438 |
 | 406 | `statfs` | Geometria do FS (64MB/512B) | syscall.c:443 |
 | 407 | `fstatfs` | Geometria do FS | syscall.c:443 |
+| 41 | `socket` | Cria socket AF_UNIX SOCK_STREAM, retorna fd | syscall.c:1700 |
+| 42 | `connect` | Conecta a socket servidor (path) | syscall.c:1758 |
+| 43 | `accept` | Aceita conexão da fila, retorna fd novo | syscall.c:1790 |
+| 288 | `accept4` | Igual accept, com flags O_NONBLOCK | syscall.c:1790 |
+| 44 | `sendto` | Envia dados pro peer (buf/len) | syscall.c:1831 |
+| 45 | `recvfrom` | Recebe dados do próprio buffer | syscall.c:1846 |
+| 46 | `sendmsg` | Alias de sendto (msg sem SCM_RIGHTS real) | syscall.c:1831 |
+| 92 | `recvmsg` | Alias de recvfrom (47 colide c/ getgid → 92) | syscall.c:1846 |
+| 49 | `bind` | Registra path no socket (ex: /tmp/test.sock) | syscall.c:1731 |
+| 50 | `listen` | Marca socket como listener (fila backlog) | syscall.c:1746 |
+| 408 | `shutdown` | No-op aceito (48 colide c/ getegid → 408) | syscall.c:1882 |
+| 51 | `getsockname` | Devolve sockaddr_un do socket | syscall.c:1890 |
+| 53 | `socketpair` | Par de fds conectados (wayland usa!) | syscall.c:1865 |
+
+> **Sockets AF_UNIX (issue #49):** implementação em memória — cada socket tem um
+> buffer 4KB (como um pipe) e um `peer`. `write` grava no buffer do peer; `read` lê
+> do próprio. `socketpair` conecta dois fds de uma vez; servidor = `socket`+`bind`+
+> `listen`+`accept4`, cliente = `socket`+`connect`. SCM_RIGHTS é aceito mas não
+> transfere fd de verdade. Testado com `tests/socktest.c` (socketpair + bind/connect/
+> accept4 + sendto/recvfrom). Arg4 de socketpair/accept4 vem em r10 — o dispatcher
+> zig copia r10→rcx pra syscalls de socket (41-53 e 288).
 
 > **Linux *at (issue #53):** dirfd suportado = `AT_FDCWD` (cwd atual). Outros dirfds
 > retornam -1 por enquanto — o FAT32 não tem fd de diretório. Os números 90-93, 95,
