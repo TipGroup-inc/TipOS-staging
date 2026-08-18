@@ -91,6 +91,29 @@
 #define SYS_statfs       406
 #define SYS_fstatfs      407
 
+/* ~~ sockets AF_UNIX (issue #49) ~~
+ * números Linux: socket=41, connect=42, accept=43, sendto=44, recvfrom=45,
+ * sendmsg=46, recvmsg=47, shutdown=48, bind=49, listen=50, getsockname=51,
+ * socketpair=53, accept4=288 */
+#define SYS_socket       41
+#define SYS_connect      42
+#define SYS_accept       43
+#define SYS_sendto       44
+#define SYS_recvfrom     45
+#define SYS_sendmsg      46
+#define SYS_recvmsg      92   /* 47 colide c/ getgid → mapeado pra 92 */
+#define SYS_shutdown     408  /* 48 colide c/ getegid → mapeado pra 408 */
+#define SYS_bind         49
+#define SYS_listen       50
+#define SYS_getsockname  51
+#define SYS_socketpair   53
+#define SYS_accept4      288
+
+/* ~~ AF_UNIX constants ~~ */
+#define AF_UNIX   1
+#define SOCK_STREAM 1
+#define SOCK_DGRAM  2
+
 /* ~~ AT_FDCWD ~ dirfd relativo ao cwd atual (Linux -100) ~~ */
 #define AT_FDCWD ((int)-100)
 

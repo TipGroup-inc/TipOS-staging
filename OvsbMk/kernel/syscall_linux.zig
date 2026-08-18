@@ -78,6 +78,8 @@ pub const linux = struct {
     pub const recvfrom = 45;
     pub const sendmsg = 46;
     pub const recvmsg = 47;
+    pub const shutdown = 48;
+    pub const socketpair = 53;
 
     // Poll/Epoll
     pub const poll = 7;
@@ -242,8 +244,10 @@ const linux_to_tipos: [512]u16 = brk: {
     map[45]  = 45;    // recvfrom (livre no TipOS)
     map[46]  = 46;    // sendmsg (livre no TipOS)
     map[47]  = 92;    // recvmsg (47 colide c/ getgid)
+    map[48]  = 408;   // shutdown (48 colide c/ getegid) → 408 livre
     map[49]  = 49;    // bind (livre no TipOS)
     map[50]  = 50;    // listen (livre no TipOS)
+    map[53]  = 53;    // socketpair (livre no TipOS)
     map[54]  = 93;    // fcntl (54 colide c/ ioctl)
     map[57]  = 210;   // fork via spawn
     map[59]  = 208;   // execve
@@ -356,7 +360,9 @@ export fn syscall_handler_zig(regs: [*]u64) void {
     // but TipOS C handler expects arg4 in regs[1] (rcx slot).
     // Only do this when the number actually changed (Linux → TipOS translation),
     // so TipOS-native calls (198-211, or identity-mapped like 186→186) keep rcx.
-    if (mapped != num) {
+    // Sockets identity-mapped (socketpair=53, accept4=288) also need arg4 in rcx.
+    const is_socket = (num >= 41 and num <= 53) or num == 288;
+    if (mapped != num or is_socket) {
         regs[1] = regs[7]; // r10 → rcx
     }
 
