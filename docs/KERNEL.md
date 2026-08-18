@@ -277,6 +277,33 @@ Notas:
 - **`mouse_read`** consome o acumulado do driver PS/2 (IRQ12, `kernel/drivers/mouse.zig`) — deltas são relativos à última leitura.
 - **`kb_mod`** lê as flags `shift_pressed`/`ctrl_pressed` do teclado.
 
+### 5.3.1 Misc syscalls Linux (issue #52) — para libc/weston
+
+Stubs "realistas": devolvem valores corretos mas sem trabalho pesado. Destravam binários complexos.
+
+| Linux # | Nome | Comportamento |
+|---------|------|---------------|
+| 63 | `uname` | sysname=Linux, release=TipOS, machine=x86_64 |
+| 318 | `getrandom` | preenche com xorshift (não cripto) |
+| 229 | `clock_getres` | resolução 10ms (PIT 100Hz) |
+| 98 | `getrusage` | struct zerada |
+| 100 | `times` | tms com timer_ticks global |
+| 99 | `sysinfo` | uptime + totalram=64MB (heap do kernel) |
+| 110 | `getppid` | `parent_pid` do PCB |
+| 121 | `getpgid` | cada processo é grupo de si |
+| 95 | `umask` | guarda e devolve a anterior (default 0777) |
+| 72 | `fcntl` | F_GETFD/F_SETFD/F_GETFL/F_SETFL (O_NONBLOCK no stdin!) |
+| 32 | `dup` | duplica fd (menor livre) |
+| 91 | `dup2` | duplica em fd específico (fecha antes) |
+| 292 | `dup3` | dup2 + flags |
+| 22 | `pipe` | par de fds com buffer de 4KB compartilhado |
+| 293 | `pipe2` | pipe + O_NONBLOCK/O_CLOEXEC |
+
+Notas:
+- **O_NONBLOCK**: `fds[0].flags & O_NONBLOCK` faz o `read` de stdin retornar `-EAGAIN` (`-11`) quando não há tecla — weston configura o stdin em nonblock no boot.
+- **Colisões resolvidas no `syscall_linux.zig`**: `dup2`(33)→91, `recvmsg`(47)→92, `fcntl`(54→na real é 72, identity)→, `rt_sigprocmask`(134)→94, `tkill`(200)→95, `futex`(202)→96, `sched_setaffinity`(203)→99, `sched_getaffinity`(204)→101, `tgkill`(234)→103 — pois os números originais colidem com syscalls TipOS. **Importante**: `dup` no Linux x86_64 é **32**, não 23 (23 é `select`).
+- **pipe**: 8 buffers globais (`MAX_PIPES`), `pipe_idx` liga os 2 fds; `close_fd` libera o buffer quando um fd do par fecha.
+
 ### 5.4 Fluxo de Syscall
 
 ```

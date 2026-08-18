@@ -56,6 +56,23 @@
 #define SYS_nanosleep    234
 #define SYS_set_tid_address 258
 #define SYS_exit_group   212
+
+/* ~~ misc syscalls (issue #52) ~~ */
+#define SYS_pipe         22
+#define SYS_dup          32
+#define SYS_dup2         91
+#define SYS_fcntl        72
+#define SYS_uname        63
+#define SYS_umask        95
+#define SYS_getrusage    98
+#define SYS_sysinfo      99
+#define SYS_times        100
+#define SYS_getppid      110
+#define SYS_getpgid      121
+#define SYS_clock_getres 229
+#define SYS_getrandom    318
+#define SYS_dup3         292
+#define SYS_pipe2        293
 #define SYS_msync        26
 #define SYS_madvise      28
 #define SYS_mremap       75

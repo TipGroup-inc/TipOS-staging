@@ -8,7 +8,7 @@ CC := gcc
 NASM := nasm
 ZIG ?= zig
 ifeq (,$(shell command -v $(ZIG) 2>/dev/null))
-ZIG := $(HOME)/.local/zig-x86_64-linux-0.16.0/zig
+ZIG := /home/vinberkuko/.local/zig-x86_64-linux-0.16.0/zig
 endif
 # ♥ CFLAGS: freestanding (sem libc), no-red-zone, sem SSE/MMX~
 # Só registradores de propósito geral ~ modo 64 bits puro!

@@ -47,7 +47,7 @@ pub const linux = struct {
 
     // Extended I/O ~~ pra quando o musl pedir mais ~~
     pub const pipe = 22;
-    pub const dup = 23;
+    pub const dup = 32;
     pub const dup2 = 33;
     pub const pipe2 = 293;
     pub const dup3 = 292;
