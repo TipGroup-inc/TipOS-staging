@@ -1,17 +1,16 @@
 ; moe moe kyun <3
-; syscall_entry.asm — 'syscall' instruction handler (Linux ABI)
+; syscall_entry.asm — handler da instrução 'syscall' (Linux x86_64 ABI)
 ;
-; Configurado via MSR LSTAR. Compatível com o frame do syscall_isr (int 0x80)
-; porque usa iretq pra retornar (não sysretq — nossa GDT não é compatível com
-; >_< mas iretq funciona perfeitamente~)
+; Configurado via MSR LSTAR. Usa sysret pra retornar (rápido, preserva IF).
+; STAR configurado: SYSCALL_CS=0x08, SYSRET_CS=0x18, SYSRET_SS=0x20
 ;
-; Layout da stack (20 qwords, igual int 0x80):
-;   regs[0..14] = rax..r15  (15 GPRs, push order decrescente)
-;   regs[15]    = RIP (return)
-;   regs[16]    = CS  (0x1B = ring 3 code)
-;   regs[17]    = RFLAGS
-;   regs[18]    = RSP user
-;   regs[19]    = SS  (0x23 = ring 3 data)
+; Convenção Linux x86_64 syscall:
+;   rax = syscall number
+;   rdi = arg1, rsi = arg2, rdx = arg3, r10 = arg4, r8 = arg5, r9 = arg6
+;   rcx = return RIP (salvo pela CPU), r11 = return RFLAGS (salvo pela CPU)
+;   rsp = user stack pointer
+;
+; Clobbers: rcx, r11 (salvos pela CPU em return RIP/RFLAGS)
 
 bits 64
 
@@ -33,36 +32,30 @@ syscall_entry:
 
     ; Troca stack: salva user RSP em current_rsp0, carrega kernel stack
     xchg rsp, [current_rsp0]    ; rsp=kernel_stack, mem=user_rsp
-                                ; IF já tá limpo pelo FMASK, sem IRQ aninhada~ ☆
+                                 ; IF já tá limpo pelo FMASK, sem IRQ aninhada~ ☆
 
-    ; Empilha iretq frame: SS, RSP, RFLAGS, CS, RIP (do topo pra base)
-    push 0x23                   ; SS = ring 3 data
-    push qword [current_rsp0]   ; RSP user (salvo no xchg)
-    push r11                    ; RFLAGS return
-    push 0x1B                   ; CS = ring 3 code
-    push rcx                    ; RIP return
-
-    ; Empilha 15 GPRs: r15 → rax (decrescente, igual syscall_isr)
+    ; Salva registradores que a C espera preservados (callee-saved)
+    ; + registradores voláteis que precisamos passar pro handler
     push r15
     push r14
     push r13
     push r12
     push rbp
     push rbx
-    push r11                    ; r11 (clobbered, mas salva pro frame)
+    push r11                    ; RFLAGS do userspace (salvo pela CPU)
     push r10                    ; arg4 original
     push r9                     ; arg6
     push r8                     ; arg5
     push rdi                    ; arg1
     push rsi                    ; arg2
     push rdx                    ; arg3
-    push rcx                    ; rcx (clobbered, dummy pro frame)
+    push rcx                    ; RIP return (salvo pela CPU)
     push rax                    ; syscall number
 
     mov rdi, rsp                ; rdi = struct registers* pra C
     call syscall_handler_zig
 
-    ; Restaura tudo (igual syscall_isr)
+    ; Restaura registradores (ordem inversa)
     pop rax
     pop rcx
     pop rdx
@@ -71,7 +64,7 @@ syscall_entry:
     pop r8
     pop r9
     pop r10
-    pop r11
+    pop r11                     ; restaura RFLAGS do userspace
     pop rbx
     pop rbp
     pop r12
@@ -80,9 +73,20 @@ syscall_entry:
     pop r15
 
     ; Restaura current_rsp0 pro kernel stack (pra próxima syscall)
-    ; RSP atual aponta pro início do iretq frame (RIP)
-    ; RSP + 40 = logo após o frame = kernel stack top
-    lea rax, [rsp + 40]
+    ; RSP atual aponta logo após o frame salvo
+    lea rax, [rsp + 8]          ; pula o rax que popamos
     mov [current_rsp0], rax
 
-    iretq                       ; POPa RIP, CS, RFLAGS, RSP, SS → ring 3~ ☆
+    ; Prepara sysret:
+    ;   rcx = user RIP (já está correto, popamos pro lugar certo)
+    ;   r11 = user RFLAGS (já restaurado acima)
+    ;   rsp = user RSP (salvo em [current_rsp0 - 8] antes do xchg)
+    ; sysret restaura:
+    ;   RIP <- rcx
+    ;   RFLAGS <- r11
+    ;   CS  <- STAR[63:48] (0x18 = user code)
+    ;   SS  <- STAR[63:48] + 8 (0x20 = user data)
+    ;   RSP <- rsp (current_rsp0 aponta pro user RSP salvo)
+
+    mov rsp, [current_rsp0]     ; restaura user RSP
+    sysret                      ; retorna pra ring 3 via syscall/sysret ~ ☆

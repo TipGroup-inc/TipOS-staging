@@ -136,14 +136,15 @@ start64:
     wrmsr
 
     ; IA32_STAR (0xC0000081):
-    ;   bits 47:32 = SYSCALL_CS (kernel CS = 0x08, SS = CS+8 = 0x10)
-    ;   bits 63:48 = SYSRET base (não usado — usamos iretq pra retornar)
-    ; STAR = 0x0000_0008_0000_0000
-    ;   EDX[15:0] = bits 47:32 = 0x0008 (SYSCALL_CS)
-    ;   EDX[31:16] = bits 63:48 = 0x0000 (don't care)
+    ;   bits 47:32 = SYSCALL_CS (kernel CS = 0x08)
+    ;   bits 63:48 = SYSRET_CS (user CS = 0x18)
+    ; STAR = 0x0018_0008_0000_0000
+    ;   EDX[15:0] = bits 47:32 = 0x0008 (SYSCALL_CS = kernel code)
+    ;   EDX[31:16] = bits 63:48 = 0x0018 (SYSRET_CS = user code)
+    ;   SYSRET_SS = SYSRET_CS + 8 = 0x20 (user data)
     mov ecx, 0xC0000081
     xor eax, eax               ; low 32 bits = 0
-    mov edx, 0x00000008        ; high: EDX[15:0] = 0x0008 = SYSCALL_CS
+    mov edx, 0x00180008        ; high: EDX[15:0]=0x08 (SYSCALL_CS), EDX[31:16]=0x18 (SYSRET_CS)
     wrmsr
 
     ; IA32_LSTAR (0xC0000082) = RIP do handler 'syscall'~
