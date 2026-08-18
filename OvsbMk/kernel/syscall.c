@@ -1291,6 +1291,108 @@ void syscall_handler(uint64_t *regs) {
         ret = process_current_pid();
         break;
 
+    /* ~~ threads e sinais (issue #50) ~~
+     * weston/Xorg usam pthread (libwayland) e sinais pra encerrar.
+     * Sem futex/robust_list a musl aborta em pthread_create.
+     * Como ainda não temos threads de verdade (sem clone), os
+     * stubs são "realistas": futex WAIT/WAKE real (pro lock do
+     * malloc em memória compartilhada), sinais aceitam mas não
+     * entregam, e wait4 liga no proc_waitpid que já existe~ */
+
+    /* ~~ Linux wait4 (61) ~ "Espera o filho morrer~" ~~
+     * Args: pid, &status, options, rusage.
+     * Proc_waitpid já bloqueia até o filho virar zombie. */
+    case SYS_wait4: {
+        int pid = (int)a1;
+        int *status = (int *)(uintptr_t)a2;
+        int wstatus = 0;
+        int r = proc_waitpid(pid, &wstatus);
+        if (r >= 0 && status) *status = wstatus;
+        ret = r;
+        break;
+    }
+
+    /* ~~ Linux kill (62) / tgkill (234) / tkill (200) ~
+     * "Mata o processo!" — mas sem thread de verdade, aceita e
+     * ignora (retornar 0 é aceitável p/ boot, diz a issue~) */
+    case SYS_kill:
+    case SYS_tgkill:
+        ret = 0;
+        break;
+
+    /* ~~ Linux rt_sigprocmask (14) ~ "Bloqueia/desbloqueia sinal" ~~
+     * Stub realista: aceita e retorna 0 (sinais não são entregues
+     * de verdade, então a máscara não muda nada~) */
+    case SYS_rt_sigprocmask:
+        ret = 0;
+        break;
+
+    /* ~~ Linux rt_sigreturn (15) ~ "Volta do handler de sinal" ~~
+     * Sem handlers de verdade, nunca é chamado — mas musl pode
+     * passar por aqui, então retorna 0~ */
+    case SYS_rt_sigreturn:
+        ret = 0;
+        break;
+
+    /* ~~ Linux sigaltstack (131) ~ "Stack alternativo p/ handler" ~~
+     * Stub: aceita e retorna 0~ */
+    case SYS_sigaltstack:
+        ret = 0;
+        break;
+
+    /* ~~ Linux prctl (157) ~ "Opções de processo" ~~
+     * PR_SET_NAME (15) / PR_SET_DUMPABLE (4) são os que o weston usa.
+     * Aceita e retorna 0~ */
+    case SYS_prctl:
+        ret = 0;
+        break;
+
+    /* ~~ Linux set_robust_list (273) / get_robust_list (274) ~~
+     * Lista de futexes pra cancelamento de thread.
+     * Guarda o ponteiro pra devolver quando pedirem~ */
+    case SYS_set_robust_list:
+        ret = 0;
+        break;
+    case SYS_get_robust_list: {
+        uint64_t *head = (uint64_t *)(uintptr_t)a2;
+        if (head) *head = 0; /* lista vazia — sem threads~ */
+        ret = 0;
+        break;
+    }
+
+    /* ~~ Linux rseq (334) ~ "Restartable sequences" ~~
+     * glibc usa; musl nem precisa. Se retornar ENOSYS, a libc
+     * desativa sozinha. Retornar 0 é o caminho mais seguro~ */
+    case SYS_rseq:
+        ret = 0;
+        break;
+
+    /* ~~ Linux futex (202→96) ~ "Sincronização de threads" ~~
+     * op: 0=FUTEX_WAIT, 1=FUTEX_WAKE, 2=FUTEX_FD, 4=REQUEUE...
+     * Sem threads de verdade, o lock do malloc da musl em
+     * memória compartilhada é o caso mais comum: WAIT compara
+     * *uaddr com val, WAKE acorda n. Como processos rodam em
+     * round-robin num core só, a memória compartilhada já é
+     * "sequencial" — então só conferir o valor resolve~ */
+    case SYS_futex: {
+        uint32_t *uaddr = (uint32_t *)(uintptr_t)a1;
+        int op = (int)a2;
+        int val = (int)a3;
+        int op_part = op & 0x7F; /* ignora FLAGS/PRIVATE bits */
+        (void)val;
+        if (op_part == 0 && uaddr) { /* FUTEX_WAIT: dorme até acordar */
+            /* sem threads de verdade, sempre "acordado" — devolve 0 */
+            ret = 0;
+            break;
+        }
+        if (op_part == 1) { /* FUTEX_WAKE: acorda n threads */
+            ret = 0; /* ninguém pra acordar~ */
+            break;
+        }
+        ret = 0; /* outras ops: aceita e ignora~ */
+        break;
+    }
+
     /* ~~ Linux clock_gettime (228) ~ "Que horas são?" ~~
      * Recebe clock_id (a1) e struct timespec *tp (a2).
      * Ignora o clock_id (todo relógio é relógio quando se é

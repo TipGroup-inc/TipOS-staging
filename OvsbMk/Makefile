@@ -102,9 +102,9 @@ iso: OvsbMkM.iso
 
 # ♥ Tests: ELF test binaries compilados com musl-gcc
 TESTS_DIR := tests
-BUILD_TESTS := /tmp/HELLO /tmp/TTEST
+BUILD_TESTS := /tmp/HELLO /tmp/TTEST /tmp/TTEST50
 
-$(BUILD_TESTS): $(TESTS_DIR)/hello.c $(TESTS_DIR)/ttest.c
+$(BUILD_TESTS): $(TESTS_DIR)/hello.c $(TESTS_DIR)/ttest.c $(TESTS_DIR)/ttest50.c
 	@echo "  Compilando HELLO..."
 	@test -f /tmp/musl-gcc-custom && \
 		/tmp/musl-gcc-custom -static -O2 -nostartfiles -fno-stack-protector \
@@ -114,6 +114,11 @@ $(BUILD_TESTS): $(TESTS_DIR)/hello.c $(TESTS_DIR)/ttest.c
 	@test -f /tmp/musl-gcc-custom && \
 		/tmp/musl-gcc-custom -static -O2 -nostartfiles -fno-stack-protector \
 			-nostdlib -ffreestanding -e _start $(TESTS_DIR)/ttest.c -o /tmp/TTEST \
+			-Wl,--build-id=none 2>/dev/null || true
+	@echo "  Compilando TTEST50..."
+	@test -f /tmp/musl-gcc-custom && \
+		/tmp/musl-gcc-custom -static -O2 -nostartfiles -fno-stack-protector \
+			-nostdlib -ffreestanding -e _start $(TESTS_DIR)/ttest50.c -o /tmp/TTEST50 \
 			-Wl,--build-id=none 2>/dev/null || true
 
 # ♥ disk.img: disco virtual de 64MB com FAT32 (pra testes)
@@ -125,6 +130,8 @@ disk.img: $(BUILD_TESTS)
 	@mcopy -o -i $@ /tmp/HELLO ::/HELLO 2>/dev/null && echo "    OK" || echo "    FAIL"
 	@echo "  Instalando TTEST..."
 	@mcopy -o -i $@ /tmp/TTEST ::/TTEST 2>/dev/null && echo "    OK" || echo "    FAIL"
+	@echo "  Instalando TTEST50..."
+	@mcopy -o -i $@ /tmp/TTEST50 ::/TTEST50 2>/dev/null && echo "    OK" || echo "    FAIL"
 
 # ♥ clean: limpa tudo (build/, isos, bins)
 clean:
