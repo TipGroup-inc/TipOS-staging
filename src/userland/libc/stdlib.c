@@ -15,18 +15,8 @@
 // Alocador: freelist circular com header de 4 bytes (size_aligned | USED),
 // inserção ordenada por endereço, coalescência de blocos adjacentes.
 // Alocações grandes (>MMAP_THRESH=2048) vão pro mmap do kernel.
- 
-/* ~ essa demorou pra debugar, respeita ~ */
-static long _syscall(long num, long a1, long a2, long a3, long a4) {
-    long ret;
-    __asm__ volatile (
-        "int $0x80"
-        : "=a"(ret)
-        : "a"(num), "D"(a1), "S"(a2), "d"(a3), "c"(a4)
-        : "r11", "memory"
-    );
-    return ret;
-}
+  
+#include <syscall.h>
 
 // ~~ atoi ~~
 // Converte string → int. Pula espaços iniciais, aceita +/-, lê dígitos.
