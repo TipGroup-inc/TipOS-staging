@@ -43,7 +43,6 @@ pub const linux = struct {
     pub const getegid = 108;
     pub const ugetrlimit = 111;
     pub const gettid = 186;
-    pub const fstatfs = 197;
 
     // Extended I/O ~~ pra quando o musl pedir mais ~~
     pub const pipe = 22;
@@ -54,10 +53,19 @@ pub const linux = struct {
 
     // File operations
     pub const openat = 257;
+    pub const mkdirat = 258;
     pub const newfstatat = 262;
+    pub const unlinkat = 263;
+    pub const renameat = 264;
     pub const faccessat = 269;
     pub const readlinkat = 267;
     pub const fcntl = 72;
+    pub const chmod = 90;
+    pub const fchmod = 91;
+    pub const chown = 92;
+    pub const fchown = 93;
+    pub const statfs = 137;
+    pub const fstatfs = 138;
 
     // Socket/Network ~~ pra weston/X11 rodar ~~
     pub const socket = 41;
@@ -148,7 +156,7 @@ pub const linux = struct {
     // Process control
     pub const wait4 = 61;
     pub const waitid = 247;
-    pub const set_tid_address = 258;
+    pub const set_tid_address = 218;
     pub const set_robust_list = 273;
     pub const get_robust_list = 274;
 
@@ -263,9 +271,21 @@ const linux_to_tipos: [512]u16 = brk: {
     map[233] = 233;   // epoll_ctl (livre no TipOS)
     map[234] = 103;   // tgkill (234 colide c/ nanosleep)
     map[247] = 247;   // waitid (livre no TipOS)
-    map[258] = 258;   // set_tid_address
+    map[218] = 218;   // set_tid_address (218 livre no TipOS)
     map[273] = 273;   // set_robust_list (livre no TipOS)
     map[274] = 274;   // get_robust_list (livre no TipOS)
+    map[257] = 257;   // openat (livre no TipOS)
+    map[258] = 258;   // mkdirat (livre no TipOS)
+    map[262] = 262;   // newfstatat (livre no TipOS)
+    map[263] = 263;   // unlinkat (livre no TipOS)
+    map[264] = 264;   // renameat (livre no TipOS)
+    map[267] = 267;   // readlinkat (livre no TipOS)
+    map[90]  = 402;   // chmod (90 colide c/ sched_yield) → 402 livre
+    map[91]  = 403;   // fchmod (91 colide c/ dup2) → 403 livre
+    map[92]  = 404;   // chown (92 colide c/ recvmsg) → 404 livre
+    map[93]  = 405;   // fchown (93 colide c/ fcntl) → 405 livre
+    map[137] = 406;   // statfs (137 colide c/ rmdir2) → 406 livre
+    map[138] = 407;   // fstatfs (138 livre no TipOS) → 407
     map[281] = 281;   // epoll_pwait (livre no TipOS)
     map[285] = 285;   // fallocate (livre no TipOS)
     map[288] = 288;   // accept4 (livre no TipOS)

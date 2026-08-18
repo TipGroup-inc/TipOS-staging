@@ -257,6 +257,24 @@ Gate:     int 0x80 (DPL=3, chamável de userland)
 | 209 | `shell_cmd` | Comando do shell | syscall.c:593 |
 | 210 | `spawn` | Cria processo | syscall.c:614 |
 | 211 | `spawn_shared` | Cria processo com memória compartilhada | syscall.c:704 |
+| 257 | `openat` | Abre arquivo relativo a dirfd (AT_FDCWD) | syscall.c:322 |
+| 258 | `mkdirat` | Cria diretório relativo a dirfd | syscall.c:341 |
+| 262 | `newfstatat` | Stat relativo a dirfd | syscall.c:356 |
+| 263 | `unlinkat` | Remove arquivo relativo a dirfd | syscall.c:374 |
+| 264 | `renameat` | Renomeia relativo a dirfd(s) | syscall.c:386 |
+| 267 | `readlinkat` | Lê symlink (suporta `/proc/self/exe`) | syscall.c:413 |
+| 402 | `chmod` | No-op realista (FAT32 sem permissões) | syscall.c:433 |
+| 403 | `fchmod` | No-op realista | syscall.c:433 |
+| 404 | `chown` | No-op realista (FAT32 sem dono) | syscall.c:438 |
+| 405 | `fchown` | No-op realista | syscall.c:438 |
+| 406 | `statfs` | Geometria do FS (64MB/512B) | syscall.c:443 |
+| 407 | `fstatfs` | Geometria do FS | syscall.c:443 |
+
+> **Linux *at (issue #53):** dirfd suportado = `AT_FDCWD` (cwd atual). Outros dirfds
+> retornam -1 por enquanto — o FAT32 não tem fd de diretório. Os números 90-93, 95,
+> 99 (chmod/fchmod/chown/fchown/umask/sysinfo) colidem com os destinos do
+> `linux_to_tipos` (sched_yield/dup2/recvmsg/fcntl/tkill/sched_setaffinity), então
+> os *at que precisam desses números foram mapeados para destinos livres 402-407.
 
 ### 5.3 Syscalls display/input (200-205) — para compositores
 

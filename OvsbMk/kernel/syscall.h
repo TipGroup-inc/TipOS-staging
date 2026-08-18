@@ -54,11 +54,28 @@
 #define SYS_clock_gettime 228
 #define SYS_brk          231
 #define SYS_nanosleep    234
-#define SYS_set_tid_address 258
+#define SYS_set_tid_address 218
 #define SYS_exit_group   212
 #define SYS_msync        26
 #define SYS_madvise      28
 #define SYS_mremap       75
+
+/* ~~ *at syscalls (issue #53) ~~ */
+#define SYS_openat       257
+#define SYS_mkdirat      258
+#define SYS_newfstatat   262
+#define SYS_unlinkat     263
+#define SYS_renameat     264
+#define SYS_readlinkat   267
+#define SYS_chmod        402
+#define SYS_fchmod       403
+#define SYS_chown        404
+#define SYS_fchown       405
+#define SYS_statfs       406
+#define SYS_fstatfs      407
+
+/* ~~ AT_FDCWD ~ dirfd relativo ao cwd atual (Linux -100) ~~ */
+#define AT_FDCWD ((int)-100)
 
 void syscall_init(void);
 void syscall_handler(uint64_t *regs);

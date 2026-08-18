@@ -95,6 +95,43 @@ static int str_equal(const char *a, const char *b) {
 }
 
 /* ~ simples mas essencial, n mexe sem saber oq ta fazendo */
+/* ~~ resolve_at_path ~ pra syscalls *at ~~
+ * Resolve um path a partir de um dirfd (ou AT_FDCWD = cwd atual).
+ * O FAT32 nao entende paths com '/' — entao separa o diretorio
+ * do nome, como o spawn faz, e deixa o cwd no dir certo.
+ * Retorna 0 e grava o nome base em out (ate maxlen) ou -1.
+ * O caller DEVE restaurar o cwd depois (fat32_set_cwd(saved)). */
+static int resolve_at_path(int dirfd, const char *path, char *out, int maxlen) {
+    if (!path || !path[0]) return -1;
+    if (dirfd != AT_FDCWD) return -1;  /* dirfd != cwd ainda nao suportado */
+    char _p[256]; int _i = 0;
+    while (path[_i] && _i < 255) { _p[_i] = path[_i]; _i++; }
+    _p[_i] = '\0';
+    char *_base = _p, *_last_slash = 0, *_s = _p;
+    if (*_base == '/') { fat32_change_dir("/"); _base++; _s = _base; }
+    while (*_s) { if (*_s == '/') _last_slash = _s; _s++; }
+    char *_file = _base;
+    if (_last_slash) {
+        *_last_slash = '\0';
+        _file = _last_slash + 1;
+        char *_w = _base;
+        while (_w && *_w) {
+            char *_n = _w;
+            while (*_n && *_n != '/') _n++;
+            int _end = (*_n == '\0');
+            if (*_n) *_n = '\0';
+            if (_w[0] && fat32_change_dir(_w) < 0) return -1;
+            if (_end) break;
+            _w = _n + 1;
+        }
+    }
+    if (!_file[0]) return -1;
+    int _j = 0;
+    while (_file[_j] && _j < maxlen - 1) { out[_j] = _file[_j]; _j++; }
+    out[_j] = '\0';
+    return 0;
+}
+
 void syscall_handler(uint64_t *regs) {
     uint64_t num  = regs[0];
     uint64_t a1 = regs[4];
@@ -279,6 +316,147 @@ void syscall_handler(uint64_t *regs) {
     case SYS_rmdir2:
         if (fat32_rmdir((const char *)a1) == 0) ret = 0;
         break;
+
+    /* ~~ *at syscalls (issue #53) ~~
+     * Dirfd relativo: suportamos AT_FDCWD (o cwd atual do processo).
+     * Como o FAT32 nao tem fd de diretorio de verdade, dirfd != AT_FDCWD
+     * cai no helper que retorna -1. O padrão é igual ao spawn: salva
+     * cwd, resolve o path, opera, restaura. kyun~ */
+    case SYS_openat: {
+        int dirfd = (int)a1;
+        const char *path = (const char *)a2;
+        uint32_t saved = fat32_get_cwd();
+        char base[256];
+        if (resolve_at_path(dirfd, path, base, sizeof(base)) < 0) {
+            fat32_set_cwd(saved); ret = -1; break;
+        }
+        int fd = alloc_fd();
+        if (fd < 0) { fat32_set_cwd(saved); ret = -1; break; }
+        int i = 0;
+        while (base[i] && i < 255) { fds[fd].name[i] = base[i]; i++; }
+        fds[fd].name[i] = '\0';
+        fds[fd].type = 0;
+        fds[fd].pos = 0;
+        fds[fd].used = 1;
+        fat32_set_cwd(saved);
+        ret = fd;
+        break;
+    }
+
+    case SYS_mkdirat: {
+        int dirfd = (int)a1;
+        const char *path = (const char *)a2;
+        uint32_t saved = fat32_get_cwd();
+        char base[256];
+        if (resolve_at_path(dirfd, path, base, sizeof(base)) < 0) {
+            fat32_set_cwd(saved); ret = -1; break;
+        }
+        if (fat32_mkdir(base) == 0) ret = 0;
+        fat32_set_cwd(saved);
+        break;
+    }
+
+    case SYS_newfstatat: {
+        int dirfd = (int)a1;
+        const char *path = (const char *)a2;
+        struct stat *st = (struct stat *)a3;
+        uint32_t saved = fat32_get_cwd();
+        char base[256];
+        if (!st || resolve_at_path(dirfd, path, base, sizeof(base)) < 0) {
+            fat32_set_cwd(saved); ret = -1; break;
+        }
+        uint32_t size; uint8_t attr;
+        if (fat32_stat(base, &size, &attr, NULL, NULL) == 0) {
+            st->st_size = size; ret = 0;
+        } else ret = -1;
+        fat32_set_cwd(saved);
+        break;
+    }
+
+    case SYS_unlinkat: {
+        int dirfd = (int)a1;
+        const char *path = (const char *)a2;
+        uint32_t saved = fat32_get_cwd();
+        char base[256];
+        if (resolve_at_path(dirfd, path, base, sizeof(base)) < 0) {
+            fat32_set_cwd(saved); ret = -1; break;
+        }
+        if (fat32_delete_file(base) == 0) ret = 0;
+        fat32_set_cwd(saved);
+        break;
+    }
+
+    case SYS_renameat: {
+        int dirfd = (int)a1;
+        const char *path = (const char *)a2;
+        int newdirfd = (int)a3;
+        const char *newpath = (const char *)a4;
+        uint32_t saved = fat32_get_cwd();
+        char base[256], newbase[256];
+        if (resolve_at_path(dirfd, path, base, sizeof(base)) < 0) {
+            fat32_set_cwd(saved); ret = -1; break;
+        }
+        uint32_t mid = fat32_get_cwd();
+        fat32_set_cwd(saved);
+        if (resolve_at_path(newdirfd, newpath, newbase, sizeof(newbase)) < 0) {
+            fat32_set_cwd(saved); ret = -1; break;
+        }
+        uint32_t newdir = fat32_get_cwd();
+        if (newdir != mid) {
+            fat32_set_cwd(saved); ret = -1; break;
+        }
+        if (fat32_rename(base, newbase) == 0) ret = 0;
+        fat32_set_cwd(saved);
+        break;
+    }
+
+    case SYS_readlinkat: {
+        const char *path = (const char *)a2;
+        char *buf = (char *)a3;
+        size_t bufsiz = (size_t)a4;
+        if (buf && bufsiz > 0 && str_equal(path, "/proc/self/exe")) {
+            pcb_t *cur = process_current();
+            if (cur) {
+                const char *nm = cur->name;
+                int i = 0;
+                while (nm[i] && i < (int)bufsiz - 1) { buf[i] = nm[i]; i++; }
+                buf[i] = '\0';
+                ret = i;
+                break;
+            }
+        }
+        ret = -1;
+        break;
+    }
+
+    case SYS_chmod:
+    case SYS_fchmod:
+        ret = 0;  /* no-op realista — FAT32 sem permissões */
+        break;
+
+    case SYS_chown:
+    case SYS_fchown:
+        ret = 0;  /* no-op realista — FAT32 sem dono */
+        break;
+
+    case SYS_statfs:
+    case SYS_fstatfs: {
+        /* struct statfs { f_type, f_bsize, f_blocks, f_bfree, ... } */
+        uint64_t *sf = (uint64_t *)a2;
+        if (!sf) { ret = -1; break; }
+        uint32_t total = 131072;   /* 64MB / 512B = 131072 setores */
+        uint32_t bsize = 512;
+        uint32_t blocks = total / 1;
+        sf[0] = 0x4d44;            /* f_type: MSDOS_SUPER_MAGIC */
+        sf[1] = bsize;             /* f_bsize */
+        sf[2] = blocks;            /* f_blocks */
+        sf[3] = blocks - 8192;     /* f_bfree (com uma folguinha~) */
+        sf[4] = blocks - 8192;     /* f_bavail */
+        sf[5] = 0;                 /* f_files */
+        sf[6] = 0;                 /* f_ffree */
+        ret = 0;
+        break;
+    }
 
     case SYS_mmap: {
         uint64_t hint = a1;
@@ -1043,7 +1221,7 @@ void syscall_handler(uint64_t *regs) {
         for (;;) __asm__ volatile("hlt");
         break;
 
-    /* ~~ Linux set_tid_address (258) ~ "Aqui, guarda meu TID!" ~~
+    /* ~~ Linux set_tid_address (218) ~ "Aqui, guarda meu TID!" ~~
      * Musl passa o endereço de uma variável onde o kernel
      * deveria escrever o TID quando a thread morre~
      * Mas como somos um kernel ~fofo~ e sem threads de verdade,
