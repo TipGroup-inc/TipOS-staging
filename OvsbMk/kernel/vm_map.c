@@ -183,7 +183,13 @@ int vm_map_remove(vm_map_t *map, uint64_t start, uint64_t end) {
 
 /* ~ simples mas essencial, n mexe sem saber oq ta fazendo */
 int vm_map_protect(vm_map_t *map, uint64_t start, uint64_t end, int prot) {
-    (void)start; (void)end; (void)prot;
+    vm_map_entry_t *e = map->head;
+    while (e) {
+        if (e->start < end && e->end > start) {
+            e->prot = prot;
+        }
+        e = e->next;
+    }
     return 0;
 }
 
@@ -285,6 +291,85 @@ void vmspace_destroy(vmspace_t *vs) {
 /* ~ cuidado que essa aqui morde ~ */
 void vmspace_swap_pml4(vmspace_t *vs, uint64_t new_pml4) {
     vs->pml4 = new_pml4;
+}
+
+/* ~~ walk do pml4: aplica funcao nas PTEs de um range ~~
+ * split_2mb_pde quebra huge pages, depois cada PTE 4KB é ajustada.
+ * Retorna 0 se todas as PTEs do range foram tocadas. */
+static int pml4_walk_ptes(uint64_t pml4, uint64_t start, uint64_t end,
+                          void (*fn)(uint64_t *pte, uint64_t va, void *ctx),
+                          void *ctx) {
+    uint64_t *p4 = (uint64_t *)(uintptr_t)pml4;
+    for (uint64_t chunk = start & ~0x1FFFFFULL; chunk < end; chunk += 0x200000) {
+        int pml4_idx = (chunk >> 39) & 0x1FF;
+        int pdpt_idx = (chunk >> 30) & 0x1FF;
+        int pd_idx   = (chunk >> 21) & 0x1FF;
+        if (!(p4[pml4_idx] & 1)) continue;
+        uint64_t *pdpt = (uint64_t *)(uintptr_t)(p4[pml4_idx] & ~0xFFFULL);
+        if (!(pdpt[pdpt_idx] & 1)) continue;
+        uint64_t *pd = (uint64_t *)(uintptr_t)(pdpt[pdpt_idx] & ~0xFFFULL);
+        uint64_t pde = pd[pd_idx];
+        if (!(pde & 1)) continue;
+        if (pde & 0x80) {
+            if (split_2mb_pde(pml4, chunk) < 0) return -1;
+            pd = (uint64_t *)(uintptr_t)(pdpt[pdpt_idx] & ~0xFFFULL);
+        }
+        uint64_t *pt = (uint64_t *)(uintptr_t)(pd[pd_idx] & ~0xFFFULL);
+        for (int i = 0; i < 512; i++) {
+            uint64_t va = chunk + (uint64_t)i * 0x1000;
+            if (va >= start && va < end && (pt[i] & 1))
+                fn(&pt[i], va, ctx);
+        }
+    }
+    return 0;
+}
+
+/* ~~ callback: aplica R/W + U/S conforme prot ~~ */
+static void pte_set_prot(uint64_t *pte, uint64_t va, void *ctx) {
+    (void)va;
+    int prot = *(int *)ctx;
+    uint64_t f = *pte;
+    if (prot & 2) f |= 0x02; else f &= ~0x02ULL;
+    f |= 0x04;  /* U/S sempre ligado — userland */
+    if (!(prot & 1)) f &= ~0x02ULL;  /* sem READ = sem WRITE (Linux: R implica W) */
+    if (!(prot & 4)) f |= 0x8000000000000000ULL;  /* NX se sem EXEC */
+    else f &= ~0x8000000000000000ULL;
+    *pte = f;
+}
+
+/* ~~ callback: zera a PTE (unmap) ~~ */
+static void pte_clear(uint64_t *pte, uint64_t va, void *ctx) {
+    (void)va; (void)ctx;
+    *pte = 0;
+}
+
+/* ~~ vm_munmap: desmapeia PTEs e remove entries do range ~~ */
+int vm_munmap(uint64_t addr, size_t size) {
+    pcb_t *cur = process_current();
+    if (!cur) return -1;
+    vm_map_t *map = (vm_map_t *)cur->vm_map;
+    if (!map) return -1;
+    size = (size + 0xFFF) & ~0xFFFULL;
+    if (size == 0) return 0;
+    uint64_t end = addr + size;
+    pml4_walk_ptes(cur->pml4, addr, end, pte_clear, NULL);
+    __asm__ volatile("invlpg %0" : : "m"(*(uint8_t *)addr) : "memory");
+    vm_map_remove(map, addr, end);
+    return 0;
+}
+
+/* ~~ vm_mprotect: muda permissoes das PTEs do range ~~ */
+int vm_mprotect(uint64_t addr, size_t size, int prot) {
+    pcb_t *cur = process_current();
+    if (!cur) return -1;
+    vm_map_t *map = (vm_map_t *)cur->vm_map;
+    if (!map) return -1;
+    size = (size + 0xFFF) & ~0xFFFULL;
+    if (size == 0) return 0;
+    uint64_t end = addr + size;
+    if (vm_map_protect(map, addr, end, prot) < 0) return -1;
+    pml4_walk_ptes(cur->pml4, addr, end, pte_set_prot, &prot);
+    return 0;
 }
 
 /* ~ essa funcao aqui e a mais importante, presta atencao baka! */

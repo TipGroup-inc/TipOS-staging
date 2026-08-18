@@ -246,9 +246,38 @@ Gate:     int 0x80 (DPL=3, chamável de userland)
 | 197 | `mmap` | Aloca páginas anônimas | syscall.c:190 |
 | 198 | `kbhit` | Verifica tecla disponível | syscall.c:196 |
 | 199 | `lstat` | Idêntico a stat | syscall.c:151 |
-| 200 | `lseek` | Posiciona em arquivo | syscall.c:163 |
+| 200 | `disp_get_fb` | Mapeia FB no userland + dimensões | syscall.c:397 |
+| 201 | `disp_flush` | Copia backbuffer → FB (rep movsl) | syscall.c:437 |
+| 202 | `mouse_read` | Lê delta dx/dy/botões do PS/2 | syscall.c:424 |
+| 203 | `kb_mod` | Estado shift/ctrl (bit0=shift, bit1=ctrl) | syscall.c:492 |
+| 204 | `lseek` | Posiciona em arquivo | syscall.c:219 |
+| 205 | `disp_flush_rect` | Flush de retângulo (x,y em a2, w,h em a3, 16 bits cada) | syscall.c:461 |
+| 207 | `readdir` | Lista diretório FAT32 | syscall.c:506 |
+| 208 | `execve` | Executa ELF | syscall.c:525 |
+| 209 | `shell_cmd` | Comando do shell | syscall.c:593 |
+| 210 | `spawn` | Cria processo | syscall.c:614 |
+| 211 | `spawn_shared` | Cria processo com memória compartilhada | syscall.c:704 |
 
-### 5.3 Fluxo de Syscall
+### 5.3 Syscalls display/input (200-205) — para compositores
+
+Estáveis (ABI congelada para o disp-wm):
+
+| # | Nome | Parâmetros | Retorno |
+|---|------|-----------|---------|
+| 200 | `disp_get_fb` | a1=&addr (u64\*), a2=&width (u32\*), a3=&height (u32\*), a4=&pitch (u32\*) | 0 ou -1 se FB inativo |
+| 201 | `disp_flush` | a1=backbuffer | 0 (copia pitch×height via rep movsl, sem SSE) |
+| 202 | `mouse_read` | a1=&dx (i32\*), a2=&dy (i32\*), a3=&buttons (i32\*) | 0 (zera acumulador) |
+| 203 | `kb_mod` | — | bitmask: bit0=shift, bit1=ctrl |
+| 205 | `disp_flush_rect` | a1=backbuffer, a2=x\|\|y<<16, a3=w\|\|h<<16 | 0 |
+
+Notas:
+- **FB VA**: mapeado em `0xFFFFFFFF80000000` (2MB pages, U/S=1, RW) — mesmo endereço que o kernel usa pra VESA. Formato: 32-bit, pitch em bytes (`pitch/4` = stride em pixels).
+- **Ordem dos parâmetros** do `disp_get_fb`: a2=width, a4=pitch. Histórico: já esteve trocado (a2=pitch, a4=width) — não reverter!
+- **`disp_flush`** usa `rep movsl` no kernel (ERMSB/QEMU otimizam); sem SSE (kernel não salva xmm).
+- **`mouse_read`** consome o acumulado do driver PS/2 (IRQ12, `kernel/drivers/mouse.zig`) — deltas são relativos à última leitura.
+- **`kb_mod`** lê as flags `shift_pressed`/`ctrl_pressed` do teclado.
+
+### 5.4 Fluxo de Syscall
 
 ```
 Userland: RAX=num, RDI=a1, RSI=a2, RDX=a3 → int 0x80
@@ -260,7 +289,7 @@ syscall_handler(num, a1, a2, a3, a4) → switch(num) → executa handler
 syscall_entry.asm: restaura regs → iretq → retorna para userland
 ```
 
-### 5.4 gettimeofday — Implementação Real
+### 5.5 gettimeofday — Implementação Real
 
 ```c
 case SYS_gettimeofday: {

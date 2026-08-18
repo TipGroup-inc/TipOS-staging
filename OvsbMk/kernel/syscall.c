@@ -275,11 +275,23 @@ void syscall_handler(uint64_t *regs) {
     }
 
     case SYS_munmap:
-        ret = 0;
+        ret = vm_munmap(a1, a2);
         break;
 
     case SYS_mprotect:
-        ret = 0;
+        ret = vm_mprotect(a1, a2, (int)a3);
+        break;
+
+    case SYS_madvise:
+        ret = 0;  /* no-op documentado — paginas sao wired de uma vez */
+        break;
+
+    case SYS_msync:
+        ret = 0;  /* no-op — sem cache de paginas */
+        break;
+
+    case SYS_mremap:
+        ret = (uint64_t)-1;  /* ainda nao suportado — musl cai pro malloc */
         break;
 
     case SYS_kbhit:
