@@ -76,6 +76,8 @@ void vmspace_destroy(vmspace_t *vs);
 void vmspace_swap_pml4(vmspace_t *vs, uint64_t new_pml4);
 
 int vm_mmap(uint64_t *addr, size_t size, int prot, int flags);
+int vm_munmap(uint64_t addr, size_t size);
+int vm_mprotect(uint64_t addr, size_t size, int prot);
 
 #endif
 

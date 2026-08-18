@@ -39,8 +39,10 @@ extern void execute(const char *cmd);
 #define MAX_FDS 16
 static struct {
     int used;
+    int type;          /* 0=arquivo, 1=eventfd, 2=timerfd */
     char name[256];
     uint32_t pos;
+    uint64_t counter;  /* eventfd: contador; timerfd: intervalo (ms) */
 } fds[MAX_FDS];
 
 struct timeval { uint64_t tv_sec; uint64_t tv_usec; };
@@ -111,6 +113,16 @@ void syscall_handler(uint64_t *regs) {
         int fd = (int)a1;
         const char *buf = (const char *)a2;
         int count = (int)a3;
+        if (fd >= 3 && fd < MAX_FDS && fds[fd].used && fds[fd].type == 1) {
+            /* eventfd write: soma u64 no contador */
+            if (count >= 8) {
+                uint64_t val = 0;
+                for (int i = 0; i < 8; i++) val |= (uint64_t)(uint8_t)buf[i] << (8 * i);
+                fds[fd].counter += val;
+            }
+            ret = count;
+            break;
+        }
         if (fd >= 3 && fd < MAX_FDS && fds[fd].used) {
             int r = fat32_write_file(fds[fd].name, (const uint8_t *)buf, count);
             ret = (r >= 0) ? count : -1;
@@ -139,6 +151,25 @@ void syscall_handler(uint64_t *regs) {
                 if (buf[i] == 3) break;
             }
             ret = i;
+            break;
+        }
+        if (fd >= 3 && fd < MAX_FDS && fds[fd].used && fds[fd].type == 1) {
+            /* eventfd read: devolve contador e zera */
+            if (count >= 8) {
+                uint64_t v = fds[fd].counter;
+                fds[fd].counter = 0;
+                for (int i = 0; i < 8; i++) buf[i] = (char)(v >> (8 * i));
+            }
+            ret = count;
+            break;
+        }
+        if (fd >= 3 && fd < MAX_FDS && fds[fd].used && fds[fd].type == 2) {
+            /* timerfd read: "expirou" — retorna 1 (contagem de expirações) */
+            if (count >= 8) {
+                uint64_t one = 1;
+                for (int i = 0; i < 8; i++) buf[i] = (char)(one >> (8 * i));
+            }
+            ret = count;
             break;
         }
         if (fd >= 3 && fd < MAX_FDS && fds[fd].used) {
@@ -275,11 +306,23 @@ void syscall_handler(uint64_t *regs) {
     }
 
     case SYS_munmap:
-        ret = 0;
+        ret = vm_munmap(a1, a2);
         break;
 
     case SYS_mprotect:
-        ret = 0;
+        ret = vm_mprotect(a1, a2, (int)a3);
+        break;
+
+    case SYS_madvise:
+        ret = 0;  /* no-op documentado — paginas sao wired de uma vez */
+        break;
+
+    case SYS_msync:
+        ret = 0;  /* no-op — sem cache de paginas */
+        break;
+
+    case SYS_mremap:
+        ret = (uint64_t)-1;  /* ainda nao suportado — musl cai pro malloc */
         break;
 
     case SYS_kbhit:
@@ -357,16 +400,145 @@ void syscall_handler(uint64_t *regs) {
         int ready = 0;
         for (int i = 0; i < nfds && i < 16; i++) {
             int pfd_fd = *((int *)fds_arr + i * 2);
-            short *revents = (short *)fds_arr + i * 2 + 1;
+            short *revents = (short *)fds_arr + i * 4 + 3; /* offset 8i+6 */
             *revents = 0;
             if (pfd_fd == 0 && keyboard_avail()) {
                 *revents = 1; /* POLLIN */
+                ready++;
+            }
+            if (pfd_fd >= 3 && pfd_fd < MAX_FDS && fds[pfd_fd].used && fds[pfd_fd].type == 1 && fds[pfd_fd].counter > 0) {
+                *revents = 1;
                 ready++;
             }
         }
         ret = ready;
         break;
     }
+
+    /* ~~ select (23) ~ igual poll, mas com fd_set ~~
+     * args Linux: rdi=nfds, rsi=readfds, rdx=writefds, rcx=exceptfds
+     * fd_set = 1024 bits (128 bytes), FD_SETSIZE=1024 */
+    case SYS_select: {
+        int nfds = (int)a1;
+        uint8_t *rd_set = (uint8_t *)a2;
+        (void)nfds;
+
+        /* Simplificação: só fd 0 (stdin) é monitorável */
+        int ready = 0;
+        if (rd_set && keyboard_avail()) {
+            rd_set[0] |= 1;
+            ready++;
+        }
+        ret = ready;
+        break;
+    }
+
+    /* ~~ ppoll (271) ~ poll com signal mask ~~
+     * struct pollfd* + nfds + timespec* + sigset_t* + sizet
+     * ignora a máscara (não temos sinais de verdade) */
+    case 271: {
+        uint64_t *fds_arr = (uint64_t *)a1;
+        int nfds = (int)a2;
+        int ready = 0;
+        for (int i = 0; i < nfds && i < 16; i++) {
+            int pfd_fd = *((int *)fds_arr + i * 2);
+            short *revents = (short *)fds_arr + i * 4 + 3; /* offset 8i+6 */
+            *revents = 0;
+            if (pfd_fd == 0 && keyboard_avail()) {
+                *revents = 1;
+                ready++;
+            }
+            if (pfd_fd >= 3 && pfd_fd < MAX_FDS && fds[pfd_fd].used && fds[pfd_fd].type == 1 && fds[pfd_fd].counter > 0) {
+                *revents = 1;
+                ready++;
+            }
+        }
+        ret = ready;
+        break;
+    }
+
+    /* ~~ eventfd2 (290) ~ contador 8 bytes, leitura consuma ~~
+     * cria um fd virtual que só conta — suficiente pro
+     * wayland/event loop avisar "tem coisa pra processar" */
+    case 290: {
+        if (a1 == 0 || a1 == 1) { /* eventfd_create(initval, flags) */
+            int fd = alloc_fd();
+            if (fd < 0) { ret = -1; break; }
+            fds[fd].used = 1;
+            fds[fd].type = 1;
+            fds[fd].counter = a1; /* initval */
+            ret = fd;
+        } else {
+            ret = -1;
+        }
+        break;
+    }
+
+    /* ~~ timerfd_create (283) ~~
+     * clockid=1 (CLOCK_MONOTONIC), retorna fd */
+    case 283: {
+        int fd = alloc_fd();
+        if (fd < 0) { ret = -1; break; }
+        fds[fd].used = 1;
+        fds[fd].type = 2;
+        fds[fd].counter = 0;
+        ret = fd;
+        break;
+    }
+
+    /* ~~ timerfd_settime (286) ~ armazena intervalo (ms) ~~
+     * itimerspec: {it_interval{sec,nsec}, it_value{sec,nsec}} */
+    case 286: {
+        int fd = (int)a1;
+        if (fd >= 3 && fd < MAX_FDS && fds[fd].used && fds[fd].type == 2) {
+            uint64_t *spec = (uint64_t *)a3; /* new_value */
+            uint64_t ms = 0;
+            if (spec) {
+                uint64_t sec  = spec[0] * 1000 + spec[1] / 1000000ULL; /* interval */
+                uint64_t vsec = spec[2] * 1000 + spec[3] / 1000000ULL; /* value */
+                ms = vsec ? vsec : sec;
+            }
+            fds[fd].counter = ms ? ms : 1;
+        }
+        ret = 0;
+        break;
+    }
+
+    /* ~~ timerfd_gettime (287) ~ devolve o que sobrou ~~
+     * sem timer real: devolve o intervalo como "restante" */
+    case 287: {
+        int fd = (int)a1;
+        if (fd >= 3 && fd < MAX_FDS && fds[fd].used && fds[fd].type == 2 && a2) {
+            uint64_t *spec = (uint64_t *)a2;
+            spec[0] = 0; spec[1] = 0;                      /* interval */
+            spec[2] = fds[fd].counter / 1000;              /* value sec */
+            spec[3] = (fds[fd].counter % 1000) * 1000000ULL; /* value nsec */
+        }
+        ret = 0;
+        break;
+    }
+
+    /* ~~ epoll_create (213) / epoll_create1 (291) ~~
+     * retorna um fd fake; ctl/wait são no-ops */
+    case 213:
+    case 291: {
+        int fd = alloc_fd();
+        if (fd < 0) { ret = -1; break; }
+        fds[fd].used = 1;
+        fds[fd].type = 0;
+        fds[fd].name[0] = '\0';
+        ret = fd;
+        break;
+    }
+
+    case 233: /* epoll_ctl */
+        ret = 0;
+        break;
+
+    case 232: /* epoll_wait */
+    case 281: /* epoll_pwait */
+        ret = 0;
+        break;
 
     case SYS_sigaction:
     case SYS_sigreturn:

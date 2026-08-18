@@ -56,6 +56,9 @@
 #define SYS_nanosleep    234
 #define SYS_set_tid_address 258
 #define SYS_exit_group   212
+#define SYS_msync        26
+#define SYS_madvise      28
+#define SYS_mremap       75
 
 void syscall_init(void);
 void syscall_handler(uint64_t *regs);
