@@ -63,9 +63,9 @@
 #define SYS_dup2         91
 #define SYS_fcntl        72
 #define SYS_uname        63
-#define SYS_umask        95
+#define SYS_umask        400
 #define SYS_getrusage    98
-#define SYS_sysinfo      99
+#define SYS_sysinfo      401
 #define SYS_times        100
 #define SYS_getppid      110
 #define SYS_getpgid      121
