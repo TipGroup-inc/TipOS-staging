@@ -3,7 +3,7 @@
 /* ♥ kernel stuff ~ aqui é onde o bicho pega de verdade! kyun~
  * arquivo: console.c ~ funcoes anotadas: 11
  */
-/* ♥ console.c ~ feito com carinho (e gambiarras) pela equipe TipOS! ♥
+/* ♥ console.c ~ feito com carinho (e gambiarras) pela equipe OvsbOS! ♥
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
@@ -195,7 +195,7 @@ void console_printf(const char *fmt, ...) {
     console_write(buf);
 }
 
-/* ♥ console.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
+/* ♥ console.c ~ arquivo fofinho do OvsbMk! kyun~ <3 */
 
 
 

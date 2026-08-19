@@ -3,7 +3,7 @@
 /* ♥ kernel stuff ~ aqui é onde o bicho pega de verdade! kyun~
  * arquivo: utils.c ~ funcoes anotadas: 0
  */
-/* ♥ utils.c ~ feito com carinho (e gambiarras) pela equipe TipOS! ♥
+/* ♥ utils.c ~ feito com carinho (e gambiarras) pela equipe OvsbOS! ♥
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
@@ -24,9 +24,9 @@ void *memset(void *s, int c, int n) { for (int i = 0; i < n; i++) ((uint8_t*)s)[
 void *memcpy(void *d, const void *s, int n) { for (int i = 0; i < n; i++) ((uint8_t*)d)[i] = ((uint8_t*)s)[i]; return d; }
 void *memmove(void *d, const void *s, int n) { return memcpy(d, s, n); }
 
-/* ♥ utils.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
+/* ♥ utils.c ~ arquivo fofinho do OvsbMk! kyun~ <3 */
 
 
 
 
-/* ♥ utils.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
+/* ♥ utils.c ~ arquivo fofinho do OvsbMk! kyun~ <3 */

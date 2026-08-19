@@ -83,7 +83,7 @@ void _start(void) {
     puts("\x1b[2J"); /* ~~ clear screen ~~ */
     puts("\x1b[H");  /* ~~ cursor home ~~ */
 
-    puts("\r\n-= TipOS Terminal =- moe moe kyun~ <3");
+    puts("\r\n-= OvsbOS Terminal =- moe moe kyun~ <3");
     nl();
 
     char buf[80];

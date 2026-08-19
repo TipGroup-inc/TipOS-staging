@@ -28,4 +28,4 @@ void owt_textbox_key(owt_textbox_t *tb, char key);
 
 #endif
 
-/* ♥ owt_textbox.h ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
+/* ♥ owt_textbox.h ~ arquivo fofinho do OvsbMk! kyun~ <3 */

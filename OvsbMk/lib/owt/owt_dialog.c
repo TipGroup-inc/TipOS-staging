@@ -66,4 +66,4 @@ int owt_dialog_confirm(const char *title, const char *message) {
 
 
 
-/* ♥ owt_dialog.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
+/* ♥ owt_dialog.c ~ arquivo fofinho do OvsbMk! kyun~ <3 */

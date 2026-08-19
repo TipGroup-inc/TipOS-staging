@@ -1,5 +1,5 @@
 # moe moe kyun <3
-# ~~ Makefile do userland TipOS ~~
+# ~~ Makefile do userland OvsbOS ~~
 # Compila programas de usuário como flat binary → Mach-O via packer.
 # Tudo freestanding (sem libc do sistema, só a nossa~)
 #
@@ -60,7 +60,7 @@ all: $(PROGS_MACHO)
 # ~~ .elf → .bin ~~
 # Extrai seção .text como flat binary (sem headers ELF~)
 ../../build/userland/%.bin: ../../build/userland/%.elf
-	$(OBJCOPY) -O binary -j .text $< $@
+	$(OBJCOPY) -O binary $< $@
 
 # ~~ .bin → .macho ~~
 # Empacota em Mach-O (pro kernel conseguir carregar~)

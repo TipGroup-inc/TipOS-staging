@@ -1,6 +1,6 @@
 // moe moe kyun <3
 // moe moe kyun <3
-// Ext2 read-only driver for TipOS — Linux native fs (GPL v2)
+// Ext2 read-only driver for OvsbOS — Linux native fs (GPL v2)
 
 // ~~ Externs ~~ chamando as funções do kernel ~ socorro!
 // ata_read_sector: lê 512 bytes do disco (LBA addressing, pq sim)

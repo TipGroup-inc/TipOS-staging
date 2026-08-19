@@ -3,7 +3,7 @@
 /* ♥ kernel stuff ~ aqui é onde o bicho pega de verdade! kyun~
  * arquivo: shell.h ~ funcoes anotadas: 0
  */
-/* ♥ shell.h ~ feito com carinho (e gambiarras) pela equipe TipOS! ♥
+/* ♥ shell.h ~ feito com carinho (e gambiarras) pela equipe OvsbOS! ♥
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
@@ -18,4 +18,4 @@ void shell_input(char c);
 
 
 
-/* ♥ shell.h ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
+/* ♥ shell.h ~ arquivo fofinho do OvsbMk! kyun~ <3 */

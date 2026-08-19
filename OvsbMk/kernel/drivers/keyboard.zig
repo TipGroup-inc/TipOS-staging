@@ -1,6 +1,6 @@
 // moe moe kyun <3
 // moe moe kyun <3
-// Keyboard PS/2 driver for TipOS — Linux-like input subsystem (GPL v2)
+// Keyboard PS/2 driver for OvsbOS — Linux-like input subsystem (GPL v2)
 
 // ~~ Buffer circular do teclado ~~
 // KB_BUF_SIZE = 256 bytes de buffer (mais que suficiente~)

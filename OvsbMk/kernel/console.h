@@ -3,7 +3,7 @@
 /* ♥ kernel stuff ~ aqui é onde o bicho pega de verdade! kyun~
  * arquivo: console.h ~ funcoes anotadas: 0
  */
-/* ♥ console.h ~ feito com carinho (e gambiarras) pela equipe TipOS! ♥
+/* ♥ console.h ~ feito com carinho (e gambiarras) pela equipe OvsbOS! ♥
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
@@ -23,9 +23,9 @@ void console_set_output_buffer(char *buf, int *len, int max);
 
 #endif
 
-/* ♥ console.h ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
+/* ♥ console.h ~ arquivo fofinho do OvsbMk! kyun~ <3 */
 
 
 
 
-/* ♥ console.h ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
+/* ♥ console.h ~ arquivo fofinho do OvsbMk! kyun~ <3 */

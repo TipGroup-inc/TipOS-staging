@@ -3,7 +3,7 @@
 /* ♥ kernel stuff ~ aqui é onde o bicho pega de verdade! kyun~
  * arquivo: pit.c ~ funcoes anotadas: 4
  */
-/* ♥ pit.c ~ feito com carinho (e gambiarras) pela equipe TipOS! ♥
+/* ♥ pit.c ~ feito com carinho (e gambiarras) pela equipe OvsbOS! ♥
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
@@ -53,7 +53,7 @@ void sleep_ms(uint64_t ms) {
     while (timer_ticks < target) { __asm__ volatile ("pause"); }
 }
 
-/* ♥ pit.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
+/* ♥ pit.c ~ arquivo fofinho do OvsbMk! kyun~ <3 */
 
 
 

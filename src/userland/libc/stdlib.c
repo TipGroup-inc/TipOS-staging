@@ -5,7 +5,7 @@
  */
  /*~*~ stdlib.c ~*~
   * Hihi, olha esse arquivo aqui~ Que lindo, né? >_<
-  * Escrito com muito amor (e gambiarras) pela equipe TipOS!
+  * Escrito com muito amor (e gambiarras) pela equipe OvsbOS!
   * Se quebrar, a culpa é sua~ <3
   *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
@@ -69,7 +69,7 @@ char *itoa(int n, char *buf) {
 // NEXT(b) = ponteiro pro próximo bloco (armazenado após o header)
 // ALIGN8(n) = alinha pra 8 bytes (requisito de alinhamento da libc~)
 // MMAP_THRESH = 2048: acima disso, usa mmap ao invés do heap interno
-#define HEAP_SIZE 65536
+#define HEAP_SIZE 262144
 static char _heap[HEAP_SIZE];
 static int _hinit;
 
@@ -78,7 +78,7 @@ static int _hinit;
 #define AMASK  (~USED)
 #define NEXT(b)  (*(void**)((char*)(b) + HDR_SZ))
 #define ALIGN8(n) (((n) + 7) & ~7)
-#define MMAP_THRESH 2048
+#define MMAP_THRESH 65536
 
 // ~~ freep ~~
 // Ponteiro pra freelist circular. Sempre aponta pro último bloco
@@ -234,7 +234,7 @@ void *realloc(void *p, int n) {
 }
 
 // ~~ mmap ~~
-// Mapeia páginas de memória via syscall 197 (TipOS mmap).
+// Mapeia páginas de memória via syscall 197 (OvsbOS mmap).
 // Alinha length pra cima em múltiplo de 4096 (páginas~).
 // addr, prot, flags são ignorados (sempre mapeia em endereço qualquer~)
 /* ~ simples mas essencial, n mexe sem saber oq ta fazendo */

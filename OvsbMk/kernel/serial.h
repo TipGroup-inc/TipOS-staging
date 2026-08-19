@@ -3,7 +3,7 @@
 /* ♥ kernel stuff ~ aqui é onde o bicho pega de verdade! kyun~
  * arquivo: serial.h ~ funcoes anotadas: 0
  */
-/* ♥ serial.h ~ feito com carinho (e gambiarras) pela equipe TipOS! ♥
+/* ♥ serial.h ~ feito com carinho (e gambiarras) pela equipe OvsbOS! ♥
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
@@ -18,9 +18,9 @@ void serial_puts(const char *s);
 void serial_puthex(uint32_t v);
 #endif
 
-/* ♥ serial.h ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
+/* ♥ serial.h ~ arquivo fofinho do OvsbMk! kyun~ <3 */
 
 
 
 
-/* ♥ serial.h ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
+/* ♥ serial.h ~ arquivo fofinho do OvsbMk! kyun~ <3 */

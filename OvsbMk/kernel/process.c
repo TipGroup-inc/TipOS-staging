@@ -3,7 +3,7 @@
 /* ♥ kernel stuff ~ aqui é onde o bicho pega de verdade! kyun~
  * arquivo: process.c ~ funcoes anotadas: 17
  */
-/* ♥ process.c ~ feito com carinho (e gambiarras) pela equipe TipOS! ♥
+/* ♥ process.c ~ feito com carinho (e gambiarras) pela equipe OvsbOS! ♥
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
@@ -43,13 +43,6 @@ static void idle_entry(void) {
 static pcb_t *alloc_pcb(void) {
     if (pcb_count >= MAX_PROC) return 0;
     return &pcb_table[pcb_count++];
-}
-
-/* ~ cuidado que essa aqui morde ~ */
-static int find_pid(int pid) {
-    for (int i = 0; i < MAX_PROC; i++)
-        if (pcb_table[i].pid == pid) return i;
-    return -1;
 }
 
 /* ~~ Inicializando~~ torce pra não dar panic! */
@@ -123,6 +116,7 @@ int process_create_user(const char *name, void *entry, void *user_stack, uint64_
     pcb->pid = next_pid++;
     pcb->state = PROC_READY;
     pcb->is_user = 1;
+    pcb->linux_abi = process_current_uses_linux_abi();
     for (int i = 0; name[i] && i < PROC_NAME_MAX - 1; i++) pcb->name[i] = name[i];
 
     uint64_t *ksp = (uint64_t *)((uint8_t *)kstack + STACK_SIZE);
@@ -141,7 +135,7 @@ int process_create_user(const char *name, void *entry, void *user_stack, uint64_
     return pcb->pid;
 }
 
-/* ♥ proc_spawn ~ API nova do TipOS! Cria processo com PML4 propria!
+/* ♥ proc_spawn ~ API nova do OvsbOS! Cria processo com PML4 propria!
  * entry = endereco virtual do codigo, user_stack_top = topo da pilha user */
 /* ~ essa funcao aqui e a mais importante, presta atencao baka! */
 int proc_spawn(const char *name, void *entry, void *user_stack_top) {
@@ -160,6 +154,7 @@ int proc_spawn(const char *name, void *entry, void *user_stack_top) {
     p->pid = next_pid++;
     p->state = PROC_READY;
     p->is_user = 1;
+    p->linux_abi = process_current_uses_linux_abi();
 
     int ni = 0;
     while (name[ni] && ni < PROC_NAME_MAX - 1) { p->name[ni] = name[ni]; ni++; }
@@ -239,6 +234,11 @@ void process_switch_to(int pid) {
         serial_puts(" SS=");
         serial_puthex((uint32_t)iretq[4]);
         serial_puts("\r\n");
+        serial_puts("[RING] user process CS/RPL=");
+        serial_puthex((uint32_t)iretq[1]);
+        serial_puts("/");
+        serial_puthex((uint32_t)(iretq[1] & 3));
+        serial_puts(" (Ring 3)\r\n");
     }
 
     serial_puts("[PROC] context_switch now\r\n");
@@ -267,7 +267,7 @@ void process_exit_current(int code) {
     context_switch(p, next);
 }
 
-/* ♥ proc_exit ~ API nova do TipOS! Exit com schedule */
+/* ♥ proc_exit ~ API nova do OvsbOS! Exit com schedule */
 /* ~ essa demorou pra debugar, respeita ~ */
 void proc_exit(int code) {
     if (current_pid < 0 || current_pid >= MAX_PROC) return;
@@ -326,6 +326,11 @@ pcb_t *process_current(void) {
         if (pcb_table[i].state != PROC_EMPTY && pcb_table[i].pid == current_pid)
             return &pcb_table[i];
     return 0;
+}
+
+int process_current_uses_linux_abi(void) {
+    pcb_t *current = process_current();
+    return current && current->linux_abi;
 }
 
 /* ~~ Processando~~ ufaaa que trabalhão! */
@@ -422,4 +427,4 @@ uint64_t setup_linux_user_stack(pcb_t *pcb, uint64_t user_stack_top,
     return (uint64_t)sp;
 }
 
-/* ♥ process.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
+/* ♥ process.c ~ arquivo fofinho do OvsbMk! kyun~ <3 */

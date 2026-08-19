@@ -42,4 +42,4 @@ void owt_statusbar_set_text(owt_statusbar_t *sb, const char *text) {
 
 
 
-/* ♥ owt_statusbar.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
+/* ♥ owt_statusbar.c ~ arquivo fofinho do OvsbMk! kyun~ <3 */

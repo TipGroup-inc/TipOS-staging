@@ -1,4 +1,4 @@
-# TipOS - Dependências
+# OvsbOS - Dependências
 # Para instalação automática, use: ./install-deps.sh
 
 # Build essencial

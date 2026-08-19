@@ -3,7 +3,7 @@
 /* ♥ gui/vesa ~ pixel by pixel, sem pressa, kyun~
  * arquivo: vesa.c ~ funcoes anotadas: 12
  */
-/* ♥ vesa.c ~ feito com carinho (e gambiarras) pela equipe TipOS! ♥
+/* ♥ vesa.c ~ feito com carinho (e gambiarras) pela equipe OvsbOS! ♥
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
@@ -13,6 +13,7 @@
  * Se o addr for NULL, a tela vai ficar preta~ que triste~ */
 #include "vesa.h"
 #include "../kernel/memory.h"
+#include "../kernel/serial.h"
 
 static framebuffer_t *g_fb = 0;
 static uint32_t *g_backbuffer = 0;
@@ -135,13 +136,34 @@ static const uint8_t font8x8[95][8] = {
 /* ~~ Inicializando~~ torce pra não dar panic! */
 /* ~ essa demorou pra debugar, respeita ~ */
 int vesa_init(framebuffer_t *fb) {
+    if (!fb || !fb->addr || !fb->width || !fb->height ||
+        fb->bpp != 32 || fb->pitch < fb->width * 4) {
+        serial_puts("[VIDEO] invalid VESA framebuffer\r\n");
+        return -1;
+    }
+
     g_fb = fb;
 
     uint64_t pml4 = pml4_get_current();
     size_t fb_size = fb->pitch * fb->height;
     fb_size = (fb_size + 0x1FFFFF) & ~0x1FFFFF;
 
-    return pml4_map_phys(pml4, fb->addr, fb->addr, fb_size, 1);
+    serial_puts("[VIDEO] VESA ");
+    serial_puthex(fb->width);
+    serial_puts("x");
+    serial_puthex(fb->height);
+    serial_puts(" bpp=");
+    serial_puthex(fb->bpp);
+    serial_puts(" pitch=");
+    serial_puthex(fb->pitch);
+    serial_puts(" LFB=");
+    serial_puthex((uint32_t)fb->addr);
+    serial_puts("\r\n");
+
+    int map_result = pml4_map_phys(pml4, fb->addr, fb->addr, fb_size, 1);
+    serial_puts(map_result == 0 ? "[VIDEO] LFB mapped RW/user\r\n" :
+                                    "[VIDEO] LFB map failed\r\n");
+    return map_result;
 }
 
 /* ♥ Flush turbinado! Usa rep movsb (mais rápido que loop de 32-bit) */
@@ -228,7 +250,7 @@ void vesa_draw_char(int x, int y, char c, uint32_t color) {
     for (int row = 0; row < 8; row++) {
         uint8_t bits = glyph[row];
         for (int col = 0; col < 8; col++) {
-            if (bits & (1 << col)) {
+            if (bits & (0x80 >> col)) {
                 int px = x + col;
                 int py = y + row * 2;
                 vesa_draw_pixel(px, py, color);
@@ -251,7 +273,7 @@ void vesa_draw_cell(int x, int y, char c, uint32_t fg, uint32_t bg) {
         for (int r = 0; r < 8; r++) {
             uint8_t bits = glyph[r];
             for (int cl = 0; cl < 8; cl++)
-                if (bits & (1 << cl)) {
+                if (bits & (0x80 >> cl)) {
                     cell[r*2][cl] = fg;
                     cell[r*2+1][cl] = fg;
                 }
