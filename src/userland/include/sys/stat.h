@@ -5,7 +5,7 @@
  */
 /* ~*~ stat.h ~*~
  * Hihi, olha esse arquivo aqui~ Que lindo, né? >_<
- * Escrito com muito amor (e gambiarras) pela equipe OvsbOS!
+ * Escrito com muito amor (e gambiarras) pela equipe TipOS!
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
@@ -35,4 +35,4 @@ int fstat(int fd, struct stat *buf);
 
 
 
-/* ♥ stat.h ~ arquivo fofinho do OvsbMk! kyun~ <3 */
+/* ♥ stat.h ~ arquivo fofinho do OvsbMkM! kyun~ <3 */

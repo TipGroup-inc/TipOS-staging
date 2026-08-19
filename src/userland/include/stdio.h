@@ -5,7 +5,7 @@
  */
 /* ~*~ stdio.h ~*~
  * Hihi, olha esse arquivo aqui~ Que lindo, né? >_<
- * Escrito com muito amor (e gambiarras) pela equipe OvsbOS!
+ * Escrito com muito amor (e gambiarras) pela equipe TipOS!
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
@@ -13,7 +13,7 @@
 #define STDIO_H
 #include <stdarg.h>
 
-// ~~ stdio.h ~~ Header de E/S padrão da libc do OvsbOS~
+// ~~ stdio.h ~~ Header de E/S padrão da libc do TipOS~
 // Tudo via syscall int 0x80 (simples e direto~)
 
 // File descriptors padrão do UNIX (todo mundo respeita~)

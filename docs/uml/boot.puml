@@ -1,0 +1,43 @@
+@startuml
+' moe moe kyun <3
+' TipOS — sequência de boot
+' GRUB2 → boot64.asm → kmain → init completo → shell_init (roda HELLO e DISP)
+
+title Boot do TipOS — do GRUB ao prompt
+
+skinparam shadowing false
+skinparam defaultFontName "SansSerif"
+skinparam sequenceMessageAlign center
+
+actor "QEMU" as qemu
+participant "GRUB2\n(grub-mkrescue)" as grub
+participant "boot64.asm" as boot
+participant "kernel.c\n(kmain)" as k
+participant "idt.c / pic.c / pit.c" as ipi
+participant "fat32.c\n(fs)" as fs
+participant "shell.c\n(shell_init)" as sh
+participant "elf64.zig" as elf
+participant "disp-wm\n(../disp)" as disp
+
+qemu -> grub : boots TipOS.iso (Multiboot2)
+grub -> boot : carrega kernel.elf\n(multiboot2 /boot/kernel.elf)
+activate boot
+boot -> boot : 32-bit → long mode\nGDT, PML4 identity (1GB)\nrecebe multiboot info
+boot -> k : kmain(magic, mbi)
+deactivate boot
+activate k
+k -> k : framebuffer VESA\n(vesa.c, 1024x768x32)
+k -> ipi : idt_init, pic_remap,\npit_init (100Hz), rtc_init
+k -> fs : fat32_init()
+k -> k : syscalls ativas\n(int 0x80, convenção XNU)
+k -> sh : shell_init()
+activate sh
+sh -> elf : exec HELLO\n(demo musl static PIE)
+elf -> elf : child PML4, 2MB hugepages,\nsetup_linux_user_stack (auxv)
+elf --> sh : "Hello from musl ELF!"
+sh -> disp : exec DISP (compositor)
+disp --> sh : janelas rodando
+sh --> k : prompt MkM> pronto <3
+deactivate sh
+deactivate k
+@enduml

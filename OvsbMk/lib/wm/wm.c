@@ -12,7 +12,6 @@
 
 #include "wm.h"
 #include "../../kernel/memory.h"
-#include "../../kernel/serial.h"
 
 static uint32_t *backbuf;   /* ~~ backbuffer ~ onde tudo acontece ~~ */
 static uint32_t *framebuf;  /* ~~ framebuffer fisico ~ VESA ou virtio ~~ */
@@ -32,14 +31,7 @@ void wm_init(uint32_t *fb, int w, int h, int st) {
     backbuf = (uint32_t *)kmalloc(size);
     if (backbuf) {
         for (int i = 0; i < w * h; i++)
-            backbuf[i] = 0xFF1A1A2E;  /* ~~ roxo escuro ~ cor oficial do OvsbOS ~~ */
-        serial_puts("[WM] kernel double buffer=");
-        serial_puthex((uint32_t)(uintptr_t)backbuf);
-        serial_puts(" size=");
-        serial_puthex((uint32_t)size);
-        serial_puts("\r\n");
-    } else {
-        serial_puts("[WM] kernel double buffer allocation failed\r\n");
+            backbuf[i] = 0xFF1A1A2E;  /* ~~ roxo escuro ~ cor oficial do TipOS ~~ */
     }
 }
 
@@ -53,7 +45,7 @@ int wm_get_scr_w(void) { return scr_w; }
 int wm_get_scr_h(void) { return scr_h; }
 
 /* ~~ wm_flush ~ joga o backbuffer pro framebuffer de verdade ~~
- * Percorre pixel por pixel (sim, é O(n^2), mas pro OvsbOS ta bom)
+ * Percorre pixel por pixel (sim, é O(n^2), mas pro TipOS ta bom)
  * Se for virtio-gpu usa o endereco mapeado, senao vai pro 0xFFFFFFFF80000000
  * que é onde o kernel mapeia o VESA pro userspace */
 extern int g_virtio_active;
@@ -64,7 +56,7 @@ void wm_flush(void) {
     if (g_virtio_active)
         fb_virt = (volatile uint32_t *)(uintptr_t)framebuf;
     else
-        fb_virt = (volatile uint32_t *)(uintptr_t)framebuf;
+        fb_virt = (volatile uint32_t *)0xFFFFFFFF80000000ULL;
     for (int y = 0; y < scr_h; y++)
         for (int x = 0; x < scr_w; x++)
             fb_virt[y * stride + x] = backbuf[y * (uint32_t)scr_w + x];
@@ -72,4 +64,4 @@ void wm_flush(void) {
 
 
 
-/* ♥ wm.c ~ arquivo fofinho do OvsbMk! kyun~ <3 */
+/* ♥ wm.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */

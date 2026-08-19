@@ -3,7 +3,7 @@
 /* ♥ window manager ~ quem manda nas janelinha aqui sou eu!
  * arquivo: wm.h ~ funcoes anotadas: 0
  */
-/* ~*~ wm.h ~ Window Manager pro OvsbOS ~ "Desenhando janelinhas desde 2024!" ~*~
+/* ~*~ wm.h ~ Window Manager pro TipOS ~ "Desenhando janelinhas desde 2024!" ~*~
  * Fiz modulo nv no window manager, n vou entrar em detalhes mas ta em lib ne
  * wm_init() inicializa, wm_get_backbuf/stride/scr_w/scr_h() sao os getter
  * e wm_flush() joga o backbuffer pro VESA (tava tudo desalocado, insuportavel)
@@ -26,4 +26,4 @@ void wm_flush(void);
 
 
 
-/* ♥ wm.h ~ arquivo fofinho do OvsbMk! kyun~ <3 */
+/* ♥ wm.h ~ arquivo fofinho do OvsbMkM! kyun~ <3 */

@@ -5,7 +5,7 @@
  */
 /* ~*~ crt0.c ~*~
  * Hihi, olha esse arquivo aqui~ Que lindo, né? >_<
- * Escrito com muito amor (e gambiarras) pela equipe OvsbOS!
+ * Escrito com muito amor (e gambiarras) pela equipe TipOS!
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
@@ -32,4 +32,4 @@ void _start(void) {
 
 
 
-/* ♥ crt0.c ~ arquivo fofinho do OvsbMk! kyun~ <3 */
+/* ♥ crt0.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */

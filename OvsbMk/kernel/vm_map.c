@@ -409,4 +409,4 @@ int vm_mmap(uint64_t *addr, size_t size, int prot, int flags) {
     return 0;
 }
 
-/* ♥ vm_map.c ~ arquivo fofinho do OvsbMk! kyun~ <3 */
+/* ♥ vm_map.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */

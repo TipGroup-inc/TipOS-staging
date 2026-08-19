@@ -28,4 +28,4 @@ void owt_window_draw(owt_window_t *win);
 
 
 
-/* ♥ owt_window.h ~ arquivo fofinho do OvsbMk! kyun~ <3 */
+/* ♥ owt_window.h ~ arquivo fofinho do OvsbMkM! kyun~ <3 */

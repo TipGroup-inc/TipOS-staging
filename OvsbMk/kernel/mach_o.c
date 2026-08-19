@@ -3,7 +3,7 @@
 /* ♥ kernel stuff ~ aqui é onde o bicho pega de verdade! kyun~
  * arquivo: mach_o.c ~ funcoes anotadas: 4
  */
-/* ♥ mach_o.c ~ feito com carinho (e gambiarras) pela equipe OvsbOS! ♥
+/* ♥ mach_o.c ~ feito com carinho (e gambiarras) pela equipe TipOS! ♥
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 

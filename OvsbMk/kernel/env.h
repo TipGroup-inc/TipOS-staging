@@ -3,7 +3,7 @@
 /* ♥ kernel stuff ~ aqui é onde o bicho pega de verdade! kyun~
  * arquivo: env.h ~ funcoes anotadas: 0
  */
-/* ♥ env.h ~ feito com carinho (e gambiarras) pela equipe OvsbOS! ♥
+/* ♥ env.h ~ feito com carinho (e gambiarras) pela equipe TipOS! ♥
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 

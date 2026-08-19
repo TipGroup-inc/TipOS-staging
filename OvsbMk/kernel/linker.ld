@@ -38,4 +38,4 @@ SECTIONS
 
 /* ♥ STACK ~ pilha do kernel 16KB */
 
-/* ♥ linker.ld ~ arquivo fofinho do OvsbMk! kyun~ <3 */
+/* ♥ linker.ld ~ arquivo fofinho do OvsbMkM! kyun~ <3 */

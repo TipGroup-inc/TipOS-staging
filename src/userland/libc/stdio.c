@@ -14,7 +14,7 @@
 
 /* ~*~ stdio.c ~*~
  * Hihi, olha esse arquivo aqui~ Que lindo, né? >_<
- * Escrito com muito amor (e gambiarras) pela equipe OvsbOS!
+ * Escrito com muito amor (e gambiarras) pela equipe TipOS!
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
@@ -47,7 +47,7 @@ static long _syscall(long num, long a1, long a2, long a3, long a4) {
 
 // ~~ open ~~
 // Syscall open(2): abre arquivo no path com flags.
-// Traduzido pelo kernel: nosso syscall 5 = OvsbOS open~
+// Traduzido pelo kernel: nosso syscall 5 = TipOS open~
 /* ~~ open ~~ */
 /* ~ simples mas essencial, n mexe sem saber oq ta fazendo */
 int open(const char *path, int flags) {

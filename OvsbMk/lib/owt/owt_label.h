@@ -25,4 +25,4 @@ void owt_label_set_text(owt_label_t *lbl, const char *text);
 
 
 
-/* ♥ owt_label.h ~ arquivo fofinho do OvsbMk! kyun~ <3 */
+/* ♥ owt_label.h ~ arquivo fofinho do OvsbMkM! kyun~ <3 */

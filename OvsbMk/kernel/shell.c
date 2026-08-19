@@ -3,7 +3,7 @@
 /* ♥ kernel stuff ~ aqui é onde o bicho pega de verdade! kyun~
  * arquivo: shell.c ~ funcoes anotadas: 17
  */
-/* ♥ shell.c ~ feito com carinho (e gambiarras) pela equipe OvsbOS! ♥
+/* ♥ shell.c ~ feito com carinho (e gambiarras) pela equipe TipOS! ♥
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
@@ -223,7 +223,6 @@ static void cmd_exec(const char *args) {
             if (pcb_table[i].pid == pid) {
                 pml4_destroy(pcb_table[i].pml4);
                 pcb_table[i].pml4 = child_pml4;
-                pcb_table[i].linux_abi = 1;
                 uint64_t *kframe = (uint64_t *)pcb_table[i].kernel_rsp;
                 kframe[18] = setup_linux_user_stack(&pcb_table[i], kframe[18],
                                                      elf_phdr, elf_phent, elf_phnum);
@@ -278,18 +277,6 @@ static void cmd_desktop(void) {
     cmd_exec("DESKTOP.BIN");
 }
 
-static void cmd_exec_if_present(const char *name) {
-    uint32_t size;
-    uint8_t attr;
-    if (fat32_stat(name, &size, &attr, 0, 0) < 0) {
-        console_write("boot: arquivo ausente: ");
-        console_write(name);
-        console_write("\n");
-        return;
-    }
-    cmd_exec(name);
-}
-
 /* ~ essa demorou pra debugar, respeita ~ */
 static void cmd_ls(void) {
     fat32_list_dir();
@@ -315,18 +302,8 @@ static void cmd_reboot(void) {
     for(;;);
 }
 
-static char *trim(char *text) {
-    while (*text == ' ' || *text == '\t' || *text == '\r' || *text == '\n') text++;
-    char *end = text;
-    while (*end) end++;
-    while (end > text && (end[-1] == ' ' || end[-1] == '\t' ||
-                          end[-1] == '\r' || end[-1] == '\n')) end--;
-    *end = 0;
-    return text;
-}
-
 /* ~ essa funcao aqui e a mais importante, presta atencao baka! */
-static void execute_one(const char *cmd) {
+void execute(const char *cmd) {
     while (*cmd == ' ') cmd++;
     if (!*cmd) return;
 
@@ -353,26 +330,6 @@ static void execute_one(const char *cmd) {
     }
 }
 
-void execute(const char *commands) {
-    char statement[MAX_CMD];
-    int length = 0;
-
-    while (*commands) {
-        if (*commands == ';' || *commands == '\n') {
-            statement[length] = 0;
-            char *command = trim(statement);
-            if (*command) execute_one(command);
-            length = 0;
-        } else if (length < MAX_CMD - 1) {
-            statement[length++] = *commands;
-        }
-        commands++;
-    }
-    statement[length] = 0;
-    char *command = trim(statement);
-    if (*command) execute_one(command);
-}
-
 /* ~ kyun~ mais uma funcao pra fazer o kernel n morrer */
 static int strieq(const char *a, const char *b, int n) {
     for (int i = 0; i < n; i++) {
@@ -385,21 +342,17 @@ static int strieq(const char *a, const char *b, int n) {
 /* ~~ Inicializando~~ torce pra não dar panic! */
 /* ~ essa demorou pra debugar, respeita ~ */
 void shell_init(void) {
-    uint16_t code_segment;
-    __asm__ volatile ("mov %%cs, %0" : "=r"(code_segment));
-    serial_puts("[RING] shell CS=");
-    serial_puthex(code_segment);
-    serial_puts(" RPL=");
-    serial_puthex(code_segment & 3);
-    serial_puts(" (Ring 0)\r\n");
     cmd_pos = 0;
-    console_write("OvsbMk Kernel Console\n");
+    console_write("OvsbMkM Kernel Console\n");
     /* First test Linux ELF compatibility */
     fat32_change_dir("/");
-    cmd_exec_if_present("HELLO");
-    /* DISP owns the shared-window lifecycle and launches TERM windowed. */
+    cmd_exec("HELLO");
+    /* Then try the terminal test (8.3 name pq FAT32 ~preguiça~) */
+    fat32_change_dir("/");
+    cmd_exec("TTEST");
+    /* Then start the WM */
     fat32_change_dir("/BIN");
-    cmd_exec_if_present("DISP");
+    cmd_exec("DISP");
     prompt();
 }
 

@@ -233,6 +233,6 @@ void idt_handler(uint64_t *regs) {
     for (;;) __asm__ volatile("cli; hlt");
 }
 
-/* ♥ idt.c ~ arquivo fofinho do OvsbMk! kyun~ <3 */
+/* ♥ idt.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
 
-/* ♥ idt.c ~ arquivo fofinho do OvsbMk! kyun~ <3 */
+/* ♥ idt.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */

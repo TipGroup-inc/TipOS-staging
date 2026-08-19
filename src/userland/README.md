@@ -1,6 +1,6 @@
 /* moe moe kyun <3 */
 /* moe moe kyun <3 */
-# OvsbOS Userland
+# TipOS Userland
 
 Programas userland rodam em **ring 3** via `int $0x80` para syscalls.
 O kernel carrega binários **Mach-O 64-bit** (nativos) ou **ELF64** (musl static PIE)
@@ -145,10 +145,10 @@ FAT32 /BIN/MEUPROG
 
 ## Linux ELF Compatibility
 
-OvsbOS pode executar **musl-linked static PIE ELF64** (Linux x86-64) nativamente:
+TipOS pode executar **musl-linked static PIE ELF64** (Linux x86-64) nativamente:
 
 - **ELF loader** (`elf64.zig`): carrega ELF64 em child PML4, PT_LOAD com 2MB hugepages
-- **Syscall translation** (`syscall_linux.zig`): mapeia Linux→OvsbOS (read=0→3, write=1→4, exit_group=231→212, etc.)
+- **Syscall translation** (`syscall_linux.zig`): mapeia Linux→TipOS (read=0→3, write=1→4, exit_group=231→212, etc.)
 - **Auxiliary vector**: `setup_linux_user_stack()` empurra AT_RANDOM, AT_PAGESZ, AT_SECURE, AT_PHNUM, AT_PHENT, AT_PHDR
 - **TLS**: FS.base MSR save/restore (`switch.asm`), `arch_prctl` via MSR_FS_BASE
 - **Demo**: `HELLO` → "Hello from musl ELF!" (executado automaticamente no boot)
