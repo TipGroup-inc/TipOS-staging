@@ -3,7 +3,7 @@
 /* ♥ gui/vesa ~ pixel by pixel, sem pressa, kyun~
  * arquivo: vesa.h ~ funcoes anotadas: 0
  */
-/* ♥ vesa.h ~ feito com carinho (e gambiarras) pela equipe OvsbOS! ♥
+/* ♥ vesa.h ~ feito com carinho (e gambiarras) pela equipe TipOS! ♥
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 

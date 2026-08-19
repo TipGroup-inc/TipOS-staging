@@ -4,7 +4,7 @@ build/
 *.o
 *.bin
 kernel.elf
-OvsbMk.iso
+OvsbMkM.iso
 .tmp*
 
 disk.img

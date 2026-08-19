@@ -3,7 +3,7 @@
 /* ♥ kernel stuff ~ aqui é onde o bicho pega de verdade! kyun~
  * arquivo: pit.h ~ funcoes anotadas: 0
  */
-/* ♥ pit.h ~ feito com carinho (e gambiarras) pela equipe OvsbOS! ♥
+/* ♥ pit.h ~ feito com carinho (e gambiarras) pela equipe TipOS! ♥
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
@@ -19,9 +19,9 @@ void pit_init(void);
 void sleep_ms(uint64_t ms);
 #endif
 
-/* ♥ pit.h ~ arquivo fofinho do OvsbMk! kyun~ <3 */
+/* ♥ pit.h ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
 
 
 
 
-/* ♥ pit.h ~ arquivo fofinho do OvsbMk! kyun~ <3 */
+/* ♥ pit.h ~ arquivo fofinho do OvsbMkM! kyun~ <3 */

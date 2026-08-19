@@ -1,0 +1,66 @@
+@startuml
+' moe moe kyun <3
+' TipOS — arquitetura geral (componentes)
+' atualizado em 2026-08-12 (pós limpeza: sem rust, sem dock, sem disp no repo)
+
+title TipOS — Visão Geral dos Componentes
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam defaultFontName "SansSerif"
+skinparam monochrome false
+
+package "OvsbMk — Kernel (ring 0)" as kernel #E8F0FE {
+    component "boot64.asm\n(boot, long mode, GDT, paging)" as boot
+    component "kernel.c\n(kmain)" as kmain
+    component "idt.c/asm\n(interrupções)" as idt
+    component "syscall.c\n(30 syscalls, int 0x80)" as syscall
+    component "process.c\n(PCB 64 slots, RR)" as proc
+    component "memory.c\n(bump + buddy + SLAB)" as mem
+    component "vm_map.c\n(mmap_user)" as vm
+    component "shell.c\n(MkM>, exec...)" as shell
+    component "mach_o.c\n(carregador Mach-O)" as macho
+    component "elf64.zig\n(ELF64 musl static PIE)" as elf
+    component "syscall_linux.zig\n(tradução Linux→TipOS)" as trl
+    component "fs/\n(FAT32, ext2, initramfs)" as fs
+    component "drivers/\n(ATA, PCI, USB, Virtio)" as drv
+    component "kernel/drivers/\n(keyboard.zig, mouse.zig)" as drvzig
+    component "lib/\n(gui/vesa, owt, wm)" as lib
+}
+
+package "src/userland — Userland (ring 3)" as ul {
+    component "libc própria\n(stdio, stdlib, string)" as libc
+    component "graphy\n(editor TUI)" as graphy
+}
+
+package "Repos irmãos" as irmaos {
+    component "../disp\n(disp-wm, compositor)" as disp
+    component "../term\n(terminal)" as term
+}
+
+component "QEMU\n(TipOS.iso + disk.img FAT32)" as qemu
+
+qemu --> boot : "GRUB2 (Multiboot2)"
+boot --> kmain
+kmain --> idt
+kmain --> syscall
+kmain --> proc
+kmain --> mem
+kmain --> vm
+kmain --> shell
+kmain --> fs
+kmain --> drv
+kmain --> drvzig
+kmain --> lib
+shell --> macho : "exec .macho"
+shell --> elf : "exec ELF64"
+elf --> trl
+proc --> switch.asm : "contexto + FS.base"
+
+libc --> syscall : "int 0x80 (XNU)"
+graphy --> libc
+disp --> syscall : "syscalls 202/203 (fb)"
+term --> libc
+
+fs --> disk.img : "FAT32"
+@enduml

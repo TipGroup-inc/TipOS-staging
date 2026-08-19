@@ -16,4 +16,4 @@ void usb_update_mouse(void);     /* Atualiza estado do mouse a partir do tablet 
 
 #endif
 
-/* ♥ usb.h ~ arquivo fofinho do OvsbMk! kyun~ <3 */
+/* ♥ usb.h ~ arquivo fofinho do OvsbMkM! kyun~ <3 */

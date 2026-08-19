@@ -3,7 +3,7 @@
 /* ♥ filesystem ~ onde os byte moram organizadinho (ou n) ~
  * arquivo: fat32.c ~ funcoes anotadas: 26
  */
-/* ♥ fat32.c ~ feito com carinho (e gambiarras) pela equipe OvsbOS! ♥
+/* ♥ fat32.c ~ feito com carinho (e gambiarras) pela equipe TipOS! ♥
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
@@ -15,7 +15,7 @@
  * Cada entrada de diretorio tem 32 bytes com nome 8.3~
  * Nomes Longos (LFN) sao ignorados aqui~ preguiça~ kyun!
  *
- * Bugs corrigidos (da versao OvsbOS):
+ * Bugs corrigidos (da versao TipOS):
  * 1. name_to_83() nao respeitava terminador nulo~
  *    Nomes curtos tipo "X" corrompiam o buffer com lixo da pilha~
  * 2. read_chain/write_chain: divisao to_read/512 truncava <512 pra 0~
@@ -45,26 +45,29 @@ static uint32_t fat_start_sector;
 static uint8_t name_to_83(const char *name, uint8_t out[11]) {
     for (int i = 0; i < 11; i++) out[i] = ' ';
     if (name[0] == '.' && (name[1] == '\0' || (name[1] == '.' && name[2] == '\0'))) {
-        out[0] = '.';
-        if (name[1] == '.') out[1] = '.';
+        int i = 0;
+        while (name[i] && i < 11) { out[i] = name[i]; i++; }
         return 0;
     }
-
-    int base_len = 0;
-    while (name[base_len] && name[base_len] != '.' && base_len < 8)
-        base_len++;
-    for (int i = 0; i < base_len; i++) {
-        char c = name[i];
-        if (c >= 'a' && c <= 'z') c -= 0x20;
-        out[i] = c;
+    const char *dot = 0;
+    const char *p = name;
+    while (*p) {
+        if (*p == '.') { dot = p; break; }
+        p++;
     }
-
-    if (name[base_len] == '.') {
-        const char *extension = name + base_len + 1;
-        for (int i = 0; extension[i] && i < 3; i++) {
-            char c = extension[i];
+    int pos = 0;
+    while (name != dot && *name && pos < 8) {
+        char c = *name++;
+        if (c >= 'a' && c <= 'z') c -= 0x20;
+        out[pos++] = c;
+    }
+    if (dot) {
+        dot++;
+        pos = 8;
+        while (*dot && pos < 11) {
+            char c = *dot++;
             if (c >= 'a' && c <= 'z') c -= 0x20;
-            out[8 + i] = c;
+            out[pos++] = c;
         }
     }
     return 0;

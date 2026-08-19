@@ -5,7 +5,7 @@
  */
 /* ~*~ tui.h ~*~
  * Hihi, olha esse arquivo aqui~ Que lindo, né? >_<
- * Escrito com muito amor (e gambiarras) pela equipe OvsbOS!
+ * Escrito com muito amor (e gambiarras) pela equipe TipOS!
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
@@ -82,7 +82,7 @@
 #define TUI_SCROLL   4
 
 /* ── Event types ───────────────────────────────────── */
-// OvsbOS de evento pro poll: KEY = tecla, IDLE = nenhum evento~ zzz
+// Tipos de evento pro poll: KEY = tecla, IDLE = nenhum evento~ zzz
 #define TUI_EV_KEY   1
 #define TUI_EV_IDLE  2
 

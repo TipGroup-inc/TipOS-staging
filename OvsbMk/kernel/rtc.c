@@ -3,7 +3,7 @@
 /* ♥ kernel stuff ~ aqui é onde o bicho pega de verdade! kyun~
  * arquivo: rtc.c ~ funcoes anotadas: 5
  */
-/* ♥ rtc.c ~ feito com carinho (e gambiarras) pela equipe OvsbOS! ♥
+/* ♥ rtc.c ~ feito com carinho (e gambiarras) pela equipe TipOS! ♥
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
@@ -54,4 +54,4 @@ void rtc_read(rtc_time_t *t) {
 
 
 
-/* ♥ rtc.c ~ arquivo fofinho do OvsbMk! kyun~ <3 */
+/* ♥ rtc.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */

@@ -1,10 +1,10 @@
 #!/bin/bash
-# Instalador Universal de Dependências do OvsbOS
+# Instalador Universal de Dependências do TipOS
 
 set -e
 
 echo "════════════════════════════════════════════"
-echo "🔧 Instalador de Dependências do OvsbOS"
+echo "🔧 Instalador de Dependências do TipOS"
 echo "════════════════════════════════════════════"
 
 # Detectar distribuição
@@ -91,4 +91,4 @@ verify
 
 echo ""
 echo "🎉 PRONTO!"
-echo "Agora: cd OvsbOS-staging && make all disk.img userland"
+echo "Agora: cd TipOS-staging && make all disk.img userland"

@@ -1,14 +1,14 @@
 # moe moe kyun <3
-# Makefile raiz do OvsbOS
+# Makefile raiz do TipOS
 # Kernel: delega pro OvsbMk/ (Makefile interno).
 # Userland: compila .c → .macho → mcopy pro disk.img.
 
 # Variáveis de caminho
 KERNEL_DIR := OvsbMk
-ISO        := OvsbOS.iso
+ISO        := TipOS.iso
 
 # Metas que sempre executam
-.PHONY: all kernel iso disk boot-binaries run run-curses run-test clean userland
+.PHONY: all kernel iso disk run run-curses run-test clean userland
 
 # all: kernel + ISO
 all: kernel iso
@@ -28,15 +28,6 @@ disk.img:
 	/sbin/mkfs.fat -F 32 $@ > /dev/null 2>&1
 	mmd -i $@ ::/BIN ::/USR ::/APPS ::/LOCAL 2>/dev/null || true
 
-# Testes ELF freestanding usados pelo boot do kernel.
-boot-binaries: disk.img
-	@gcc -static -nostdlib -ffreestanding -fno-stack-protector -no-pie \
-		-Wl,--build-id=none -e _start OvsbMk/tests/hello.c -o /tmp/HELLO
-	@mcopy -o -i disk.img /tmp/HELLO ::/HELLO
-	@gcc -static -nostdlib -ffreestanding -fno-stack-protector -no-pie \
-		-Wl,--build-id=none -e _start OvsbMk/tests/ttest.c -o /tmp/TTEST
-	@mcopy -o -i disk.img /tmp/TTEST ::/TTEST
-
 # userland: compila apenas o userland local (graphy)
 # Os repos irmãos ../disp e ../term são opcionais
 userland: disk.img
@@ -46,7 +37,7 @@ userland: disk.img
 	@echo "ℹ️ O graphy já está instalado no disk.img"
 
 # run: QEMU com VGA std
-run: all disk.img boot-binaries
+run: all disk.img
 	qemu-system-x86_64 -vga std -boot order=d -cdrom $(ISO) -m 512M -serial stdio \
 		-drive file=disk.img,format=raw,index=0 
 
@@ -56,10 +47,10 @@ run-curses: all disk.img
 		-drive file=disk.img,format=raw,index=0
 
 # run-test: headless
-run-test: all disk.img boot-binaries
+run-test: all disk.img
 	qemu-system-x86_64 -boot order=d -cdrom $(ISO) -m 512M -no-reboot \
 		-drive file=disk.img,format=raw,index=0 \
-			-serial file:/tmp/ovsbos-boot.log -display none
+		-serial file:/tmp/tipos-boot.log -display none
 
 # clean: limpa build
 clean:

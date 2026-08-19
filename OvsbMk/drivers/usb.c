@@ -477,4 +477,4 @@ void usb_poll(void) {
     usb_process_intr();
 }
 
-/* ♥ usb.c ~ arquivo fofinho do OvsbMk! kyun~ <3 */
+/* ♥ usb.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */

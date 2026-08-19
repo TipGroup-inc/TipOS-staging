@@ -3,7 +3,7 @@
 /* ♥ kernel stuff ~ aqui é onde o bicho pega de verdade! kyun~
  * arquivo: serial.c ~ funcoes anotadas: 4
  */
-/* ♥ serial.c ~ feito com carinho (e gambiarras) pela equipe OvsbOS! ♥
+/* ♥ serial.c ~ feito com carinho (e gambiarras) pela equipe TipOS! ♥
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
@@ -48,7 +48,7 @@ void serial_puthex(uint32_t v) {
     }
 }
 
-/* ♥ serial.c ~ arquivo fofinho do OvsbMk! kyun~ <3 */
+/* ♥ serial.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
 
 
 

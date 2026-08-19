@@ -1,84 +1,111 @@
-# OvsbOS
+# TipOS v0.7.4.0
 
-OvsbOS é um projeto pessoal de sistema operacional e ambiente de trabalho,
-com foco em compatibilidade entre Linux, WSL e Windows, desempenho bruto,
-estabilidade e simplicidade de desenvolvimento.
+Sistema operacional x86-64 com kernel OvsbMk, libc própria, compositor gráfico,
+editor TUI e suporte a execução de binários **musl-linked static PIE ELF**
+(Linux x86-64 compat).
 
-## Ecossistema
-
-- **OvsbOS**: sistema operacional e ambiente de trabalho.
-- **Ovsb K**: kernel x86_64, boot, memória, interrupções, drivers e processos.
-- **Ovsb OWT**: front-end e framework leve para aplicações.
-- **Ovsb WM**: biblioteca de janelas integrada ao OWT.
-- **Ovsb SDK**: ferramentas para compilar, testar e instalar aplicações.
-
-## Estrutura atual
-
-```text
-OvsbOs/
-├── OvsbMk/        kernel, drivers, filesystem e boot
-├── src/userland/  libc, TUI e aplicações nativas
-├── docs/          arquitetura, syscalls, ELF e desenvolvimento
-├── iso/           imagem de boot do GRUB
-├── build/         artefatos gerados
-└── tests/         validações e binários de teste
+```
+/
+├── OvsbMk/          ─── KERNEL (ring 0)     ─── C + ASM + Zig
+└── src/userland/    ─── Userland (ring 3)   ─── C freestanding
 ```
 
-O código atual mantém compatibilidade com a organização legada do kernel:
-`OvsbMk/` é o núcleo funcional e `src/userland/` contém programas de Ring 3.
+## Subsystems
 
-## Arquitetura
+### OvsbMk — Kernel
+- Boot por GRUB2 (Multiboot2), long mode 64-bit, PML4 identity mapping
+- 30 syscalls via int 0x80 (convenção XNU), suporte a `syscall` instruction (MSR LSTAR)
+- Ring 3 funcional (TSS, iretq), scheduler round-robin, PCB estático (64 slots)
+- Memória: bump + buddy (4KB frames) + SLAB, mmap_user para userland
+- FAT32 completo (read/write/create/delete), ext2 em progresso, initramfs
+- Drivers: ATA PIO, PS/2 keyboard+mouse, PCI, Virtio GPU, USB (stub)
+- GUI: VESA framebuffer 1024x768x32, OWT widgets (button, label, textbox, etc.), WM multi-janela
+- Shell MkM> com 20+ comandos, history, autocomplete, PATH, aliases, background jobs
 
-- x86_64 em long mode, GRUB2 e Multiboot2.
-- Kernel em Ring 0 com GDT, IDT, PIC, TSS e escalonador.
-- Aplicações em Ring 3 com `CS=0x1B` e `SS=0x23`.
-- Framebuffer VESA/VBE 32 bpp, backbuffer e compositor Ovsb WM.
-- Mouse e teclado PS/2, ATA PIO, FAT32 e memória virtual por processo.
-- Binários nativos Mach-O e compatibilidade ELF64 com tradução de syscalls.
+### src/userland — Userland
+- libc freestanding: stdio (printf, fopen/fread/fwrite), stdlib (malloc), string, ctype, TUI
+- Programas: graphy (editor TUI com syntax highlight C); disp-wm (compositor) e term vivem nos repos irmãos `../disp` e `../term`
+- Build: C → ELF → binary → Mach-O 64-bit, instalado no disco FAT32
 
-Consulte [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) para o desenho dos
-componentes e [docs/ELF.md](docs/ELF.md) para o carregamento de aplicações.
-
-## Como começar
+## Build & Run
 
 ```bash
-make kernel
-make iso
-make run
+# Tudo
+make all                  # kernel.elf → TipOS.iso
+make disk.img             # FAT32 64MB (cria se não existir)
+make userland             # compila + instala userland no disco (precisa de ../disp e ../term clonados)
+make run                  # QEMU (512MB, VGA std, serial stdio)
+
+# Ou passo a passo
+make kernel               # só kernel.elf
+make iso                  # só ISO
+make run-curses           # QEMU modo texto (sem X11)
+make run-test             # headless, log em /tmp/tipos-boot.log
+
+# QEMU manual
+qemu-system-x86_64 -cdrom TipOS.iso -drive file=disk.img,format=raw,index=0 -m 512M
 ```
 
-Outros fluxos:
+## Shell (MkM>)
 
-```bash
-make userland   # compila e instala aplicações no disk.img
-make run-test   # boot headless; log em /tmp/ovsbos-boot.log
-make run-curses # QEMU em modo texto
-```
+| Comando      | Descrição                     |
+|--------------|-------------------------------|
+| `help`       | Lista comandos                |
+| `clear`      | Limpa a tela                  |
+| `echo <txt>` | Imprime texto                 |
+| `info`       | Info do sistema (VESA, heap)  |
+| `hexdump`    | Exibe 64 bytes de um endereço |
+| `exec <file>`| Carrega e executa Mach-O ou ELF64 do FAT32 |
+| `exec HELLO`| Demo ELF: "Hello from musl ELF!" (Linux compat) |
+| `ls`         | Lista diretório FAT32         |
+| `cd <dir>`   | Muda diretório FAT32          |
+| `owt`        | Demo do OWT (widget toolkit)  |
+| `reboot`     | Reinicia o sistema            |
 
-Dependências principais: `gcc`, `make`, `nasm`, `zig`, `grub-mkrescue`,
-`mtools`, `qemu-system-x86_64` e `xorriso`.
+Para rodar o disp-wm: `exec DISP` (ESC para sair).
 
-## Shell
+## Syscalls (int 0x80)
 
-O shell do Ovsb K oferece `help`, `clear`, `echo`, `info`, `hexdump`, `exec`,
-`ls`, `cd`, `owt` e `reboot`. O compositor pode ser iniciado com:
+rax=nº, rdi=a1, rsi=a2, rdx=a3, rcx=a4. Retorno em rax.
 
-```text
-ovsb> exec DISP
-```
+| Nº | Nome         | rdi         | rsi          | rdx       | rcx       |
+|----|--------------|-------------|--------------|-----------|-----------|
+| 1  | exit         | code        | -            | -         | -         |
+| 3  | read         | fd          | buffer       | count     | -         |
+| 4  | write        | fd          | buf          | count     | -         |
+| 5  | open         | path        | flags        | mode      | -         |
+| 6  | close        | fd          | -            | -         | -         |
+| 10 | unlink       | path        | -            | -         | -         |
+| 20 | getpid       | -           | -            | -         | -         |
+| 24 | getuid       | -           | -            | -         | -         |
+| 33 | access       | path        | mode         | -         | -         |
+| 47 | getgid       | -           | -            | -         | -         |
+| 54 | ioctl        | fd          | request      | -         | -         |
+| 73 | munmap       | addr        | length       | -         | -         |
+| 74 | mprotect     | addr        | length       | prot      | -         |
+| 116| gettimeofday | tv          | -            | -         | -         |
+| 134| sigaction    | signum      | act          | oldact    | -         |
+| 136| mkdir        | path        | mode         | -         | -         |
+| 137| rmdir        | path        | -            | -         | -         |
+| 173| sigreturn    | -           | -            | -         | -         |
+| 188| stat         | path        | stat buf     | -         | -         |
+| 189| fstat        | fd          | stat buf     | -         | -         |
+| 197| mmap         | addr        | length       | prot      | flags     |
+| 198| kbhit        | -           | -            | -         | -         |
+| 199| lseek        | fd          | offset       | whence    | -         |
+| 202| disp_get_fb  | addr out    | width out    | height out| pitch out |
+| 203| disp_flush   | backbuffer  | -            | -         | -         |
 
-## Syscalls
+## Linux x86-64 ELF Compatibility
 
-Todas as chamadas nativas usam `int 0x80`, com número em `RAX`, argumentos em
-`RDI`, `RSI`, `RDX`, `RCX` e retorno em `RAX`. A tabela completa está em
-[docs/SYSCALLS.md](docs/SYSCALLS.md).
+TipOS v0.7.4.0 can run **musl-linked static PIE ELF64 binaries** natively:
 
-## Documentação
+- **ELF loader** (`elf64.zig`): loads ELF64 into a child PML4, supports PT_LOAD segments with 2MB hugepages
+- **Syscall translation** (`syscall_linux.zig`): maps Linux syscall numbers (e.g., read=0, write=1, exit_group=231) to TipOS native numbers
+- **Auxiliary vector**: `setup_linux_user_stack()` pushes AT_RANDOM, AT_PAGESZ, AT_SECURE, AT_PHNUM, AT_PHENT, AT_PHDR
+- **TLS**: FS.base MSR save/restore per process (`switch.asm`), `arch_prctl` stub
+- **Demo binary**: `HELLO` prints "Hello from musl ELF!" and exits cleanly
 
-- [Arquitetura](docs/ARCHITECTURE.md)
-- [Syscalls](docs/SYSCALLS.md)
-- [ELF e Mach-O](docs/ELF.md)
-- [Build e execução](docs/BUILD.md)
-
-OvsbOS é um projeto pessoal em desenvolvimento ativo, com objetivo técnico,
-educacional e de construção de um ambiente de trabalho funcional.
+## Licença
+- Kernel OvsbMk (`OvsbMk/`): licença do autor original
+- Userland TipOS (`src/userland/`): MIT

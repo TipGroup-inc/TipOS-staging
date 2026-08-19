@@ -1,0 +1,22 @@
+name: board-auto
+on:
+  issues:
+    types: [opened, closed, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  move-card:
+    runs-on: ubuntu-latest
+    if: github.event.issue.number >= 3
+    env:
+      GH_TOKEN: ${{ secrets.TIPOS_GH_TOKEN }}
+      PROJECT_ID: PVT_kwDOEgrkfs4BgRsC
+      FIELD_ID: PVTSSF_lADOEgrkfs4BgRsCzhaejt4
+      BACKLOG: 3323fc83
+      CONCLUIDO: 472a2e0d
+    steps:
+      - uses: actions/checkout@v4
+      - name: Move card no board
+        run: python3 .github/scripts/board_auto.py "${{ github.event.action }}" "${{ github.event.issue.number }}"

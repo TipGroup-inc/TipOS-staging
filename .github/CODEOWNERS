@@ -1,0 +1,29 @@
+# Donos por área — reviews automáticos por squad
+# Times: @TipGroup-inc/<squad> (ver docs/KANBAN.md)
+
+# Kernel (ring 0) — Core & Memória
+OvsbMk/kernel/            @TipGroup-inc/core-memoria
+OvsbMk/lib/               @TipGroup-inc/core-memoria
+
+# Drivers (ATA, PCI, USB, virtio_gpu, teclado/mouse) — Rede & Drivers
+OvsbMk/drivers/           @TipGroup-inc/rede-drivers
+
+# Sistema de arquivos (FAT32, ext2, initramfs) — FS & Terminal
+OvsbMk/fs/                @TipGroup-inc/fs-terminal
+
+# Userland (ring 3: libc, graphy, TUI) — Userland & Ferramentas
+src/                      @TipGroup-inc/userland-ferramentas
+
+# Docs, board, CI, build, arquivos da raiz — DevOps & QA
+docs/                     @TipGroup-inc/devops-qa
+Discord_docc/             @TipGroup-inc/devops-qa
+.github/                  @TipGroup-inc/devops-qa
+Makefile                  @TipGroup-inc/devops-qa
+cc-host.sh                @TipGroup-inc/devops-qa
+.gitlab-ci.yml            @TipGroup-inc/devops-qa
+AGENTS.md                 @TipGroup-inc/devops-qa
+README.md                 @TipGroup-inc/devops-qa
+CONTRIBUTING.md           @TipGroup-inc/devops-qa
+TODO.md                   @TipGroup-inc/devops-qa
+VERSION                   @TipGroup-inc/devops-qa
+TUTORIAL_APPS.txt         @TipGroup-inc/devops-qa

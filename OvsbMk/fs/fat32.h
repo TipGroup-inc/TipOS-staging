@@ -3,7 +3,7 @@
 /* ♥ filesystem ~ onde os byte moram organizadinho (ou n) ~
  * arquivo: fat32.h ~ funcoes anotadas: 0
  */
-/* ♥ fat32.h ~ feito com carinho (e gambiarras) pela equipe OvsbOS! ♥
+/* ♥ fat32.h ~ feito com carinho (e gambiarras) pela equipe TipOS! ♥
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 

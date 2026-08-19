@@ -1,6 +1,6 @@
 #!/bin/bash
 # moe moe kyun <3
-# cc-host: compilador cross que transforma .c do OvsbOS em Mach-O 64-bit.
+# cc-host: compilador cross que transforma .c do TipOS em Mach-O 64-bit.
 # Extrai o fonte do disk.img via mcopy, compila com toolchain freestanding,
 # empacota com macho_pack.py, e copia de volta pro disco.
 # Uso: ./cc-host.sh <nome_sem_extensao>
@@ -28,7 +28,7 @@ mkdir -p "$BUILD"
 # Extrai fonte do disco
 if ! mcopy -i "$DISK" -o "::/SRC/${SRC_FILE}" "$WORK/${SRC_FILE}" 2>/dev/null; then
     echo "Erro: /SRC/${SRC_FILE} nao encontrado no disk.img"
-    echo "No OvsbOS: 'cc ${SRC_FILE}' salva o fonte em /SRC/"
+    echo "No TipOS: 'cc ${SRC_FILE}' salva o fonte em /SRC/"
     exit 1
 fi
 
@@ -49,4 +49,4 @@ python3 tools/macho_pack.py "$BUILD/${NAME}.bin" "$BUILD/${NAME}.macho"
 mcopy -i "$DISK" -o "$BUILD/${NAME}.macho" "::/BIN/${NAME}.MACHO"
 SIZE=$(wc -c < "$BUILD/${NAME}.macho")
 echo "OK: /BIN/${NAME}.MACHO (${SIZE} bytes)"
-echo "Rode 'exec ${NAME}' no OvsbOS"
+echo "Rode 'exec ${NAME}' no TipOS"

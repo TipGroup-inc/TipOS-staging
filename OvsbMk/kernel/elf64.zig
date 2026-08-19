@@ -1,6 +1,6 @@
 // moe moe kyun <3
 // moe moe kyun <3
-// ELF64 loader for OvsbOS — Linux ELF binary support (GPL v2)
+// ELF64 loader for TipOS — Linux ELF binary support (GPL v2)
 
 // ~~ Elf64_Ehdr ~~
 // Cabeçalho ELF64 — 64 bytes mágicos que identificam e descrevem o binário.

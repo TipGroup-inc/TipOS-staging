@@ -46,4 +46,4 @@ owt_theme_t THEME_LIGHT = {
 
 
 
-/* ♥ owt_theme.c ~ arquivo fofinho do OvsbMk! kyun~ <3 */
+/* ♥ owt_theme.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
