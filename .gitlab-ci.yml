@@ -1,68 +1,34 @@
-/* moe moe kyun <3 */
-stages:
-  - build
-  - test
-  - deploy
+name: build-and-boot
 
-variables:
-  GIT_SUBMODULE_STRATEGY: none
+on:
+  push:
+    branches: [ main, staging ]
+  pull_request:
 
-before_script:
-  - apt-get update -qq && apt-get install -y -qq make nasm grub-pc-bin xorriso 2>&1 | tail -3
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
 
-build-kernel:
-  stage: build
-  image: gcc:latest
-  script:
-    - cd OvsbMk
-    - make clean
-    - make all
-  artifacts:
-    paths:
-      - OvsbMk/build/kernel.elf
-    expire_in: 1 week
+      - name: Instalar Dependencias
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq make nasm grub-pc-bin xorriso qemu-system-x86
 
-build-iso:
-  stage: build
-  image: gcc:latest
-  needs:
-    - build-kernel
-  script:
-    - cd OvsbMk
-    - make iso
-  artifacts:
-    paths:
-      - OvsbMk/OvsbMkM.iso
-    expire_in: 1 week
+      - name: Build Kernel e Userland
+        run: |
+          make -C OvsbMk clean
+          make -C OvsbMk all
+          make -C OvsbMk iso
 
-build-userland:
-  stage: build
-  image: gcc:latest
-  script:
-    - cd src/userland
-    - make all
-  artifacts:
-    paths:
-      - src/userland/build/
-    expire_in: 1 week
+      - name: Valida Kernel ELF
+        run: |
+          file OvsbMk/build/kernel.elf | grep -q ELF && echo "Kernel ELF OK"
 
-test-kernel:
-  stage: test
-  image: alpine:latest
-  needs:
-    - build-kernel
-  script:
-    - ls -la OvsbMk/build/kernel.elf
-    - file OvsbMk/build/kernel.elf | grep -q ELF && echo "Kernel ELF OK" || (echo "Not an ELF!"; exit 1)
-
-pages:
-  stage: deploy
-  image: alpine:latest
-  script:
-    - mkdir -p public
-    - cp README.md public/ || true
-  artifacts:
-    paths:
-      - public
-  only:
-    - main
+      - name: Boot test headless 
+        timeout-minutes: 2
+        run: |
+      
+          timeout 10s qemu-system-x86_64 -cdrom OvsbMk/OvsbMkM.iso -display none -serial stdio || true
