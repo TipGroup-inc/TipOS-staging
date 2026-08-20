@@ -24,4 +24,4 @@ int  mouse_has_moved(void);       /* Mouse se mexeu? */
 void mouse_read_delta(int *dx, int *dy, int *buttons);  /* Le delta + botoes de uma vez */
 #endif
 
-/* ♥ mouse.h ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
+/* ♥ mouse.h ~ arquivo fofinho do OvsbMk! kyun~ <3 */

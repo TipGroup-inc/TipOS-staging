@@ -3,7 +3,7 @@
 /* ♥ kernel stuff ~ aqui é onde o bicho pega de verdade! kyun~
  * arquivo: mach_o.h ~ funcoes anotadas: 0
  */
-/* ♥ mach_o.h ~ feito com carinho (e gambiarras) pela equipe TipOS! ♥
+/* ♥ mach_o.h ~ feito com carinho (e gambiarras) pela equipe OvsbOS! ♥
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
@@ -90,4 +90,4 @@ uint64_t clone_identity_tables(void);
 
 
 
-/* ♥ mach_o.h ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
+/* ♥ mach_o.h ~ arquivo fofinho do OvsbMk! kyun~ <3 */

@@ -7,7 +7,7 @@
  * Header unificado que inclui todos os headers do OWT. É so incluir
  * esse e pronto~ tem base, draw, theme, window, label, button, textbox,
  * statusbar, listview, combobox, menu, dialog. Tudo que um dev precisa
- * pra fazer uma GUI ~moe~ no TipOS! Se faltar algum widget, faz voce
+ * pra fazer uma GUI ~moe~ no OvsbOS! Se faltar algum widget, faz voce
  * mesmo~ >_< nyan! <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 

@@ -1,5 +1,5 @@
 # moe moe kyun <3
-# ♥ Makefile OvsbMkM ~ Kernel OvsbMk para TipOS
+# ♥ Makefile OvsbMk ~ Kernel OvsbMk para OvsbOS
 # Compila C, NASM, e Zig pra gerar kernel.elf~
 # Depois empacota em ISO com GRUB~ tudo automático! kyun!
 
@@ -97,8 +97,8 @@ $(BUILD_DIR)/kernel.elf: $(OBJS)
 	$(CC) $(CFLAGS) $(OBJS) -o $@ $(LDFLAGS)
 
 # ♥ iso: gera ISO bootável com GRUB~
-iso: OvsbMkM.iso
-	@echo "OvsbMkM.iso gerada!"
+iso: OvsbK.iso
+	@echo "OvsbK.iso gerada!"
 
 # ♥ Tests: ELF test binaries compilados com musl-gcc
 TESTS_DIR := tests
@@ -135,21 +135,21 @@ disk.img: $(BUILD_TESTS)
 
 # ♥ clean: limpa tudo (build/, isos, bins)
 clean:
-	rm -rf $(BUILD_DIR) *.o kernel.elf OvsbMkM.iso
+	rm -rf $(BUILD_DIR) *.o kernel.elf OvsbK.iso
 	rm -rf iso/boot/kernel.elf
 
 # ♥ run: gera ISO + disco, sobe QEMU com VGA virtio, 512MB RAM, serial, KVM
-run: OvsbMkM.iso disk.img
-	qemu-system-x86_64 -vga virtio -boot d -cdrom OvsbMkM.iso -m 512M -serial stdio -enable-kvm -drive file=disk.img,format=raw,if=ide
+run: OvsbK.iso disk.img
+	qemu-system-x86_64 -vga virtio -boot d -cdrom OvsbK.iso -m 512M -serial stdio -enable-kvm -drive file=disk.img,format=raw,if=ide
 
 # ♥ run-no-kvm: mesma coisa mas sem KVM (WSL2 / sem aceleração)
-run-no-kvm: OvsbMkM.iso disk.img
-	qemu-system-x86_64 -vga virtio -boot d -cdrom OvsbMkM.iso -m 512M -serial stdio -drive file=disk.img,format=raw,if=ide
+run-no-kvm: OvsbK.iso disk.img
+	qemu-system-x86_64 -vga virtio -boot d -cdrom OvsbK.iso -m 512M -serial stdio -drive file=disk.img,format=raw,if=ide
 
 # ♥ Gera ISO com GRUB: copia kernel pra iso/boot e roda grub-mkrescue
-OvsbMkM.iso: $(BUILD_DIR)/kernel.elf
+OvsbK.iso: $(BUILD_DIR)/kernel.elf
 	mkdir -p iso/boot
 	cp $(BUILD_DIR)/kernel.elf iso/boot/
-	grub-mkrescue -o OvsbMkM.iso iso 2>/dev/null || true
+	grub-mkrescue -o OvsbK.iso iso 2>/dev/null || true
 
 .PHONY: all clean run iso

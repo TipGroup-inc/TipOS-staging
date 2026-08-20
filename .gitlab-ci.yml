@@ -32,7 +32,7 @@ build-iso:
     - make iso
   artifacts:
     paths:
-      - OvsbMk/OvsbMkM.iso
+      - OvsbMk/OvsbMk.iso
     expire_in: 1 week
 
 build-userland:

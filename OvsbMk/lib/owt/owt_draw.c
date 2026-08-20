@@ -93,7 +93,7 @@ void owt_draw_char(int x, int y, char c, uint32_t color) {
     for (int r = 0; r < 8; r++) {
         uint8_t bits = g[r];
         for (int cl = 0; cl < 8; cl++) {
-            if (bits & (1 << cl)) {
+            if (bits & (0x80 >> cl)) {
                 owt_draw_pixel(x + cl, y + r * 2, color);
                 owt_draw_pixel(x + cl, y + r * 2 + 1, color);
             }

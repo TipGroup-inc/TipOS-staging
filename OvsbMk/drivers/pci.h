@@ -75,4 +75,4 @@ int pci_find(uint16_t vendor, uint16_t device, uint8_t *bus, uint8_t *dev, uint8
 
 #endif
 
-/* ♥ pci.h ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
+/* ♥ pci.h ~ arquivo fofinho do OvsbMk! kyun~ <3 */

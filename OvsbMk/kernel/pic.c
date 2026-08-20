@@ -3,7 +3,7 @@
 /* ♥ kernel stuff ~ aqui é onde o bicho pega de verdade! kyun~
  * arquivo: pic.c ~ funcoes anotadas: 3
  */
-/* ♥ pic.c ~ feito com carinho (e gambiarras) pela equipe TipOS! ♥
+/* ♥ pic.c ~ feito com carinho (e gambiarras) pela equipe OvsbOS! ♥
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 

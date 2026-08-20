@@ -1,9 +1,9 @@
 #!/bin/bash
-# Setup automático do TipOS
+# Setup automático do OvsbOS
 # Uso: ./setup.sh
 
 echo "════════════════════════════════════════════"
-echo "🚀 SETUP DO TipOS"
+echo "🚀 SETUP DO OvsbOS"
 echo "════════════════════════════════════════════"
 
 # 1. Dependências
@@ -33,7 +33,7 @@ fi
 
 # 3. Correções
 echo "📝 [3/3] Aplicando correções..."
-cd ~/TipOS-staging
+cd ~/OvsbOS-staging
 
 # Caminho do Zig
 sed -i 's|/home/.*/\.local/zig-x86_64-linux-0.16.0/zig|$(HOME)/.local/zig-x86_64-linux-0.16.0/zig|' OvsbMk/Makefile

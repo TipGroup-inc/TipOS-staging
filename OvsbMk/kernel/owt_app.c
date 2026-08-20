@@ -3,7 +3,7 @@
 /* ♥ kernel stuff ~ aqui é onde o bicho pega de verdade! kyun~
  * arquivo: owt_app.c ~ funcoes anotadas: 1
  */
-/* ♥ owt_app.c ~ feito com carinho (e gambiarras) pela equipe TipOS! ♥
+/* ♥ owt_app.c ~ feito com carinho (e gambiarras) pela equipe OvsbOS! ♥
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 

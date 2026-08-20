@@ -41,6 +41,6 @@ void idt_set_irq12(void);
 
 #endif
 
-/* ♥ idt.h ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
+/* ♥ idt.h ~ arquivo fofinho do OvsbMk! kyun~ <3 */
 
 /* ♥ idt.h ~ feito com carinho (e uma raiva controlada) ~ kyun! */

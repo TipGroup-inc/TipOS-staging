@@ -3,7 +3,7 @@
 /* ♥ kernel stuff ~ aqui é onde o bicho pega de verdade! kyun~
  * arquivo: tss.c ~ funcoes anotadas: 2
  */
-/* ♥ tss.c ~ feito com carinho (e gambiarras) pela equipe TipOS! ♥
+/* ♥ tss.c ~ feito com carinho (e gambiarras) pela equipe OvsbOS! ♥
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
@@ -106,9 +106,9 @@ void tss_set_rsp0(uint64_t rsp0) {
 
 /* ♥ TSS ~ Task State Segment! ring 3 precisa de RSP0 pra syscall~ */
 
-/* ♥ tss.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
+/* ♥ tss.c ~ arquivo fofinho do OvsbMk! kyun~ <3 */
 
 
 
 
-/* ♥ tss.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
+/* ♥ tss.c ~ arquivo fofinho do OvsbMk! kyun~ <3 */

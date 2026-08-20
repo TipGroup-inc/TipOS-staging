@@ -90,4 +90,4 @@ void owt_combobox_click(owt_combobox_t *cb, int mouse_y) {
 
 
 
-/* ♥ owt_combobox.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
+/* ♥ owt_combobox.c ~ arquivo fofinho do OvsbMk! kyun~ <3 */

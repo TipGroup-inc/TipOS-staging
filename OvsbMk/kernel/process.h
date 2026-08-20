@@ -3,7 +3,7 @@
 /* ♥ kernel stuff ~ aqui é onde o bicho pega de verdade! kyun~
  * arquivo: process.h ~ funcoes anotadas: 0
  */
-/* ♥ process.h ~ feito com carinho (e gambiarras) pela equipe TipOS! ♥
+/* ♥ process.h ~ feito com carinho (e gambiarras) pela equipe OvsbOS! ♥
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
@@ -33,7 +33,7 @@ struct vmspace;
 
 /* ♥ PCB ~ Tudo que o processo precisa!
  * A switch.asm acessa offsets fixos~ nao mude a ordem!
- * program_break e heap_start sao extras do OvsbMkM~
+ * program_break e heap_start sao extras do OvsbMk~
  * vm_map = mapa de enderecos estilo FreeBSD (vm_map.h) */
 typedef struct pcb {
     int pid;
@@ -55,6 +55,7 @@ typedef struct pcb {
     struct vm_map *vm_map;
     struct vmspace *vmspace;
     uint64_t fs_base;
+    int linux_abi;
 } pcb_t;
 
 extern pcb_t pcb_table[MAX_PROC];
@@ -67,6 +68,7 @@ void process_switch_to(int pid);
 void process_exit_current(int code);
 pcb_t *process_current(void);
 int    process_current_pid(void);
+int    process_current_uses_linux_abi(void);
 
 /* ♥ Novas funcoes do scheduler aprimorado! */
 int  proc_spawn(const char *name, void *entry, void *user_stack_top);

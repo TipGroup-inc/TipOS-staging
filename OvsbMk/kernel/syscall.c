@@ -1528,13 +1528,13 @@ void syscall_handler(uint64_t *regs) {
 
     /* ~~ Linux uname (63) ~ "Quem sou eu?" ~~
      * Preenche struct utsname com identidade do sistema.
-     * sysname=Linux (pra libc não reclamar), release=TipOS~
+     * sysname=Linux (pra libc não reclamar), release=OvsbOS~
      * machine=x86_64 (que é a verdade mesmo~ kyun) */
     case SYS_uname: {
         char *uts = (char *)a1;
         if (!uts) { ret = -1; break; }
         const char *fields[] = {
-            "Linux", "tipos", "6.1-tipos", "TipOS 1.0", "x86_64", "(none)"
+            "Linux", "ovsbos", "6.1-ovsbos", "OvsbOS 1.0", "x86_64", "(none)"
         };
         /* cada campo tem 65 bytes (__UTS_LEN+1) */
         for (int f = 0; f < 6; f++) {
@@ -1967,4 +1967,4 @@ void syscall_handler(uint64_t *regs) {
     regs[0] = ret;
 }
 
-/* ♥ syscall.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
+/* ♥ syscall.c ~ arquivo fofinho do OvsbMk! kyun~ <3 */

@@ -3,7 +3,7 @@
 /* ♥ kernel stuff ~ aqui é onde o bicho pega de verdade! kyun~
  * arquivo: rtc.h ~ funcoes anotadas: 0
  */
-/* ♥ rtc.h ~ feito com carinho (e gambiarras) pela equipe TipOS! ♥
+/* ♥ rtc.h ~ feito com carinho (e gambiarras) pela equipe OvsbOS! ♥
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 

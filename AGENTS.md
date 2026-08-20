@@ -1,4 +1,4 @@
-# TipOS — Contexto para a gentes (haha a gentes entendeuu?)
+# OvsbOS — Contexto para a gentes (haha a gentes entendeuu?)
 
 ## Stack
 - **Kernel**: C + NASM (`gcc`, `nasm`) + Zig (`zig build-obj`)
@@ -29,15 +29,11 @@
 │   └── iso/         grub.cfg + kernel.elf para ISO
 │
 ├── src/
-│   └── userland/    ← ring 3 (libc, progs/graphy) + repos irmãos ../disp, ../term
+│   └── userland/    ← ring 3 (libc, progs/graphy)
 │
-├── docs/            docs técnicos (KERNEL.md, tutorial de apps, histórico)
-├── Discord_docc/    docs do Discord do projeto
+├── docs/            arquitetura, syscalls, ELF e build
 └── AGENTS.md        ← este arquivo
 ```
-
-> **Repos irmãos:** `../disp` (disp-wm, compositor ring 3) e `../term` (terminal) —
-> o Makefile raiz os instala no disco via `TIPOS_SDK=$(CURDIR)`.
 
 ## 3 Subsistemas
 
@@ -45,7 +41,7 @@
 - **Linguagens**: C (~70%) + ASM (~10%) + Zig (~20%)
 - **Boot**: GRUB2 via Multiboot2, setup de long mode 64-bit, PML4 identity mapping
 - **Syscalls**: int 0x80 (30 syscalls, convenção XNU: rax=nº, rdi-rsi-rdx-rcx=args)
-- **Syscall Linux compat**: syscall_linux.zig traduz Linux→TipOS (read=0→3, write=1→4, exit_group=231→212, etc.)
+- **Syscall Linux compat**: syscall_linux.zig traduz Linux→OvsbOS (read=0→3, write=1→4, exit_group=231→212, etc.)
 - **Processos**: Ring 3 com TSS, scheduler RR, PCB estático (64 slots), spawn/exit/waitpid
 - **Memória**: Bump allocator (boot), buddy allocator (frames 4KB), SLAB allocator, mmap_user
 - **FS**: FAT32 completo (read/write/create/delete/mkdir), ext2 parcial (Zig), initramfs
@@ -61,18 +57,16 @@
 
 ## Novo no projeto? Comece por aqui <3
 1. `make kernel && make run` — se o QEMU bootar, o ambiente tá certo
-2. Leia `docs/README.md` (índice) e `docs/KERNEL.md` — a vida do kernel em detalhe
-3. Quer fazer um programa? `docs/tipos-tutorial.md` e `TUTORIAL_APPS.txt`
+2. Leia `docs/README.md`, `docs/ARCHITECTURE.md` e `docs/SYSCALLS.md`
+3. Para binários, leia `docs/ELF.md` e `docs/BUILD.md`
 4. `README.md` — subsistemas, tabela de syscalls e compat Linux ELF
-5. Diagramas UML: `docs/uml/` (PlantUML — arquitetura, boot, syscall, exec, processos)
-6. Repos irmãos: `../disp` (compositor) e `../term` (terminal) — precisam estar clonados
-7. Cuidado com docs históricos: os marcados como "histórico/arquivado" contam o passado, não o presente
+5. Use o log serial para investigar boot, Rings e drivers
 
 ## Como Buildar
 
 ```bash
 make kernel          # só o kernel (OvsbMk/build/kernel.elf)
-make iso             # + ISO bootável (TipOS.iso)
+make iso             # + ISO bootável (OvsbOS.iso)
 make userland        # compila userland + instala no disk.img
 make all             # kernel + ISO
 make run             # QEMU (VGA std, serial no terminal)
@@ -92,7 +86,7 @@ Tabela completa no README.md ou em kernel/syscall.c.
 
 ## Linux ELF Compatibility
 - **ELF64 loader** (`elf64.zig`): loads musl static PIE into child PML4, 2MB hugepages
-- **Syscall translation** (`syscall_linux.zig`): Linux→TipOS number mapping
+- **Syscall translation** (`syscall_linux.zig`): Linux→OvsbOS number mapping
 - **Aux vector** (`process.c`): `setup_linux_user_stack()` pushes AT_RANDOM, AT_PAGESZ, AT_SECURE, AT_PHNUM, AT_PHENT, AT_PHDR
 - **FS.base TLS** (`switch.asm`): save/restore MSR_FS_BASE per process
 - **U/S bit mgmt** (`memory.c`): `clone_identity_tables` strips U/S; spawn paths add U/S explicitly
@@ -103,10 +97,10 @@ Tabela completa no README.md ou em kernel/syscall.c.
 ```bash
 make run             # VGA + serial stdio
 make run-curses      # modo texto no terminal
-make run-test        # headless, log em /tmp/tipos-boot.log
+make run-test        # headless, log em /tmp/ovsbos-boot.log
 ```
 
 ## Comandos GIT ´´´ bom, ao menos isso espero que vcs saibam nee ´´´
 - Commits com `git commit -m "msg"` (sem assinatura GPG)
 - Push: `git push origin master` (token no remote URL)
-- AutorA atual: Haruna Himekawa <whimekasyharuna@yahoo.com> # sendme amail
+- AutorA atual: Haruna Himekawa <whimekasyharuna@yahoo.com> # sendme email(eitcha como ela é inteligentezinha e receptiva haha (@cantão))

@@ -1,6 +1,6 @@
 // moe moe kyun <3
 // moe moe kyun <3
-// Mouse PS/2 driver for TipOS (GPL v2)
+// Mouse PS/2 driver for OvsbOS (GPL v2)
 
 // ~~ Estado do mouse ~~
 // mouse_cycle: fase de montagem do pacote (0, 1, 2)
@@ -10,6 +10,8 @@ var mouse_cycle: u32 = 0;
 var mouse_packet: [3]u8 = undefined;
 var last_reported_x: i32 = 512;
 var last_reported_y: i32 = 384;
+var max_mouse_x: i32 = 1279;
+var max_mouse_y: i32 = 799;
 
 fn inb(port: u16) u8 {
     return asm volatile ("inb %[port], %[ret]"
@@ -90,11 +92,10 @@ export fn mouse_init() void {
 // Processa um byte do mouse. O mouse PS/2 manda pacotes de 3 bytes:
 // byte 0: flags (bit 0 = botão esq, bit 1 = dir, bit 2 = meio,
 //                bit 4 = sinal X, bit 5 = sinal Y)
-// byte 1: delta X (com sinal, estendido se bit 4 de flags = 0)
-// byte 2: delta Y (com sinal, estendido se bit 5 de flags = 0)
+// byte 1: delta X (com sinal, estendido quando bit 4 de flags = 1)
+// byte 2: delta Y (com sinal, estendido quando bit 5 de flags = 1)
 // Monta o pacote ciclo a ciclo (mouse_cycle 0→1→2→0) e atualiza posição~
-// A posição é clampada entre 0..1023 (X) e 0..767 (Y) porque não tenho
-// monitor infinito, infelizmente~
+// A posição é limitada aos pixels válidos do framebuffer.
 export fn mouse_process_byte(d: u8) void {
     switch (mouse_cycle) {
         0 => {
@@ -111,20 +112,31 @@ export fn mouse_process_byte(d: u8) void {
             mouse_packet[2] = d;
             mouse_cycle = 0;
             const flags: u8 = mouse_packet[0];
+            if ((flags & 0xC0) != 0) {
+                mouse_buttons = @as(i32, flags) & 7;
+                return;
+            }
             var dx: i32 = @as(i32, mouse_packet[1]);
             var dy: i32 = @as(i32, mouse_packet[2]);
-            if ((flags & 0x10) == 0) dx |= @as(i32, @bitCast(@as(u32, 0xFFFFFF00)));
-            if ((flags & 0x20) == 0) dy |= @as(i32, @bitCast(@as(u32, 0xFFFFFF00)));
+            if ((flags & 0x10) != 0) dx |= @as(i32, @bitCast(@as(u32, 0xFFFFFF00)));
+            if ((flags & 0x20) != 0) dy |= @as(i32, @bitCast(@as(u32, 0xFFFFFF00)));
             mouse_x += dx;
             mouse_y -= dy;
             if (mouse_x < 0) mouse_x = 0;
             if (mouse_y < 0) mouse_y = 0;
-            if (mouse_x > 1023) mouse_x = 1023;
-            if (mouse_y > 767) mouse_y = 767;
+            if (mouse_x > max_mouse_x) mouse_x = max_mouse_x;
+            if (mouse_y > max_mouse_y) mouse_y = max_mouse_y;
             mouse_buttons = @as(i32, flags) & 7;
         },
         else => mouse_cycle = 0,
     }
+}
+
+export fn mouse_set_bounds(width: i32, height: i32) void {
+    if (width > 0) max_mouse_x = width - 1;
+    if (height > 0) max_mouse_y = height - 1;
+    if (mouse_x > max_mouse_x) mouse_x = max_mouse_x;
+    if (mouse_y > max_mouse_y) mouse_y = max_mouse_y;
 }
 
 // ~~ mouse_handler ~~

@@ -5,7 +5,7 @@
  */
  /*~*~ tui.c ~*~
   * Hihi, olha esse arquivo aqui~ Que lindo, né? >_<
-  * Escrito com muito amor (e gambiarras) pela equipe TipOS!
+  * Escrito com muito amor (e gambiarras) pela equipe OvsbOS!
   * Se quebrar, a culpa é sua~ <3
   *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
@@ -718,4 +718,4 @@ int tui_prompt(tui_t *t, const char *label, char *out, int max) {
 
 
 
-/* ♥ tui.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
+/* ♥ tui.c ~ arquivo fofinho do OvsbMk! kyun~ <3 */

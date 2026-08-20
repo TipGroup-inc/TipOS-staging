@@ -3,7 +3,7 @@
 /* ♥ driver ~ conversando com o hardware, seu chato!
  * arquivo: keyboard.h ~ funcoes anotadas: 0
  */
-/* ♥ keyboard.h ~ feito com carinho (e gambiarras) pela equipe TipOS! ♥
+/* ♥ keyboard.h ~ feito com carinho (e gambiarras) pela equipe OvsbOS! ♥
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 

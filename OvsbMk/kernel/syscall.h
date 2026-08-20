@@ -138,4 +138,4 @@ void syscall_handler(uint64_t *regs);
 
 #endif
 
-/* ♥ syscall.h ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
+/* ♥ syscall.h ~ arquivo fofinho do OvsbMk! kyun~ <3 */

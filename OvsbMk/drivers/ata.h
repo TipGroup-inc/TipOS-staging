@@ -3,7 +3,7 @@
 /* ♥ driver ~ conversando com o hardware, seu chato!
  * arquivo: ata.h ~ funcoes anotadas: 0
  */
-/* ♥ ata.h ~ feito com carinho (e gambiarras) pela equipe TipOS! ♥
+/* ♥ ata.h ~ feito com carinho (e gambiarras) pela equipe OvsbOS! ♥
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 

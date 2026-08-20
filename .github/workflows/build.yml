@@ -34,21 +34,21 @@ jobs:
       - name: Checa kernel.elf, ISO e disco
         run: |
           test -f OvsbMk/build/kernel.elf && echo "kernel.elf OK"
-          test -f TipOS.iso && echo "TipOS.iso OK"
+          test -f OvsbOS.iso && echo "OvsbOS.iso OK"
           test -f disk.img && echo "disk.img OK"
 
-      - name: Boot test headless (log em /tmp/tipos-boot.log)
+      - name: Boot test headless (log em /tmp/ovsbos-boot.log)
         run: |
-          timeout 90s qemu-system-x86_64 -boot order=d -cdrom TipOS.iso \
-            -m 512M -no-reboot -serial file:/tmp/tipos-boot.log -display none || true
-          test -s /tmp/tipos-boot.log && echo "log serial gerado ($(wc -c < /tmp/tipos-boot.log) bytes)"
-          grep -q "OvsbMkM] Iniciando" /tmp/tipos-boot.log && echo "BOOT OK: kernel iniciou <3"
+          timeout 90s qemu-system-x86_64 -boot order=d -cdrom OvsbOS.iso \
+            -m 512M -no-reboot -serial file:/tmp/ovsbos-boot.log -display none || true
+          test -s /tmp/ovsbos-boot.log && echo "log serial gerado ($(wc -c < /tmp/ovsbos-boot.log) bytes)"
+          grep -q "OvsbMk] Iniciando" /tmp/ovsbos-boot.log && echo "BOOT OK: kernel iniciou"
 
-      - name: Upload artefatos (TipOS.iso + disk.img)
+      - name: Upload artefatos (OvsbOS.iso + disk.img)
         uses: actions/upload-artifact@v4
         with:
-          name: TipOS-build
+          name: OvsbOS-build
           path: |
-            TipOS.iso
+            OvsbOS.iso
             disk.img
           if-no-files-found: error

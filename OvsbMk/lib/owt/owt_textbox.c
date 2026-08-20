@@ -76,4 +76,4 @@ void owt_textbox_key(owt_textbox_t *tb, char key) {
 
 
 
-/* ♥ owt_textbox.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
+/* ♥ owt_textbox.c ~ arquivo fofinho do OvsbMk! kyun~ <3 */

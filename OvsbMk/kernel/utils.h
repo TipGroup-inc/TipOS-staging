@@ -3,7 +3,7 @@
 /* ♥ kernel stuff ~ aqui é onde o bicho pega de verdade! kyun~
  * arquivo: utils.h ~ funcoes anotadas: 0
  */
-/* ♥ utils.h ~ feito com carinho (e gambiarras) pela equipe TipOS! ♥
+/* ♥ utils.h ~ feito com carinho (e gambiarras) pela equipe OvsbOS! ♥
  * Se quebrar, a culpa é sua~ <3
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
@@ -21,9 +21,9 @@ char *strncpy(char *d, const char *s, int n);
 void *memset(void *s, int c, int n);
 #endif
 
-/* ♥ utils.h ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
+/* ♥ utils.h ~ arquivo fofinho do OvsbMk! kyun~ <3 */
 
 
 
 
-/* ♥ utils.h ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
+/* ♥ utils.h ~ arquivo fofinho do OvsbMk! kyun~ <3 */
