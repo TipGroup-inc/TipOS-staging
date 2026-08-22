@@ -25,7 +25,11 @@
 extern int g_use_ext2;
 extern int vfs_stat_size(const char *name, uint32_t *size, uint8_t *attr);
 extern int fs_read_file(const char *name, unsigned char *buf, unsigned int count);
+extern int elf64_find_interp(unsigned char *data, unsigned int len, char *out, unsigned int out_max);
+extern void *elf64_load_at(unsigned char *data, unsigned int len, uint64_t pml4, uint64_t force_base);
 #include "../fs/vfs.h"
+static uint64_t dyn_interp_entry = 0;
+static int dyn_is_dynamic = 0;
 #include "serial.h"
 #include "../lib/gui/vesa.h"
 #include "../fs/fat32.h"
@@ -220,7 +224,6 @@ static void cmd_exec(const char *args) {
 
     /* Detect ELF vs Mach-O */
     int is_elf = (fsize >= 4 && buf[0] == 0x7F && buf[1] == 'E' && buf[2] == 'L' && buf[3] == 'F');
-
     if (is_elf) {
         /* ~~ ELF binary: o novo queridinho do pedaço! ~~
          * Clona a PML4, carrega o binario, monta a pilha Linux~
@@ -259,8 +262,46 @@ static void cmd_exec(const char *args) {
         }
 
         void *entry = elf64_load_into_pml4(buf, fsize, child_pml4);
-        kfree(buf);
-        if (!entry) { console_write("exec: ELF invalido\n"); return; }
+        uint64_t main_binary_entry = (uint64_t)entry; /* entry ORIGINAL do binário */
+        uint64_t main_phdr_addr = elf_phdr;           /* phdrs já mapeados na memória */
+
+        /* ~~ ELF DINÂMICO (#71): carrega ld-musl se tiver PT_INTERP~~ */
+        char interp_path[256];
+        int ilen = -1;
+        if (is_elf)
+            ilen = elf64_find_interp(buf, fsize, interp_path, sizeof(interp_path));
+        if (!entry) { kfree(buf); }
+        if (ilen > 0) {
+            serial_puts("[dyn] interp=");
+            serial_puts(interp_path);
+            serial_puts("\r\n");
+            void *ientry = NULL;
+            if (!vfs_read_file(interp_path, NULL, 0)) { /* só pra checar que vfs tá vivo~ */ }
+            {
+                static unsigned char idata[2 * 1024 * 1024];
+                if (vfs_read_file(interp_path, idata, sizeof(idata)) > 0) {
+                    const uint64_t INTERP_BASE = 0x60000000ULL;
+                    ientry = elf64_load_at(idata, sizeof(idata), child_pml4, INTERP_BASE);
+                    if (ientry) {
+                        dyn_interp_entry = 0x60000000ULL; /* BASE de carga (não o entry!)*/
+                        dyn_is_dynamic = 1;
+                        serial_puts("[dyn] ld.so mapeado\r\n");
+                    } else {
+                        console_write("exec: falha ao mapear interpretador\n");
+                    }
+                } else {
+                    console_write("exec: interpretador não lido\n");
+                }
+            }
+        }
+        if (buf) { kfree(buf); }
+        if (!entry && !dyn_is_dynamic) { console_write("exec: ELF invalido\n"); return; }
+        if (dyn_is_dynamic) {
+            /* ~~ entry REAL = o do ld.so (ele pula pro binário depois)~~
+             * mas o proc_spawn precisa de um entry: usa o do ld.so~
+             * O AT_BASE do auxv aponta pro ld.so também~ */
+            entry = (void *)dyn_interp_entry;
+        }
         console_printf("exec: entry=%x\n", (unsigned int)(uint64_t)entry);
 
         /* ~~ Aloca pilha do usuario ~~
@@ -290,11 +331,35 @@ static void cmd_exec(const char *args) {
                 uint64_t *kframe = (uint64_t *)pcb_table[i].kernel_rsp;
                 /* ~~ Ambiente minimo: DISPLAY=:0 pro FVWM achar o
                  * servidor X~ (o musl le da area envp da pilha)~~ */
-                static char *exec_env[] = { "DISPLAY=:0" };
+                static char *exec_env[] = { "DISPLAY=:0", "PATH=/bin", "LD_LIBRARY_PATH=/lib" };
+                uint64_t atbase = dyn_is_dynamic ? dyn_interp_entry : elf_base;
                 kframe[18] = setup_linux_user_stack(&pcb_table[i], kframe[18],
-                                                     elf_phdr, elf_phent, elf_phnum,
-                                                     elf_base, argv, argc,
-                                                     exec_env, 0);
+                                                     main_phdr_addr, elf_phent, elf_phnum,
+                                                     atbase, argv, argc,
+                                                     exec_env, 3);
+                /* ~~ debug: dump dos primeiros qwords da user stack ~~ */
+                if (dyn_is_dynamic) {
+                    uint64_t *usp = (uint64_t *)kframe[18];
+                    serial_puts("[dynstk] argc=");
+                    serial_puthex((uint32_t)usp[0]);
+                    serial_puts(" argv0=");
+                    serial_puthex((uint32_t)(usp[1]));
+                    serial_puts(" atbase_off=");
+                    /* varre TODOS os pares do auxv (do início ao AT_NULL)~~ */
+                    int qi = 1;
+                    while (usp[qi] != 0) qi++; qi++; // argv NULL
+                    while (usp[qi] != 0) qi++; qi++; // envp NULL
+                    /* agora é auxv~ */
+                    while (!(usp[qi] == 0 && usp[qi+1] == 0)) {
+                        if (usp[qi] == 7) serial_puts(" AT_BASE=");
+                        else if (usp[qi] == 3) serial_puts(" AT_PHDR=");
+                        else if (usp[qi] == 5) serial_puts(" AT_PHNUM=");
+                        else { qi += 2; continue; }
+                        serial_puthex((uint32_t)usp[qi+1]);
+                        qi += 2;
+                    }
+                    serial_puts("\r\n");
+                }
                 break;
             }
         }
