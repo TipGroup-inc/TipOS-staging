@@ -46,6 +46,8 @@ int pml4_add_user(uint64_t pml4_pa, uint64_t vaddr);
 int pml4_add_user_4kb(uint64_t pml4_pa, uint64_t vaddr);
 /* ~~ split_2mb_pde ~ Split a 2MB huge PD entry into 512 × 4KB PT entries ~~ */
 int split_2mb_pde(uint64_t pml4_pa, uint64_t vaddr);
+/* ~~ map_user_4kb ~ Map a fresh 4KB page (new frame) into a process space ~~ */
+int map_user_4kb(uint64_t pml4_pa, uint64_t vaddr);
 
 #endif
 
