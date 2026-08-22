@@ -22,6 +22,10 @@
 #include "memory.h"
 #include "mach_o.h"
 #include "process.h"
+extern int g_use_ext2;
+extern int vfs_stat_size(const char *name, uint32_t *size, uint8_t *attr);
+extern int fs_read_file(const char *name, unsigned char *buf, unsigned int count);
+#include "../fs/vfs.h"
 #include "serial.h"
 #include "../lib/gui/vesa.h"
 #include "../fs/fat32.h"
@@ -174,7 +178,27 @@ static void cmd_exec(const char *args) {
     const char *fname = argv[0];
     uint32_t fsize;
     uint8_t attr;
-    if (fat32_stat(fname, &fsize, &attr, 0, 0) < 0) {
+    /* ~~ PATH-like: nome relativo procura em /bin~~ */
+    char fbuf[128];
+    if (fname[0] != '/') {
+        int fi = 0;
+        fbuf[0] = '/'; fbuf[1] = 'b'; fbuf[2] = 'i'; fbuf[3] = 'n'; fbuf[4] = '/';
+        while (fname[fi] && fi < 120) { fbuf[5 + fi] = fname[fi]; fi++; }
+        fbuf[5 + fi] = '\0';
+        fname = fbuf;
+    }
+    char absp[VFS_MAX_PATH]; /* ~~ TEM que viver até o fim da função~~ */
+    {
+        pcb_t *me = process_current();
+        char tmpcwd[VFS_MAX_PATH];
+        const char *fcopy = fname;
+        int ci = 0;
+        while (fcopy[ci] && ci < VFS_MAX_PATH - 1) { tmpcwd[ci] = fcopy[ci]; ci++; }
+        tmpcwd[ci] = '\0';
+        if (vfs_abs_path(me ? me->cwd : "/", tmpcwd, absp, sizeof(absp)) == 0)
+            fname = absp;
+    }
+    if (vfs_stat_size(fname, &fsize, &attr) < 0) {
         console_write("exec: arquivo nao encontrado\n");
         return;
     }
@@ -187,7 +211,7 @@ static void cmd_exec(const char *args) {
         console_write("exec: sem memoria\n");
         return;
     }
-    if (fat32_read_file(fname, buf, fsize) < 0) {
+    if (vfs_read_file(fname, buf, fsize) < 0) {
         console_write("exec: erro de leitura\n");
         kfree(buf);
         return;
@@ -358,7 +382,17 @@ static void cmd_cd(const char *args) {
         fat32_change_dir("..");
         return;
     }
-    fat32_change_dir(args);
+    /* ~~ VFS #70: cwd POR PROCESSO~~ */
+    {
+        pcb_t *me = process_current();
+        char newcwd[VFS_MAX_PATH];
+        if (me && vfs_abs_path(me->cwd, args, newcwd, sizeof(newcwd)) == 0 &&
+            vfs_chdir_isdir(newcwd)) {
+            int ci = 0;
+            while (newcwd[ci] && ci < 254) { me->cwd[ci] = newcwd[ci]; ci++; }
+            me->cwd[ci] = '\0';
+        }
+    }
     char cwd[256];
     fat32_get_cwd_name(cwd, 256);
     console_write(cwd);
@@ -415,7 +449,7 @@ static void execute_one(char *cmd) {
         while (cmd[i] && i < 255) { line[i] = cmd[i]; i++; }
         line[i] = '\0';
         uint32_t fsize; uint8_t attr;
-        if (fat32_stat(line, &fsize, &attr, 0, 0) == 0)
+        if (vfs_stat_size(line, &fsize, &attr) == 0)
             cmd_exec(line);
         else {
             console_write("comando nao encontrado: ");
@@ -455,8 +489,12 @@ static int strieq(const char *a, const char *b, int n) {
 /* ~ essa demorou pra debugar, respeita ~ */
 void shell_init(void) {
     cmd_pos = 0;
-    console_write("OvsbMkM Desktop\n");
-    fat32_change_dir("/BIN");
+    console_write("OvsbMkM Kernel Console\n");
+    /* First test Linux ELF compatibility */
+    cmd_exec("/bin/HELLO");
+    /* Then try the terminal test (threads/sinais) */
+    cmd_exec("/bin/TTEST");
+    /* ~~ cwd fake sob ext2 — os paths de exec são absolutos~~ */
     /* TIPOS-TEST: DISP desligado pra liberar o framebuffer pro Xorg.
      * Reverter antes de mergear: cmd_exec("DISP"); */
     prompt();

@@ -49,10 +49,12 @@ void kmain(uint32_t magic, uint32_t mb_info) {
     usb_init();
     e1000_init();
     ata_init();
-    if (fat32_init() == 0) {
-        console_write("FAT32: disco montado!\n");
-    } else {
-        console_write("FAT32: sem disco ou erro\n");
+    {
+        extern int vfs_mount(void);
+        extern int g_use_ext2;
+        int be = vfs_mount();
+        if (be == 1) console_write("FAT32: disco montado!\n");
+        g_use_ext2 = (be == 0); /* compat com handlers ainda não migrados */
     }
     __asm__ volatile("sti");
     pit_init();
