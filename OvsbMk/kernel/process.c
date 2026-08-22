@@ -407,6 +407,22 @@ void schedule(void) {
     context_switch(&pcb_table[prev], &pcb_table[next_idx]);
 }
 
+/* ~~ setup_linux_user_stack_dyn ~ wrapper pro ELF dinâmico (#71) ~~
+ * AT_BASE aponta pro INTERPRETADOR (ld-musl); musl ld.so usa AT_PHDR
+ * pra achar o Ehdr/e_entry do binário principal (não precisa AT_ENTRY)~ */
+uint64_t setup_linux_user_stack_dyn(pcb_t *pcb, uint64_t user_stack_top,
+                                    uint64_t phdr, uint64_t phent, uint64_t phnum,
+                                    uint64_t elf_base, char **argv, int argc,
+                                    char **envp, int envc,
+                                    uint64_t interp_base, uint64_t main_entry,
+                                    int is_dynamic) {
+    (void)main_entry;
+    uint64_t at_base = is_dynamic ? interp_base : elf_base;
+    return setup_linux_user_stack(pcb, user_stack_top,
+                                  phdr, phent, phnum,
+                                  at_base, argv, argc, envp, envc);
+}
+
 /* ♥ proc_yield ~ "Me da a vez, CPU! >_<" */
 /* ~ essa funcao aqui e a mais importante, presta atencao baka! */
 void proc_yield(void) {

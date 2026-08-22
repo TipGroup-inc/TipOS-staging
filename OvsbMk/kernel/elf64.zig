@@ -47,6 +47,7 @@ const Elf64_Phdr = extern struct {
 // ET_DYN = 3: biblioteca dinâmica (PIE, dá pra carregar também~)
 const PT_LOAD: u32 = 1;
 const PT_DYNAMIC: u32 = 2;
+const PT_INTERP: u32 = 3;
 const EM_X86_64: u16 = 62;
 const ET_EXEC: u16 = 2;
 const ET_DYN: u16 = 3;
@@ -201,6 +202,102 @@ export fn elf64_load(data: [*]const u8, len: u32) ?*anyopaque {
 // Carrega um ELF64 usando uma PML4 específica (tabela de páginas separada).
 // Ideal pra processos — cada um tem seu próprio espaço de endereçamento~
 // Aloca páginas de 2MB (huge pages) via mmap_user e mapeia na PML4.
+// ~~ elf64_find_interp ~ extrai o path do PT_INTERP (ex: /lib/ld-musl-x86_64.so.1) ~~
+// Retorna o tamanho copiado, ou -1 se não houver PT_INTERP (binário estático)~
+export fn elf64_find_interp(data: [*]const u8, len: u32, out: [*]u8, out_max: u32) i32 {
+    if (len < @sizeOf(Elf64_Ehdr)) return -1;
+    if (!is_elf64(data)) return -1;
+    const ehdr = elf_hdr(data);
+    var i: u16 = 0;
+    while (i < ehdr.e_phnum) : (i += 1) {
+        const off = ehdr.e_phoff + i * ehdr.e_phentsize;
+        if (off + @sizeOf(Elf64_Phdr) > len) break;
+        const phdr = elf_phdr(data, off);
+        if (phdr.p_type != PT_INTERP) continue;
+        var j: u32 = 0;
+        while (j < phdr.p_filesz and j < out_max - 1) : (j += 1) {
+            const c = data[phdr.p_offset + j];
+            if (c == 0) break;
+            out[j] = c;
+        }
+        out[j] = 0;
+        return @intCast(j);
+    }
+    return -1;
+}
+
+// ~~ elf64_load_at ~ igual load_into_pml4 mas com base FORÇADA~~
+// (pro interpretador ld-musl carregar longe do binário principal~)
+export fn elf64_load_at(data: [*]const u8, len: u32, pml4: u64, force_base: u64) ?*anyopaque {
+    if (len < @sizeOf(Elf64_Ehdr)) return null;
+    if (!is_elf64(data)) return null;
+
+    const ehdr = elf_hdr(data);
+    if (ehdr.e_machine != EM_X86_64) return null;
+    if (ehdr.e_type != ET_EXEC and ehdr.e_type != ET_DYN) return null;
+
+    const base: u64 = force_base;
+    serial_puts("elf64at: base=");
+    serial_puthex(@as(u32, @truncate(base)));
+    serial_puts("\n");
+
+    var mapped: [32]u64 = [_]u64{0} ** 32;
+    var mapped_count: u32 = 0;
+
+    var i: u16 = 0;
+    while (i < ehdr.e_phnum) : (i += 1) {
+        const phdr_off = ehdr.e_phoff + i * ehdr.e_phentsize;
+        if (phdr_off + @sizeOf(Elf64_Phdr) > len) return null;
+        const phdr = elf_phdr(data, phdr_off);
+        if (phdr.p_type != PT_LOAD) continue;
+
+        const dst_va = base + phdr.p_vaddr;
+        const seg_end = dst_va + phdr.p_memsz;
+        var va = dst_va & ~@as(u64, 0x1FFFFF);
+        const aligned_end = (seg_end + 0x1FFFFF) & ~@as(u64, 0x1FFFFF);
+
+        while (va < aligned_end) : (va += 0x200000) {
+            const tag = va >> 21;
+            var phys: ?[*]u8 = null;
+            var mi: u32 = 0;
+            while (mi < mapped_count) : (mi += 1) {
+                if ((mapped[mi] >> 32) == tag) {
+                    phys = @ptrFromInt(@as(usize, @intCast(mapped[mi] & 0xFFFF_FFFF)));
+                    break;
+                }
+            }
+            var p: [*]u8 = undefined;
+            if (phys) |existing| {
+                p = existing;
+            } else {
+                const raw = mmap_user(null, 0x200000, 3, 0) orelse return null;
+                if (map_2mb_ensure(pml4, va, @intFromPtr(raw)) < 0) return null;
+                p = @ptrCast(raw);
+                var z: u64 = 0;
+                while (z < 0x200000) : (z += 1) p[z] = 0;
+                mapped[mapped_count] = (tag << 32) | (@as(u64, @intFromPtr(raw)) & 0xFFFF_FFFF);
+                mapped_count += 1;
+            }
+
+            const dst_off: u64 = if (dst_va > va) (dst_va - va) else 0;
+            const chunk_off: u64 = if (dst_va > va) 0 else (va - dst_va);
+            if (chunk_off < phdr.p_filesz) {
+                const room = 0x200000 - dst_off;
+                const n = @min(phdr.p_filesz - chunk_off, room);
+                const src = data + phdr.p_offset + chunk_off;
+                var j: u64 = 0;
+                while (j < n) : (j += 1) p[dst_off + j] = src[j];
+            }
+        }
+    }
+
+    const entry = base + ehdr.e_entry;
+    serial_puts("elf64at: entry=");
+    serial_puthex(@as(u32, @truncate(entry)));
+    serial_puts("\n");
+    return @as(*anyopaque, @ptrFromInt(entry));
+}
+
 // Copia os dados do ELF e zera o resto. Retorna o entry point.
 export fn elf64_load_into_pml4(data: [*]const u8, len: u32, pml4: u64) ?*anyopaque {
     if (len < @sizeOf(Elf64_Ehdr)) return null;
