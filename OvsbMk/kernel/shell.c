@@ -42,6 +42,7 @@ static int  cmd_pos = 0;
 extern framebuffer_t g_fb;
 extern void owt_demo(void);
 extern void *elf64_load_into_pml4(const uint8_t *data, uint32_t len, uint64_t pml4);
+extern uint64_t elf64_pie_base(void);
 
 /* ELF64 header structs for Linux ABI */
 typedef struct {
@@ -138,12 +139,41 @@ static void cmd_hexdump(const char *args) {
 /* ~ simples mas essencial, n mexe sem saber oq ta fazendo */
 static void cmd_exec(const char *args) {
     if (!args || !args[0]) {
-        console_write("uso: exec <arquivo>\n");
+        console_write("uso: exec <arquivo> [args...]\n");
         return;
     }
+    /* ~~ Separa o nome do arquivo dos argumentos ~~
+     * argv[0] = binario, argv[1..] = args pro ELF (ex: exec XORG XORG.CONF)~ */
+    char argv_bufs[8][64];
+    char *argv[9];
+    int argc = 0;
+    const char *p = args;
+    while (*p && argc < 8) {
+        while (*p == ' ') p++;
+        if (!*p) break;
+        int len = 0;
+        while (p[len] && p[len] != ' ') len++;
+        int n = len < 63 ? len : 63;
+        for (int i = 0; i < n; i++) argv_bufs[argc][i] = p[i];
+        argv_bufs[argc][n] = '\0';
+        argv[argc] = argv_bufs[argc];
+        argc++;
+        p += len;
+    }
+    argv[argc] = NULL;
+    /* ~~ Background: "exec FOO &" nao trava o shell!~~
+     * O Xorg roda em background enquanto a gente digita fvwm~ */
+    int bg = 0;
+    if (argc > 0 && argv[argc - 1][0] == '&' && argv[argc - 1][1] == '\0') {
+        bg = 1;
+        argc--;
+        argv[argc] = NULL;
+        if (argc == 0) { console_write("uso: exec <arquivo> [args...] &\n"); return; }
+    }
+    const char *fname = argv[0];
     uint32_t fsize;
     uint8_t attr;
-    if (fat32_stat(args, &fsize, &attr, 0, 0) < 0) {
+    if (fat32_stat(fname, &fsize, &attr, 0, 0) < 0) {
         console_write("exec: arquivo nao encontrado\n");
         return;
     }
@@ -156,12 +186,12 @@ static void cmd_exec(const char *args) {
         console_write("exec: sem memoria\n");
         return;
     }
-    if (fat32_read_file(args, buf, fsize) < 0) {
+    if (fat32_read_file(fname, buf, fsize) < 0) {
         console_write("exec: erro de leitura\n");
         kfree(buf);
         return;
     }
-    console_printf("exec: carregando %s (%d bytes)\n", args, (unsigned)fsize);
+    console_printf("exec: carregando %s (%d bytes)\n", fname, (unsigned)fsize);
 
     /* Detect ELF vs Mach-O */
     int is_elf = (fsize >= 4 && buf[0] == 0x7F && buf[1] == 'E' && buf[2] == 'L' && buf[3] == 'F');
@@ -174,17 +204,23 @@ static void cmd_exec(const char *args) {
         if (!child_pml4) { kfree(buf); console_write("exec: pml4 falhou\n"); return; }
 
         Elf64_Ehdr *ehdr = (Elf64_Ehdr *)buf;
+        uint64_t elf_base = (ehdr->e_type == 3) ? elf64_pie_base() : 0; /* ET_DYN = PIE */
         uint64_t elf_phdr = 0, elf_phent = ehdr->e_phentsize, elf_phnum = ehdr->e_phnum;
+        uint64_t elf_bss_end = 0;
         if (elf_phnum) {
             Elf64_Phdr *pp = (Elf64_Phdr *)(buf + ehdr->e_phoff);
             for (uint32_t k = 0; k < elf_phnum; k++) {
                 if (pp->p_type == PT_LOAD) {
                     /* Guarda o primeiro PHDR pra por no auxv~ */
                     if (elf_phdr == 0)
-                        elf_phdr = pp->p_vaddr + (ehdr->e_phoff - pp->p_offset);
+                        elf_phdr = elf_base + pp->p_vaddr + (ehdr->e_phoff - pp->p_offset);
                     uint64_t seg_end = pp->p_vaddr + pp->p_memsz;
-                    uint64_t a_start = pp->p_vaddr & ~(0x1FFFFFULL);
-                    uint64_t a_end = (seg_end + 0x1FFFFF) & ~(0x1FFFFFULL);
+                    uint64_t a_start = (elf_base + pp->p_vaddr) & ~(0x1FFFFFULL);
+                    uint64_t a_end = (elf_base + seg_end + 0x1FFFFF) & ~(0x1FFFFFULL);
+                    /* ~~ Fim do BSS = program_break inicial do processo ~~
+                     * (o musl chama brk(0) pra saber onde o heap começa) */
+                    if (elf_base + seg_end > elf_bss_end)
+                        elf_bss_end = elf_base + seg_end;
                     /* ~~ Libera o U/S pros segmentos do ELF ~~
                      * clone_identity_tables tirou o bit de usuario~
                      * A gente devolve pros paginas que o programa
@@ -194,6 +230,7 @@ static void cmd_exec(const char *args) {
                 }
                 pp = (Elf64_Phdr *)((uint8_t *)pp + elf_phent);
             }
+            elf_bss_end = (elf_bss_end + 0xFFF) & ~0xFFFULL;
         }
 
         void *entry = elf64_load_into_pml4(buf, fsize, child_pml4);
@@ -211,7 +248,7 @@ static void cmd_exec(const char *args) {
              va < stack_addr + EXEC_USER_STACK_SIZE; va += 0x200000)
             pml4_add_user(child_pml4, va);
 
-        int pid = proc_spawn(args, entry, (uint8_t *)ustack + EXEC_USER_STACK_SIZE);
+        int pid = proc_spawn(fname, entry, (uint8_t *)ustack + EXEC_USER_STACK_SIZE);
         if (pid < 0) { console_write("exec: spawn falhou\n"); kfree(ustack); return; }
 
         /* ~~ Troca a PML4 e monta o vetor auxiliar ~~
@@ -223,14 +260,46 @@ static void cmd_exec(const char *args) {
             if (pcb_table[i].pid == pid) {
                 pml4_destroy(pcb_table[i].pml4);
                 pcb_table[i].pml4 = child_pml4;
+                /* ~~ Program break começa no fim do BSS do ELF ~~ */
+                if (elf_bss_end) pcb_table[i].program_break = elf_bss_end;
                 uint64_t *kframe = (uint64_t *)pcb_table[i].kernel_rsp;
+                /* ~~ Ambiente minimo: DISPLAY=:0 pro FVWM achar o
+                 * servidor X~ (o musl le da area envp da pilha)~~ */
+                static char *exec_env[] = { "DISPLAY=:0" };
                 kframe[18] = setup_linux_user_stack(&pcb_table[i], kframe[18],
-                                                     elf_phdr, elf_phent, elf_phnum);
+                                                     elf_phdr, elf_phent, elf_phnum,
+                                                     elf_base, argv, argc,
+                                                     exec_env, 0);
                 break;
             }
         }
 
         console_printf("exec: PID %d rodando\n", pid);
+        if (bg) {
+            /* ~~ Background: o shell volta pro prompt NA HORA!~~
+             * NAO da kfree(ustack) — o processo ta usando ela~
+             * O yield salva o contexto ATUAL do shell no PCB dele~
+             * (sem isso o scheduler restaurava um KRNL_RSP velho,
+             *  de frame de exec antigo, e o shell voltava executando
+             *  lixo no meio da pilha~ rssrsrs) */
+            console_printf("exec: PID %d em background (&)\n", pid);
+            {
+                /* ~~ debug: estado do filho na hora do yield ~~ */
+                for (int q = 0; q < MAX_PROC; q++)
+                    if (pcb_table[q].pid == pid) {
+                        serial_puts("[bg] slot=");
+                        serial_puthex((uint32_t)q);
+                        serial_puts(" state=");
+                        serial_puthex((uint32_t)pcb_table[q].state);
+                        serial_puts(" cur=");
+                        serial_puthex((uint32_t)process_current_pid());
+                        serial_puts("\r\n");
+                        break;
+                    }
+            }
+            proc_yield();
+            return;
+        }
         process_switch_to(pid);
         int code = -1;
         for (int i = 0; i < MAX_PROC; i++)
@@ -324,9 +393,20 @@ void execute(const char *cmd) {
     else if (strieq(cmd, "owt", 3) && cmd_len == 3) { owt_demo(); console_write("OWT ok\n"); }
     else if (strieq(cmd, "reboot", 6) && cmd_len == 6) cmd_reboot();
     else {
-        console_write("comando nao encontrado: ");
-        console_write(cmd);
-        console_write("\n");
+        /* ~~ Fallback: comando desconhecido = tenta executar o arquivo!~~
+         * "fvwm" no PATH (cwd) vira exec fvwm~ estilo shell de verdade~ */
+        char line[256];
+        int i = 0;
+        while (cmd[i] && i < 255) { line[i] = cmd[i]; i++; }
+        line[i] = '\0';
+        uint32_t fsize; uint8_t attr;
+        if (fat32_stat(line, &fsize, &attr, 0, 0) == 0)
+            cmd_exec(line);
+        else {
+            console_write("comando nao encontrado: ");
+            console_write(cmd);
+            console_write("\n");
+        }
     }
 }
 
@@ -352,7 +432,8 @@ void shell_init(void) {
     cmd_exec("TTEST");
     /* Then start the WM */
     fat32_change_dir("/BIN");
-    cmd_exec("DISP");
+    /* TIPOS-TEST: DISP desligado pra liberar o framebuffer pro Xorg.
+     * Reverter antes de mergear: cmd_exec("DISP"); */
     prompt();
 }
 
