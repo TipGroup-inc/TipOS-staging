@@ -50,6 +50,7 @@ struct iovec {
 #define SYS_shell_cmd    209
 #define SYS_spawn        210
 #define SYS_spawn_shared 211
+#define SYS_fork_real    214   /* ~~ fork POSIX de verdade (issue #72) ~~ */
 
 /* ~~ Poll/Select pra st não morrer de tédio ~~ */
 #define SYS_poll         7

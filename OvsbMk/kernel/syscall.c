@@ -46,7 +46,11 @@ extern int  mice_avail(void);
 extern unsigned char mice_read(void);
 
 #define MAX_FDS 16
-static struct {
+/* ~~ fd table POR PROCESSO (fork real #72) ~~
+ * Antes era global: close() do filho fechava fd do pai e o
+ * pipe do Popen virava bagunça~ Agora cada processo tem a sua;
+ * o macro `fds` mantém os usos originais intactos~ kyun~ */
+typedef struct {
     int used;
     int type;          /* 0=arquivo, 1=eventfd, 2=timerfd, 3=pipe, 4=socket,
                           5=/dev/fb0, 6=/dev/ttyN, 7=/dev/input/mice */
@@ -55,8 +59,67 @@ static struct {
     int sock_idx;      /* socket: indice na tabela de sockets */
     char name[256];
     uint32_t pos;
+    int wend;          /* pipe: 1 = ponta de ESCRITA (pro EOF do read) */
     uint64_t counter;  /* eventfd: contador; timerfd: intervalo (ms) */
-} fds[MAX_FDS];
+} fdent_t;
+typedef struct { fdent_t e[MAX_FDS]; } fdtable_t;
+static fdtable_t boot_fds;                 /* kernel/shell antes do lazy alloc */
+static fdtable_t *fdtab = &boot_fds;
+#define fds fdtab->e
+
+/* ~ liga a tabela do processo atual (início de toda syscall)~
+ * Aloca lazily na primeira vez que o processo faz syscall~ */
+void fds_bind_current(void) {
+    pcb_t *me = process_current();
+    if (!me) return;
+    if (!me->fds_tab) {
+        me->fds_tab = kmalloc(sizeof(fdtable_t));
+        if (!me->fds_tab) return;
+        fdent_t *ee = ((fdtable_t *)me->fds_tab)->e;
+        for (int i = 0; i < MAX_FDS; i++) ee[i].used = 0;
+        ee[0].used = ee[1].used = ee[2].used = 1;   /* stdin/out/err~ */
+        serial_puts("[fdtab] novo para pid=");
+        serial_puthex((uint32_t)me->pid);
+        serial_puts(" @");
+        serial_puthex((uint32_t)(uintptr_t)me->fds_tab);
+        serial_puts("\r\n");
+    }
+    static int prev_pid_dbg = -1;
+    if (prev_pid_dbg != me->pid) {
+        prev_pid_dbg = me->pid;
+        serial_puts("[bind] pid=");
+        serial_puthex((uint32_t)me->pid);
+        serial_puts(" tab=");
+        serial_puthex((uint32_t)(uintptr_t)me->fds_tab);
+        serial_puts("\r\n");
+    }
+    fdtab = (fdtable_t *)me->fds_tab;
+}
+
+/* pro fork: duplica a tabela atual e registra no PCB do filho~ */
+void *fds_dup_table(void) {
+    fdtable_t *nt = kmalloc(sizeof(fdtable_t));
+    if (!nt) return 0;
+    unsigned char *d = (unsigned char *)nt;
+    unsigned char *s = (unsigned char *)fdtab;
+    for (int i = 0; i < (int)sizeof(fdtable_t); i++) d[i] = s[i];
+    return nt;
+}
+void fds_set_current(void *t) { if (t) fdtab = (fdtable_t *)t; }
+/* ~~ fecha todos os fds >= 3 da tabela de um processo (no exit)~~
+ * Sem isso o pipe_writers_alive via escritor morto pra sempre~ */
+void fds_close_exec(void *tab) {
+    if (!tab) return;
+    fdtable_t *t = (fdtable_t *)tab;
+    for (int i = 3; i < MAX_FDS; i++) t->e[i].used = 0;
+}
+void fds_set_for_pid(int pid, void *t) {
+    for (int i = 0; i < MAX_PROC; i++)
+        if (pcb_table[i].pid == pid && pcb_table[i].state != PROC_EMPTY) {
+            pcb_table[i].fds_tab = t;
+            return;
+        }
+}
 
 /* ~~ device fds pro Xorg ~~
  * type 5 = /dev/fb0 (framebuffer: ioctls FBIO, mmap)
@@ -128,6 +191,13 @@ void syscall_init(void) {
 
 /* ~ essa demorou pra debugar, respeita ~ */
 void fds_cleanup(void) {
+    static int dbg_once = 0;
+    if (!dbg_once || ((uintptr_t)fdtab < 0xA00000)) {
+        dbg_once = 1;
+        serial_puts("[fdtab] cleanup tab=");
+        serial_puthex((uint32_t)(uintptr_t)fdtab);
+        serial_puts("\r\n");
+    }
     for (int i = 3; i < MAX_FDS; i++) fds[i].used = 0;
 }
 
@@ -170,10 +240,9 @@ static int open_dev(const char *path) {
 /* ~ kyun~ mais uma funcao pra fazer o kernel n morrer */
 static void close_fd(int fd) {
     if (fd >= 3 && fd < MAX_FDS && fds[fd].used) {
-        if (fds[fd].type == 3) {
-            int p = fds[fd].pipe_idx;
-            if (p >= 0 && p < MAX_PIPES) pipes[p].used = 0;
-        }
+        /* ~~ pipe NÃO morre no close de uma ponta só! O EOF do read
+         * usa pipe_writers_alive() que varre as tabelas dos processos~
+         * (matar aqui fez o pai ler -1 com o filho vivo! rssrsrs) ~~ */
         if (fds[fd].type == 4) {
             int s = fds[fd].sock_idx;
             if (s >= 0 && s < MAX_SOCKS) socks[s].used = 0;
@@ -256,6 +325,29 @@ int vfs_stat_size(const char *name, uint32_t *size, uint8_t *attr) {
  * SYS_write e SYS_writev pra nao duplicar a logica~ */
 static int sock_push(int s, const uint8_t *buf, int count);
 static int do_write_fd(int fd, const char *buf, int count) {
+    /* ~~ pipe em qualquer fd — DEPOIS de dup2(pw, 1) o stdout É o
+     * pipe (Popen do Xorg depende disso!), console só se não for~~ */
+    if (fd >= 0 && fd < MAX_FDS && fds[fd].used && fds[fd].type == 3) {
+        int p = fds[fd].pipe_idx;
+        serial_puts("[W] fd="); serial_puthex((uint32_t)fd);
+        serial_puts(" p="); serial_puthex((uint32_t)p);
+        serial_puts(" used="); serial_puthex((uint32_t)(p>=0&&p<MAX_PIPES?pipes[p].used:9));
+        serial_puts("\r\n");
+        if (p < 0 || p >= MAX_PIPES || !pipes[p].used) return -1;
+        if (pipes[p].wpos - pipes[p].rpos >= 4096) {
+            if (fds[fd].flags & O_NONBLOCK) return -11;
+            return -1;
+        }
+        int n = 0;
+        while (n < count && pipes[p].wpos - pipes[p].rpos < 4096) {
+            pipes[p].buf[pipes[p].wpos & 4095] = (uint8_t)buf[n++];
+            pipes[p].wpos++;
+        }
+        serial_puts("[W] n="); serial_puthex((uint32_t)n);
+        serial_puts(" wpos="); serial_puthex((uint32_t)pipes[p].wpos);
+        serial_puts("\r\n");
+        return n;
+    }
     if (fd >= 3 && fd < MAX_FDS && fds[fd].used && fds[fd].type == 1) {
         /* eventfd write: soma u64 no contador */
         if (count >= 8) {
@@ -402,6 +494,22 @@ static int resolve_at_path(int dirfd, const char *path, char *out, int maxlen) {
 }
 
 /* ~~ socket helpers (issue #49) ~~ kyun~ */
+/* ~~ ainda tem escritor vivo pro pipe p? (EOF do read!)~~
+ * Varre as fd tables de TODOS os processos vivos~ */
+static int pipe_writers_alive(int p) {
+    extern pcb_t pcb_table[64];
+    for (int i = 0; i < MAX_PROC; i++) {
+        if (pcb_table[i].state == PROC_EMPTY) continue;
+        fdtable_t *t = (fdtable_t *)pcb_table[i].fds_tab;
+        if (!t) continue;
+        for (int j = 0; j < MAX_FDS; j++)
+            if (t->e[j].used && t->e[j].type == 3 &&
+                t->e[j].pipe_idx == p && t->e[j].wend)
+                return 1;
+    }
+    return 0;
+}
+
 static int sock_alloc(void) {
     for (int i = 0; i < MAX_SOCKS; i++) if (!socks[i].used) return i;
     return -1;
@@ -494,7 +602,11 @@ void syscall_trace(uint64_t num, uint64_t rip) {
     serial_puts("]\n");
 }
 
+volatile int g_in_syscall = 0;   /* 1 enquanto o handler C de syscall roda */
+
 void syscall_handler(uint64_t *regs) {
+    fds_bind_current();   /* ~~ fd table do processo atual (fork #72) ~~ */
+    g_in_syscall = 1;
     uint64_t num  = regs[0];
     uint64_t a1 = regs[4];
     uint64_t a2 = regs[3];
@@ -550,6 +662,51 @@ void syscall_handler(uint64_t *regs) {
         int fd = (int)a1;
         char *buf = (char *)a2;
         int count = (int)a3;
+        {
+            extern void *fds_debug_tab(void);
+            serial_puts("[rd] fd="); serial_puthex((uint32_t)fd);
+            serial_puts(" used="); serial_puthex((uint32_t)(fd>=0&&fd<MAX_FDS?fds[fd].used:0xDEAD));
+            serial_puts(" type="); serial_puthex((uint32_t)(fd>=0&&fd<MAX_FDS?fds[fd].type:0xDEAD));
+            serial_puts("\r\n");
+        }
+        /* ~~ pipe read em qualquer fd (dup2(rd,0) etc)~~ */
+        if (fd >= 0 && fd < MAX_FDS && fds[fd].used && fds[fd].type == 3) {
+            int p = fds[fd].pipe_idx;
+            if (p < 0 || p >= MAX_PIPES || !pipes[p].used) { ret = -1; break; }
+            if (fds[fd].flags & O_NONBLOCK) {
+                if (pipes[p].rpos == pipes[p].wpos) { ret = (uint64_t)-11; break; }
+            } else {
+                /* ~~ blocking cooperativo: cede a CPU até ter dado ou
+                 * todos os escritores fecharem (EOF = 0)~~ */
+                int spins = 0;
+                for (;;) {
+                    if (pipes[p].rpos != pipes[p].wpos) break;
+                    if (!pipe_writers_alive(p)) break;
+                    schedule();
+                    spins++;
+                    if (spins == 1 || spins == 1000000) {
+                        serial_puts("[rdloop] spin="); serial_puthex((uint32_t)spins);
+                        serial_puts(" rpos="); serial_puthex((uint32_t)pipes[p].rpos);
+                        serial_puts(" wpos="); serial_puthex((uint32_t)pipes[p].wpos);
+                        serial_puts(" alive=");
+                        serial_puthex((uint32_t)pipe_writers_alive(p));
+                        serial_puts("\r\n");
+                        spins = (spins == 1) ? 2 : spins;
+                    }
+                }
+                serial_puts("[rdfim] rpos="); serial_puthex((uint32_t)pipes[p].rpos);
+                serial_puts(" wpos="); serial_puthex((uint32_t)pipes[p].wpos);
+                serial_puts("\r\n");
+            }
+            int n = 0;
+            while (n < count && pipes[p].rpos != pipes[p].wpos) {
+                buf[n++] = (char)pipes[p].buf[pipes[p].rpos & 4095];
+                pipes[p].rpos++;
+            }
+            serial_puts("[rdret] n="); serial_puthex((uint32_t)n); serial_puts("\r\n");
+            ret = n;
+            break;
+        }
         if (fd == 0 && buf && count > 0) {
             /* ~~ O_NONBLOCK no stdin ~ weston configura nonblock e
              * espera EAGAIN em vez de travar a thread~ */
@@ -1577,66 +1734,177 @@ void syscall_handler(uint64_t *regs) {
      * dirname na mao pq nao tinha libc no kernel). Le o arquivo, passa
      * pro mach_o_load, e configura o iretq stack frame pro entry point.
      * É tipo um fork+exec mas sem o fork~ economia de recursos! >_< */
+    /* ~~ FORK REAL (issue #72): pai recebe PID, filho recebe RAX=0 ~~ */
+    case SYS_fork_real: {
+        int cpid = proc_fork(regs);
+        if (cpid < 0) { ret = (uint64_t)-1; break; }
+        ret = (uint64_t)cpid;
+        break;
+    }
+
     case SYS_execve: {
-        const char *path = (const char *)a1;
-        if (!path || !path[0]) { ret = -1; break; }
-        uint32_t saved_cwd = fat32_get_cwd();
-        const char *fname = path;
-        char dirbuf[256];
-        int last_slash = -1;
-        for (int i = 0; path[i]; i++)
-            if (path[i] == '/') last_slash = i;
-        if (last_slash >= 0) {
-            int dirlen = last_slash;
-            if (dirlen > 255) dirlen = 255;
-            for (int i = 0; i < dirlen; i++) dirbuf[i] = path[i];
-            dirbuf[dirlen] = '\0';
-            fname = path + last_slash + 1;
-            if (dirbuf[0] && fat32_change_dir(dirbuf) < 0) {
-                fat32_set_cwd(saved_cwd); ret = -1; break;
+        /* ~~ EXECVE REAL (issue #72) ~ substitui a imagem do processo~~
+         * O Popen do Xorg: fork → dup2 → execl("/bin/sh","sh","-c",cmd)~
+         * Carregamos o ELF novo num PML4 fresco, montamos pilha Linux,
+         * trocamos CR3 e REESCREVEMOS o kframe — o iretq da syscall já
+         * pula pro código novo~ (sucesso = nunca retorna!)~ */
+        #define EXECVE_STACK_SIZE 65536
+        const char *upath = (const char *)a1;
+        char **uargv = (char **)a2;
+        char **uenvp = (char **)a3;
+        if (!upath || !upath[0]) { ret = -1; break; }
+
+        /* 1. copia path/argv/envp do user ANTES de destruir o espaço~ */
+        static char kpath[512];
+        {
+            int i = 0;
+            while (upath[i] && i < 511) { kpath[i] = upath[i]; i++; }
+            kpath[i] = '\0';
+        }
+        static char kargs[16][256];
+        static char *kargv[17];
+        int kargc = 0;
+        if (uargv) {
+            while (kargc < 16 && uargv[kargc]) {
+                const char *s = uargv[kargc];
+                int j = 0;
+                while (s[j] && j < 255) { kargs[kargc][j] = s[j]; j++; }
+                kargs[kargc][j] = '\0';
+                kargv[kargc] = kargs[kargc];
+                kargc++;
             }
         }
-        uint32_t fsize; uint8_t attr;
-        if (fat32_stat(fname, &fsize, &attr, 0, 0) < 0) {
-            fat32_set_cwd(saved_cwd); ret = -1; break;
+        kargv[kargc] = 0;
+        static char kenvs[32][256];
+        static char *kenvp[33];
+        int kenvc = 0;
+        if (uenvp) {
+            while (kenvc < 32 && uenvp[kenvc]) {
+                const char *s = uenvp[kenvc];
+                int j = 0;
+                while (s[j] && j < 255) { kenvs[kenvc][j] = s[j]; j++; }
+                kenvs[kenvc][j] = '\0';
+                kenvp[kenvc] = kenvs[kenvc];
+                kenvc++;
+            }
         }
-        uint8_t *buf = kmalloc(fsize + 1);
-        if (!buf) { fat32_set_cwd(saved_cwd); ret = -1; break; }
-        if (fat32_read_file(fname, buf, fsize) < 0) {
-            kfree(buf); fat32_set_cwd(saved_cwd); ret = -1; break;
-        }
-        fat32_set_cwd(saved_cwd);
-        void *entry = mach_o_load(buf, fsize);
-        kfree(buf);
-        if (!entry) { ret = -1; break; }
-        void *new_stack = kmalloc(65536);
-        if (!new_stack) { ret = -1; break; }
-        /* Split 2MB huge pages into 4KB pages and add U/S bit.
-         * Huge pages were causing spurious P=0 page faults on KVM. */
-        uint64_t cur_pml4 = pml4_get_current();
-        serial_puts("exec: splitting PD\r\n");
-        int r0 = split_2mb_pde(cur_pml4, 0xA00000);
-        serial_puts("exec: split A00000="); serial_puthex((uint32_t)r0); serial_puts("\r\n");
-        /* Read back PD[5] after split */
+        kenvp[kenvc] = 0;
+
+        /* 2. resolve com cwd do processo + PATH-like /bin~ */
+        pcb_t *me = process_current();
         {
-            uint64_t *pml4v = (uint64_t *)(uintptr_t)cur_pml4;
-            uint64_t *pdptv = (uint64_t *)(uintptr_t)(pml4v[0] & ~0xFFFULL);
-            uint64_t *pdv = (uint64_t *)(uintptr_t)(pdptv[0] & ~0xFFFULL);
-            serial_puts("exec: PD[5] after split=");
-            serial_puthex((uint32_t)pdv[5]);
-            serial_puts("\r\n");
+            char absp[VFS_MAX_PATH];
+            char tmp[VFS_MAX_PATH];
+            int i = 0;
+            while (kpath[i] && i < VFS_MAX_PATH - 1) { tmp[i] = kpath[i]; i++; }
+            tmp[i] = '\0';
+            if (vfs_abs_path(me ? me->cwd : "/", tmp, absp, sizeof(absp)) == 0) {
+                int j = 0;
+                while (absp[j] && j < 511) { kpath[j] = absp[j]; j++; }
+                kpath[j] = '\0';
+            }
         }
-        pml4_add_user_4kb(cur_pml4, 0x500000);
-        pml4_add_user_4kb(cur_pml4, 0xA00000);
-        pml4_add_user_4kb(cur_pml4, 0x6000000);
-        pml4_add_user_4kb(cur_pml4, 0xE00000);
+        if (kpath[0] != '/') {
+            char fb[128];
+            fb[0]='/'; fb[1]='b'; fb[2]='i'; fb[3]='n'; fb[4]='/';
+            int fi = 0;
+            while (kpath[fi] && fi < 120) { fb[5+fi] = kpath[fi]; fi++; }
+            fb[5+fi] = '\0';
+            int j = 0;
+            while (fb[j]) { kpath[j] = fb[j]; j++; }
+            kpath[j] = '\0';
+        }
+
+        /* 3. lê via VFS e valida ELF~ */
+        uint32_t fsize2; uint8_t attr2;
+        if (vfs_stat_size(kpath, &fsize2, &attr2) < 0 || fsize2 < 64) {
+            serial_puts("[execve] stat falhou: "); serial_puts(kpath); serial_puts("\r\n");
+            ret = -1; break;
+        }
+        uint8_t *buf = kmalloc(fsize2 + 1);
+        if (!buf) { ret = -1; break; }
+        if (vfs_read_file(kpath, buf, fsize2) < 0 ||
+            !(buf[0]==0x7F && buf[1]=='E' && buf[2]=='L' && buf[3]=='F')) {
+            serial_puts("[execve] ELF invalido: "); serial_puts(kpath); serial_puts("\r\n");
+            kfree(buf); ret = -1; break;
+        }
+
+        /* 4. PML4 novo + U/S nos segmentos (receita do cmd_exec)~ */
+        uint64_t child_pml4 = clone_identity_tables();
+        if (!child_pml4) { kfree(buf); ret = -1; break; }
+        Elf64_Ehdr *ehdr = (Elf64_Ehdr *)buf;
+        uint64_t elf_base = (ehdr->e_type == 3) ? elf64_pie_base() : 0;
+        uint64_t elf_phdr = 0, elf_bss_end = 0;
+        {
+            Elf64_Phdr *pp = (Elf64_Phdr *)(buf + ehdr->e_phoff);
+            for (uint32_t k = 0; k < ehdr->e_phnum; k++) {
+                if (pp->p_type == PT_LOAD) {
+                    if (elf_phdr == 0)
+                        elf_phdr = elf_base + pp->p_vaddr + (ehdr->e_phoff - pp->p_offset);
+                    uint64_t seg_end = pp->p_vaddr + pp->p_memsz;
+                    uint64_t a_start = (elf_base + pp->p_vaddr) & ~(0x1FFFFFULL);
+                    uint64_t a_end = (elf_base + seg_end + 0x1FFFFF) & ~(0x1FFFFFULL);
+                    if (elf_base + seg_end > elf_bss_end) elf_bss_end = elf_base + seg_end;
+                    for (uint64_t va = a_start; va < a_end; va += 0x200000)
+                        pml4_add_user(child_pml4, va);
+                }
+                pp = (Elf64_Phdr *)((uint8_t *)pp + ehdr->e_phentsize);
+            }
+            elf_bss_end = (elf_bss_end + 0xFFF) & ~0xFFFULL;
+        }
+
+        void *entry = elf64_load_into_pml4(buf, fsize2, child_pml4);
+
+        /* dinâmico (#71): por ora só static-pie aqui (xkbcomp/sh são!)~ */
+        {
+            char ipath[256];
+            int ilen = elf64_find_interp(buf, fsize2, ipath, sizeof(ipath));
+            if (!entry || ilen > 0) {
+                kfree(buf);
+                pml4_destroy(child_pml4);
+                serial_puts("[execve] dinamico nao suportado ainda\r\n");
+                ret = -1; break;
+            }
+        }
+        kfree(buf);
+
+        /* 5. stack novo mapeado U/S no pml4 NOVO~ */
+        void *ustack = kmalloc(EXECVE_STACK_SIZE);
+        if (!ustack) { pml4_destroy(child_pml4); ret = -1; break; }
+        for (uint64_t va = ((uint64_t)ustack) & ~0x1FFFFFULL;
+             va < (uint64_t)ustack + EXECVE_STACK_SIZE; va += 0x200000)
+            pml4_add_user(child_pml4, va);
+
+        /* 6. PCB: pml4/break novos, fds >= 3 fecham (POSIX execve)~ */
+        uint64_t old_pml4 = 0;
+        if (me) {
+            old_pml4 = me->pml4;
+            me->pml4 = child_pml4;
+            if (elf_bss_end) me->program_break = elf_bss_end;
+            me->fs_base = 0;
+        }
+        for (int fd = 3; fd < MAX_FDS; fd++) fds[fd].used = 0;
+
+        /* 7. CR3 JÁ — kernel stack é identity em todo PML4~ */
+        __asm__ volatile("mov %0, %%cr3" :: "r"(child_pml4) : "memory");
+
+        /* 8. pilha Linux nova (via CR3 novo!)~ */
+        uint64_t newtop = (uint64_t)ustack + EXECVE_STACK_SIZE;
+        uint64_t newrsp = setup_linux_user_stack(me ? me : 0, newtop,
+                                                  elf_phdr, ehdr->e_phentsize,
+                                                  ehdr->e_phnum, elf_base,
+                                                  kargv, kargc, kenvp, kenvc);
+        if (old_pml4) pml4_destroy(old_pml4);
+
+        /* 9. reescreve o kframe: iretq pula pro ELF novo!~ */
         for (int i = 1; i < 15; i++) regs[i] = 0;
-        uint64_t *iretq = (uint64_t *)(regs + 15);
-        iretq[0] = (uint64_t)entry;
-        iretq[1] = 0x1B;
-        iretq[2] = 0x202;
-        iretq[3] = (uint64_t)new_stack + 65536;
-        iretq[4] = 0x23;
+        regs[14] = 0;
+        regs[15] = (uint64_t)entry;
+        regs[16] = 0x1B;
+        regs[17] = 0x202;
+        regs[18] = newrsp;
+        regs[19] = 0x23;
+        serial_puts("[execve] ok: "); serial_puts(kpath); serial_puts("\r\n");
         ret = 0;
         break;
     }
@@ -2340,14 +2608,24 @@ void syscall_handler(uint64_t *regs) {
         int pi = -1;
         for (int i = 0; i < MAX_PIPES; i++) if (!pipes[i].used) { pi = i; break; }
         if (pi < 0) { ret = -1; break; }
+        /* ~~ marca used ANTES do próximo alloc_fd — senão os dois
+         * recebem o MESMO fd (rfd=wfd=3 e o pipe vira monoculo!)~~ */
         int rfd = alloc_fd();
+        if (rfd < 0) { ret = -1; break; }
+        fds[rfd].used = 1;
         int wfd = alloc_fd();
-        if (rfd < 0 || wfd < 0) { ret = -1; break; }
+        if (wfd < 0) { fds[rfd].used = 0; ret = -1; break; }
+        fds[wfd].used = 1;
         pipes[pi].used = 1;
         pipes[pi].rpos = pipes[pi].wpos = 0;
         for (int i = 0; i < 4096; i++) pipes[pi].buf[i] = 0;
-        fds[rfd].used = 1; fds[rfd].type = 3; fds[rfd].pipe_idx = pi; fds[rfd].flags = 0;
-        fds[wfd].used = 1; fds[wfd].type = 3; fds[wfd].pipe_idx = pi; fds[wfd].flags = 0;
+        fds[rfd].type = 3; fds[rfd].pipe_idx = pi; fds[rfd].flags = 0; fds[rfd].wend = 0;
+        fds[wfd].type = 3; fds[wfd].pipe_idx = pi; fds[wfd].flags = 0; fds[wfd].wend = 1;
+        serial_puts("[pipe] tab=");
+        serial_puthex((uint32_t)(uintptr_t)fdtab);
+        serial_puts(" rfd="); serial_puthex((uint32_t)rfd);
+        serial_puts(" wfd="); serial_puthex((uint32_t)wfd);
+        serial_puts("\r\n");
         out[0] = rfd;
         out[1] = wfd;
         ret = 0;
@@ -2364,13 +2642,16 @@ void syscall_handler(uint64_t *regs) {
         for (int i = 0; i < MAX_PIPES; i++) if (!pipes[i].used) { pi = i; break; }
         if (pi < 0) { ret = -1; break; }
         int rfd = alloc_fd();
+        if (rfd < 0) { ret = -1; break; }
+        fds[rfd].used = 1;
         int wfd = alloc_fd();
-        if (rfd < 0 || wfd < 0) { ret = -1; break; }
+        if (wfd < 0) { fds[rfd].used = 0; ret = -1; break; }
+        fds[wfd].used = 1;
         pipes[pi].used = 1;
         pipes[pi].rpos = pipes[pi].wpos = 0;
         for (int i = 0; i < 4096; i++) pipes[pi].buf[i] = 0;
-        fds[rfd].used = 1; fds[rfd].type = 3; fds[rfd].pipe_idx = pi; fds[rfd].flags = flags;
-        fds[wfd].used = 1; fds[wfd].type = 3; fds[wfd].pipe_idx = pi; fds[wfd].flags = flags;
+        fds[rfd].type = 3; fds[rfd].pipe_idx = pi; fds[rfd].flags = flags; fds[rfd].wend = 0;
+        fds[wfd].type = 3; fds[wfd].pipe_idx = pi; fds[wfd].flags = flags; fds[wfd].wend = 1;
         out[0] = rfd;
         out[1] = wfd;
         ret = 0;
@@ -2524,8 +2805,13 @@ void syscall_handler(uint64_t *regs) {
         if (domain != AF_UNIX || !out) { ret = -1; break; }
         int s1 = sock_alloc();
         int s2 = sock_alloc();
+        /* ~~ used ANTES do próximo alloc (mesmo fix do pipe!)~~ */
         int fd1 = alloc_fd();
+        if (fd1 < 0) { ret = -1; break; }
+        fds[fd1].used = 1;
         int fd2 = alloc_fd();
+        if (fd2 < 0) { fds[fd1].used = 0; ret = -1; break; }
+        fds[fd2].used = 1;
         if (s1 < 0 || s2 < 0 || fd1 < 0 || fd2 < 0) { ret = -1; break; }
         socks[s1].used = 1; socks[s1].listening = 0; socks[s1].peer = s2;
         socks[s1].nonblock = 0; socks[s1].npending = 0;
@@ -2574,6 +2860,7 @@ void syscall_handler(uint64_t *regs) {
         break;
     }
 
+    g_in_syscall = 0;
     regs[0] = ret;
 }
 

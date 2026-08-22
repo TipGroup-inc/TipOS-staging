@@ -62,7 +62,110 @@ S_R12    equ 0x70
 S_R13    equ 0x78
 S_R14    equ 0x80
 S_R15    equ 0x88
-FS_BASE  equ 0xA8
+; ~~ FS_BASE = offsetof(pcb_t, fs_base) = 0xB8 ~~
+; (era 0xA8 — defasado desde que vm_map/vmspace entraram no PCB!
+;  O wrmsr tava carregando o PONTEIRO vm_map como TLS do musl~
+;  e o %fs:0 do filho do fork lia lixo → RDX=0 → PF@0x98! kyun~)
+FS_BASE  equ 0xB8
+IN_KERN  equ 0x1C8      ; ~~ pcb->in_kern: bloqueio dentro de syscall~~
+
+global context_switch_kern
+context_switch_kern:
+    ; ♥ context_switch_kern(cur=rdi, next=rsi) ~ troca DENTRO de syscall~
+    ; Chamado do C (schedule) quando o processo ATUAL bloqueou no meio
+    ; do fluxo C (wait4/read pipe). Salva o RSP apontando pro PRÓPRIO
+    ; return address — o `ret` final devolve o controle pro caller
+    ; (schedule) exatamente onde parou! kyun~
+    mov dx, 0x3F8
+    mov al, '<'
+    out dx, al
+    mov al, 'K'
+    out dx, al
+    mov al, '>'
+    out dx, al
+    mov [rdi + KRNL_RSP], rsp
+    mov dword [rdi + IN_KERN], 1
+    mov [rdi + S_RBX], rbx
+    mov [rdi + S_RBP], rbp
+    mov [rdi + S_R12], r12
+    mov [rdi + S_R13], r13
+    mov [rdi + S_R14], r14
+    mov [rdi + S_R15], r15
+
+    ; ~~ restore: depende de COMO o next foi salvo!~~
+    cmp dword [rsi + IN_KERN], 0
+    jne .do_resume_kern
+
+    ; ---- next salvo em MODO USUÁRIO: caminho clássico ----
+    mov dx, 0x3F8
+    mov al, 'N'
+    out dx, al
+    mov rsp, [rsi + KRNL_RSP]
+    mov rax, [rsi + PML4]
+    mov cr3, rax
+    mov rax, [rsi + RSP0]
+    mov [tss + 4], rax
+    mov [current_rsp0], rax
+    mov rbx, [rsi + S_RBX]
+    mov rbp, [rsi + S_RBP]
+    mov r12, [rsi + S_R12]
+    mov r13, [rsi + S_R13]
+    mov r14, [rsi + S_R14]
+    mov r15, [rsi + S_R15]
+    cmp dword [rsi + IS_USER], 0
+    je .kern_ret
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop rbp
+    pop rbx
+    pop r11
+    pop r10
+    pop r9
+    pop r8
+    pop rdi
+    pop rsi
+    pop rdx
+    pop rcx
+    pop rax
+    iretq
+.kern_ret:
+    sti
+    ret
+
+.do_resume_kern:
+.restore_in_kern:
+    mov dx, 0x3F8
+    mov al, '<'
+    out dx, al
+    mov al, 'R'
+    out dx, al
+    mov al, '>'
+    out dx, al
+    ; ~~ restauração de processo em modo kernel (compartilhada!) ~~
+    ; KRNL_RSP aponta pra stack de C válida (return address no topo)
+    mov rsp, [rsi + KRNL_RSP]
+    mov rax, [rsi + PML4]
+    mov cr3, rax
+    mov rax, [rsi + RSP0]
+    mov [tss + 4], rax
+    mov [current_rsp0], rax
+    mov rbx, [rsi + S_RBX]
+    mov rbp, [rsi + S_RBP]
+    mov r12, [rsi + S_R12]
+    mov r13, [rsi + S_R13]
+    mov r14, [rsi + S_R14]
+    mov r15, [rsi + S_R15]
+    mov dword [rsi + IN_KERN], 0
+    mov dx, 0x3F8
+    mov al, '<'
+    out dx, al
+    mov al, 'r'
+    out dx, al
+    mov al, '>'
+    out dx, al
+    ret                              ; continua o C do next!
 
 context_switch:
     ; Save current process state
@@ -70,7 +173,7 @@ context_switch:
     ; The interrupt handler (irq0 or syscall_isr) set RBX = RSP after pushing
     ; the 15 registers — this points directly to the clean 15-reg + 5-iretq
     ; block, WITHOUT the extra return addresses from the C call chain.
-    ; For kernel processes (idle): fall back to current RSP.
+    ; For kernel-mode processes (idle): fall back to current RSP.
     cmp dword [rdi + IS_USER], 0   ; if current->is_user == 0?
     je .save_kernel                ; if kernel mode: save current RSP
     mov [rdi + KRNL_RSP], rbx      ; if user mode: RSP salvado no handler (RBX)
@@ -79,12 +182,6 @@ context_switch:
     mov [rdi + KRNL_RSP], rsp      ; kernel process: salva RSP direto
 .save_regs:
     ; Salva callee-saved registers (RBX, RBP, R12-R15) pro PCB do atual~
-    ; Esses registradores são PRESERVADOS pela ABI C através de chamadas~
-    ; Os registradores voláteis (RAX, RCX, RDX, RSI, RDI, R8-R11) NÃO são
-    ; salvos porque o compilador já salvou/descartou antes de chamar
-    ; context_switch() ~ isso é verdade pra kernel processes~
-    ; Pra user processes, os voláteis estão no frame 15-reg da interrupção
-    ; que é restaurado no fim (pop rax..r15 + iretq)~
     mov [rdi + S_RBX], rbx
     mov [rdi + S_RBP], rbp
     mov [rdi + S_R12], r12
@@ -93,11 +190,6 @@ context_switch:
     mov [rdi + S_R15], r15
 
     ; Save FS.base (MSR 0xC0000100) — pra TLS do usuário~
-    ; Cada processo tem seu proprio TLS (quem mandou o musl ser
-    ;  exigente?) — então a gente salva o MSR antes de trocar~
-    ; Usa rdmsr em vez de rdfsbase pq isso precisaria CR4.FSGSBASE,
-    ; e a gente prefere não depender disso~ rdmsr funciona sempre
-    ; em ring 0~ ☆
     mov ecx, 0xC0000100      ; MSR_FS_BASE — o "endereço" magico~
     rdmsr                     ; edx:eax = fs_base (64 bits em dois 32-bit)
     shl rdx, 32
@@ -105,24 +197,22 @@ context_switch:
     mov [rdi + FS_BASE], rax  ; salva no PCB atual pro futuro~
 
     ; Restore next process state
+    cmp dword [rsi + IN_KERN], 0   ; ~~ próximo bloqueou EM SYSCALL?~~
+    jne context_switch_kern.restore_in_kern   ; volta NO MEIO do fluxo C~
+
     mov rsp, [rsi + KRNL_RSP]      ; 1. Troca RSP pro kernel stack do next ~
-                                   ;    A partir daqui, a pilha é do next PCB!
     mov rax, [rsi + PML4]          ; 2. Troca page tables (CR3) ~
     mov cr3, rax                   ;    ATENÇÃO: endereços mudam! Mas kernel
                                    ;    mapeado em todo PML4, então RSP ainda é válido~
-    mov rax, [rsi + RSP0]          ; 3. Atualiza TSS.RSP0 (stack ring 0 pra syscalls) ~
+    mov rax, [rsi + RSP0]          ; 3. Atualiza TSS.RSP0 (stack ring 3 pra syscalls) ~
     mov [tss + 4], rax             ;    TSS[4] = RSP0 no formato IA32e TSS~
-                                    ;    Quando o next process fizer int 0x80,
-                                    ;    a CPU troca RSP pra esse valor~
 
     ; 3a. Atualiza current_rsp0 (pra 'syscall' instruction) ~
     mov [current_rsp0], rax        ;    syscall_entry usa xchg com essa variável~
 
     ; 3b. Restaura FS.base (MSR 0xC0000100) — TLS do usuário~
-    ; Sem isso o musl chora "onde ta meu TLS?! >_<"
-    ; rdmsr/wrmsr pra ler/escrever o MSR ~ funciona sempre em ring 0~
     mov rax, [rsi + FS_BASE]       ;    carrega FS_BASE salvo do next processo~
-    mov rcx, 0xC0000100            ;    MSR_FS_BASE — o segredo da felicidade do musl
+    mov rcx, 0xC0000100            ;    MSR_FS_BASE
     mov rdx, rax
     shr rdx, 32                    ;    edx = upper 32 bits
     wrmsr                          ;    escreve MSR (e o musl sorri~)
@@ -139,12 +229,6 @@ context_switch:
     je .kernel_proc                ; if kernel mode: just ret
 
     ; User process: pop registers and iretq to ring 3
-    ; Stack layout: [r15,r14,...,rax, RIP,CS,RFLAGS,RSP,SS] (20 × 8 = 160 bytes)
-    ; O frame foi montado pelo syscall_isr ou irq0 handler original~
-    ; Só POPamos de volta e iretq pro ring 3~
-    ; NOTA: RBX foi restaurado antes ~ o pop rbx abaixo sobrescreve
-    ; com o valor salvo do PCB (não o state pointer do handler)~
-    ; Isso é correto: RBX do user process tem valor de antes da int~
     pop r15
     pop r14
     pop r13
@@ -161,17 +245,9 @@ context_switch:
     pop rcx
     pop rax
     iretq                ; iretq mágico: POPa RIP, CS, RFLAGS, RSP, SS~
-                         ; e volta a executar o user process onde parou~
-                         ; (ou na entry point se for o primeiro schedule)
 
 .kernel_proc:
     ; Kernel process: just return (context was saved/restored)
-    ; O next processo kernel continua no mesmo espaço de endereçamento~
-    ; RSP já aponta pra kernel stack dele ~ simples assim~ :)
-    ; ~~ STI obrigatório!! Se essa troca veio de um irq0 que preemptou
-    ; alguém, o IF tá ZERADO pela entrega da interrupção — e o kernel
-    ; voltaria a rodar (e hlt!) com interrupt off PRA SEMPRE~ rssrsrs
-    ; Nos outros callers (yield normal, exit) o IF já tá 1, sti é no-op~
     sti
     ret
 

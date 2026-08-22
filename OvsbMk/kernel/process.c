@@ -258,7 +258,10 @@ void process_exit_current(int code) {
     serial_puts("\r\n");
     pcb_t *p = process_current();
     if (!p) return;
-    fds_cleanup();
+    {
+        extern void fds_close_exec(void *);
+        fds_close_exec(p->fds_tab);
+    }
     p->exit_code = code;
     p->state = PROC_ZOMBIE;
 
@@ -272,6 +275,11 @@ void process_exit_current(int code) {
     current_pid = parent;
     pcb_t *next = &pcb_table[parent];
     tss_set_rsp0(next->rsp0);
+    serial_puts("[exit] parent=");
+    serial_puthex((uint32_t)parent);
+    serial_puts(" in_kern=");
+    serial_puthex((uint32_t)next->in_kern);
+    serial_puts("\r\n");
     context_switch(p, next);
 }
 
@@ -319,7 +327,11 @@ int proc_waitpid(int pid, int *exit_code) {
                     pcb_table[i].state = PROC_EMPTY;
                     return pid;
                 }
-                pcb_table[current_pid].state = PROC_BLOCKED;
+                /* ~~ poll-yield cooperativo (sem BLOCKED!): o
+                 * context_switch sempre iretqa pra USERSPACE, então
+                 * bloquear dentro da syscall quebraria o retorno~
+                 * Continuamos READY e cedemos a CPU até o filho virar
+                 * zumbi~ simples e funciona~ */
                 schedule();
                 break;
             }
@@ -377,6 +389,8 @@ void schedule(void) {
     if (next_idx == -1 || next_idx == current_pid) return;
     int prev = current_pid;
 
+    pcb_table[prev].in_kern = 0;   /* caminho normal: sem resume C */
+
     // [SCHD] debug removed — context switch is stable
 
     if (pcb_table[prev].state == PROC_RUNNING)
@@ -385,6 +399,18 @@ void schedule(void) {
     pcb_table[next_idx].state = PROC_RUNNING;
     current_pid = next_idx;
     tss_set_rsp0(pcb_table[next_idx].rsp0);
+
+    /* ~~ bloqueio dentro de syscall → troca que PRESERVA o fluxo C~~
+     * O ret do context_switch_kern devolve AQUI quando o processo
+     * for re-escalado (loop de waitpid/read continua de onde parou!) */
+    {
+        extern volatile int g_in_syscall;
+        extern void context_switch_kern(pcb_t *cur, pcb_t *next);
+        if (g_in_syscall && pcb_table[prev].is_user) {
+            context_switch_kern(&pcb_table[prev], &pcb_table[next_idx]);
+            return;
+        }
+    }
     {
         /* ~~ debug: frame do proximo processo antes do switch ~~ */
         static int dbg_cs = 0;
@@ -533,6 +559,207 @@ uint64_t setup_linux_user_stack(pcb_t *pcb, uint64_t user_stack_top,
     }
 
     return (uint64_t)sp;
+}
+
+/* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ * ♥ FORK REAL (issue #72) ~ o pai clona o filho de verdade!~
+ * O Popen do Xorg precisa: pipe → fork → dup2 → execl → waitpid~
+ * Sem fork de verdade o xkbcomp nunca roda e o XKB morre~ */
+extern int map_user_4kb(uint64_t pml4_pa, uint64_t vaddr);
+
+/* devolve o PA do frame recém-mapeado pro VA no filho (identity!)~
+ * ATENÇÃO: o filho herda identity mapping de 2MB (huge pages)! Se
+ * não dividir primeiro, o map_user_4kb vê "huge já mapeada" e não
+ * aloca frame — e o readback leria o frame como se fosse PT (lixo,
+ * write em non-canonical → #GP na cara~ rssrsrs aprendi na prática!) */
+extern int split_2mb_pde(uint64_t pml4_pa, uint64_t vaddr);
+static uint64_t child_frame_for(uint64_t child_pml4, uint64_t va) {
+    split_2mb_pde(child_pml4, va & ~0x1FFFFFULL);
+    if (map_user_4kb(child_pml4, va) < 0) return 0;
+    uint64_t *pml4 = (uint64_t *)(uintptr_t)child_pml4;
+    uint64_t *pdpt = (uint64_t *)(uintptr_t)(pml4[(va >> 39) & 0x1FF] & ~0xFFFULL);
+    uint64_t *pd   = (uint64_t *)(uintptr_t)(pdpt[(va >> 30) & 0x1FF] & ~0xFFFULL);
+    uint64_t *pt   = (uint64_t *)(uintptr_t)(pd[(va >> 21) & 0x1FF] & ~0xFFFULL);
+    uint64_t pte   = pt[(va >> 12) & 0x1FF];
+    if (!(pte & 1)) return 0;
+    return pte & 0x000FFFFFFFFFF000ULL;   /* só bits 51:12 (NX/avail fora!) */
+}
+
+/* copia página user: fonte lida pelo VA direto (CR3 é o pai na syscall)~ */
+static void copy_user_space(uint64_t src_pml4_pa, uint64_t dst_pml4_pa) {
+    uint64_t *sp4 = (uint64_t *)(uintptr_t)src_pml4_pa;
+    for (int i = 0; i < 512; i++) {
+        uint64_t e4 = sp4[i];
+        if (!(e4 & 1) || !(e4 & 4)) continue;
+        uint64_t *sp3 = (uint64_t *)(uintptr_t)(e4 & 0x000FFFFFFFFFF000ULL);
+        for (int j = 0; j < 512; j++) {
+            uint64_t e3 = sp3[j];
+            if (!(e3 & 1) || !(e3 & 4)) continue;
+            if (e3 & 0x80) continue;
+            uint64_t *sp2 = (uint64_t *)(uintptr_t)(e3 & 0x000FFFFFFFFFF000ULL);
+            for (int k = 0; k < 512; k++) {
+                uint64_t e2 = sp2[k];
+                if (!(e2 & 1) || !(e2 & 4)) continue;
+                uint64_t base = ((uint64_t)i << 39) | ((uint64_t)j << 30) | ((uint64_t)k << 21);
+                if (e2 & 0x80) {
+                    uint64_t pa2 = e2 & 0x000FFFFFE00000ULL;   /* bits 51:21 */
+                    for (int n = 0; n < 512; n++) {
+                        uint64_t va = base + ((uint64_t)n << 12);
+                        uint64_t fr = child_frame_for(dst_pml4_pa, va);
+                        if (!fr) {
+                            serial_puts("[fork!] huge sem frame va=");
+                            serial_puthex((uint32_t)(va >> 12));
+                            serial_puts("\r\n");
+                            continue;
+                        }
+                        for (int b = 0; b < 1024; b++)
+                            ((uint32_t *)(uintptr_t)fr)[b] =
+                                ((uint32_t *)(uintptr_t)(pa2 + ((uint64_t)n << 12)))[b];
+                        /* ~~ debug TCB: página que contém o fs_base do forktest ~~ */
+                        if (va == 0x40206000ULL) {
+                            uint64_t srcv = *(uint64_t *)(uintptr_t)(pa2 + 0x818);
+                            uint64_t dstv = *(uint64_t *)(uintptr_t)(fr + 0x818);
+                            serial_puts("[fork] tcb src=");
+                            serial_puthex((uint32_t)(srcv >> 32));
+                            serial_puthex((uint32_t)(srcv & 0xFFFFFFFF));
+                            serial_puts(" dst=");
+                            serial_puthex((uint32_t)(dstv >> 32));
+                            serial_puthex((uint32_t)(dstv & 0xFFFFFFFF));
+                            serial_puts(" pa2=");
+                            serial_puthex((uint32_t)(pa2 >> 12));
+                            serial_puts("\r\n");
+                        }
+                    }
+                } else {
+                    uint64_t *spt = (uint64_t *)(uintptr_t)(e2 & 0x000FFFFFFFFFF000ULL);
+                    for (int n = 0; n < 512; n++) {
+                        uint64_t e1 = spt[n];
+                        if (!(e1 & 1) || !(e1 & 4)) continue;
+                        uint64_t va = base + ((uint64_t)n << 12);
+                        uint64_t pa1 = e1 & 0x000FFFFFFFFFF000ULL;
+                        uint64_t fr = child_frame_for(dst_pml4_pa, va);
+                        if (!fr) {
+                            serial_puts("[fork!] leaf sem frame va=");
+                            serial_puthex((uint32_t)(va >> 12));
+                            serial_puts("\r\n");
+                            continue;
+                        }
+                        for (int b = 0; b < 1024; b++)
+                            ((uint32_t *)(uintptr_t)fr)[b] =
+                                ((uint32_t *)(uintptr_t)pa1)[b];
+                    }
+                }
+            }
+        }
+    }
+}
+
+/* cópia rasa das regiões do vm_map (dados já foram pelo walker)~ */
+static void vm_map_copy_to(struct vm_map *dst, struct vm_map *src) {
+    vm_map_entry_t *e = src->head;
+    while (e) {
+        uint64_t size = (e->end > e->start) ? (e->end - e->start) : 0;
+        if (size)
+            vm_map_fixed((vm_map_t *)dst, NULL, 0, e->start, size, e->prot, e->flags);
+        e = e->next;
+    }
+}
+
+int proc_fork(uint64_t *parent_kframe) {
+    pcb_t *par = process_current();
+    if (!par || !parent_kframe) return -1;
+
+    int slot = -1;
+    for (int i = 0; i < MAX_PROC; i++)
+        if (pcb_table[i].state == PROC_EMPTY) { slot = i; break; }
+    if (slot < 0) { serial_puts("[fork] sem slot\r\n"); return -1; }
+
+    void *kstack = kmalloc(STACK_SIZE);
+    if (!kstack) { serial_puts("[fork] sem kstack\r\n"); return -1; }
+
+    uint64_t child_pml4 = pml4_create();
+    if (!child_pml4) { kfree(kstack); serial_puts("[fork] sem pml4\r\n"); return -1; }
+
+    pcb_t *p = &pcb_table[slot];
+    p->pid = next_pid++;
+    p->state = PROC_READY;
+    p->is_user = 1;
+    {
+        int ni = 0;
+        while (par->name[ni] && ni < PROC_NAME_MAX - 5) { p->name[ni] = par->name[ni]; ni++; }
+        p->name[ni] = 'f'; p->name[ni+1] = 'k'; p->name[ni+2] = '\0';
+    }
+    p->rsp0 = (uint64_t)kstack + STACK_SIZE;
+    p->pml4 = child_pml4;
+    p->parent_pid = par->pid;
+    p->exit_code = 0;
+    p->program_break = par->program_break;
+    p->heap_start = par->heap_start;
+    p->vm_map = (struct vm_map *)kmalloc(sizeof(struct vm_map));
+    if (p->vm_map) {
+        vm_map_init((vm_map_t *)p->vm_map, 0x10000, 0x7FFFF000ULL);
+        if (par->vm_map) vm_map_copy_to((struct vm_map *)p->vm_map,
+                                        (struct vm_map *)par->vm_map);
+    }
+    p->vmspace = 0;
+    p->fs_base = par->fs_base;
+    for (int ci = 0; ci < 256; ci++) p->cwd[ci] = par->cwd[ci];
+
+    if (slot >= pcb_count) pcb_count = slot + 1;
+
+    serial_puts("[fork] copiando memoria...\r\n");
+    copy_user_space(par->pml4, child_pml4);
+    serial_puts("[fork] memoria ok\r\n");
+
+    /* fd table própria pro filho (cópia da do pai)~ */
+    {
+        extern void *fds_dup_table(void);
+        extern void  fds_set_current(void *t);
+        extern void  fds_set_for_pid(int pid, void *t);
+        void *ft = fds_dup_table();
+        if (ft) { fds_set_current(ft); fds_set_for_pid(p->pid, ft); }
+    }
+
+    /* ~~ frame do filho: IRET-frame completo de 20 qwords~~
+     * O frame da SYSCALL tem layout próprio (syscall_entry.asm):
+     *   kframe[13]=rcx=return RIP, kframe[6]=r11=return RFLAGS,
+     *   e o USER RSP tá na variável current_rsp0 (xchg da entry)!
+     * O filho recebe TUDO igual ao pai mas com RAX=0~ */
+    extern uint64_t current_rsp0;
+    uint64_t user_rsp_now = current_rsp0;
+    {   /* ~~ debug TLS: lê o FS MSR AO VIVO em vez de confiar no PCB~~ */
+        uint32_t lo, hi;
+        __asm__ volatile("rdmsr" : "=a"(lo), "=d"(hi) : "c"(0xC0000100));
+        uint64_t live_fs = ((uint64_t)hi << 32) | lo;
+        serial_puts("[fork] pcb_fs=");
+        serial_puthex((uint32_t)(par->fs_base >> 32));
+        serial_puthex((uint32_t)(par->fs_base & 0xFFFFFFFF));
+        serial_puts(" live_fs=");
+        serial_puthex((uint32_t)(live_fs >> 32));
+        serial_puthex((uint32_t)(live_fs & 0xFFFFFFFF));
+        serial_puts("\r\n");
+        p->fs_base = live_fs ? live_fs : par->fs_base;
+    }
+    uint64_t *sp = (uint64_t *)p->rsp0;
+    sp -= 20;
+    for (int q = 0; q < 15; q++) sp[q] = parent_kframe[q];  /* r15..rax */
+    sp[14] = 0;                     /* RAX = 0 → fork() retorna 0 no filho! */
+    /* ~~ return RIP/RFLAGS originais estão no STASH da entry~~
+     * (sub rsp,16 antes dos pushes): kframe[15]=RIP, kframe[16]=RFLAGS~
+     * O kframe[1] (slot do rcx) foi sobrescrito com o arg4 pelo Zig~ */
+    sp[15] = parent_kframe[15];     /* RIP de retorno (stash!) */
+    sp[16] = 0x1B;                  /* CS ring3 */
+    sp[17] = parent_kframe[16];     /* RFLAGS de retorno (stash!) */
+    sp[18] = user_rsp_now;          /* RSP = user rsp do pai na syscall */
+    sp[19] = 0x23;                  /* SS ring3 */
+    p->kernel_rsp = (uint64_t)sp;
+    p->user_rsp = user_rsp_now;
+    p->user_rip = parent_kframe[15];
+
+    serial_puts("[fork] pid=");
+    serial_puthex((uint32_t)p->pid);
+    serial_puts(" pronto!\r\n");
+    return p->pid;
 }
 
 /* ♥ process.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */

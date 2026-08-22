@@ -113,8 +113,13 @@ void idt_handler(uint64_t *regs) {
         uint64_t cr2;
         asm volatile("mov %%cr2, %0" : "=r"(cr2));
         if (cr2 != 0xDEADBEEF) {
+            uint32_t fslo, fshi;
+            __asm__ volatile("rdmsr" : "=a"(fslo), "=d"(fshi) : "c"(0xC0000100));
             serial_puts("\r\nPF@");
             serial_puthex((uint32_t)cr2);
+            serial_puts(" FS=");
+            serial_puthex(fshi);
+            serial_puthex(fslo);
             serial_puts(" CS=");
             serial_puthex((uint32_t)regs[18]);
             serial_puts(" err=");
