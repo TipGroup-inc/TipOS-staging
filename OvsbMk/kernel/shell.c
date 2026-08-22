@@ -332,12 +332,33 @@ static void cmd_exec(const char *args) {
                  * servidor X~ (o musl le da area envp da pilha)~~ */
                 static char *exec_env[] = { "DISPLAY=:0", "PATH=/bin", "LD_LIBRARY_PATH=/lib" };
                 uint64_t atbase = dyn_is_dynamic ? dyn_interp_entry : elf_base;
-                kframe[18] = setup_linux_user_stack_dyn(&pcb_table[i], kframe[18],
+                kframe[18] = setup_linux_user_stack(&pcb_table[i], kframe[18],
                                                      main_phdr_addr, elf_phent, elf_phnum,
                                                      atbase, argv, argc,
-                                                     exec_env, 3,
-                                                     dyn_interp_entry, main_binary_entry,
-                                                     dyn_is_dynamic);
+                                                     exec_env, 3);
+                /* ~~ debug: dump dos primeiros qwords da user stack ~~ */
+                if (dyn_is_dynamic) {
+                    uint64_t *usp = (uint64_t *)kframe[18];
+                    serial_puts("[dynstk] argc=");
+                    serial_puthex((uint32_t)usp[0]);
+                    serial_puts(" argv0=");
+                    serial_puthex((uint32_t)(usp[1]));
+                    serial_puts(" atbase_off=");
+                    /* varre TODOS os pares do auxv (do início ao AT_NULL)~~ */
+                    int qi = 1;
+                    while (usp[qi] != 0) qi++; qi++; // argv NULL
+                    while (usp[qi] != 0) qi++; qi++; // envp NULL
+                    /* agora é auxv~ */
+                    while (!(usp[qi] == 0 && usp[qi+1] == 0)) {
+                        if (usp[qi] == 7) serial_puts(" AT_BASE=");
+                        else if (usp[qi] == 3) serial_puts(" AT_PHDR=");
+                        else if (usp[qi] == 5) serial_puts(" AT_PHNUM=");
+                        else { qi += 2; continue; }
+                        serial_puthex((uint32_t)usp[qi+1]);
+                        qi += 2;
+                    }
+                    serial_puts("\r\n");
+                }
                 break;
             }
         }
