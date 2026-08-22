@@ -21,6 +21,7 @@
 #include "../drivers/mouse.h"
 #include "../drivers/keyboard.h"
 #include "../drivers/usb.h"
+#include "../drivers/e1000.h"
 #include "../drivers/ata.h"
 #include "../drivers/virtio_gpu.h"
 #include "../fs/fat32.h"
@@ -43,7 +44,10 @@ void kmain(uint32_t magic, uint32_t mb_info) {
     serial_init();
     serial_puts("[OvsbMkM] Iniciando~ kyun!\r\n");
     idt_init(); pic_init(); idt_set_irq1(); idt_set_irq12();
-    keyboard_init(); mouse_init(); memory_init(); usb_init();
+    keyboard_init(); mouse_init(); memory_init();
+    tss_init();
+    usb_init();
+    e1000_init();
     ata_init();
     if (fat32_init() == 0) {
         console_write("FAT32: disco montado!\n");
@@ -73,14 +77,6 @@ void kmain(uint32_t magic, uint32_t mb_info) {
         }
     }
 
-    if (!g_fb.addr || g_fb.bpp != 32) {
-        g_fb.addr  = 0xFD000000;
-        g_fb.pitch = 1280 * 4;
-        g_fb.width = 1280;
-        g_fb.height = 720;
-        g_fb.bpp = 32;
-    }
-
     /* Try VirtIO-GPU first (QEMU), fall back to VESA (real hw) */
     if (virtio_gpu_init(&g_fb, &(uint64_t){0}) == 0) {
         g_fb_active = 1;
@@ -102,18 +98,17 @@ void kmain(uint32_t magic, uint32_t mb_info) {
     console_init();
     serial_puts("[OvsbMkM] Console pronto!\r\n");
 
-    /* Ring 3 setup */
-    tss_init();
+    /* Ring 3 setup: process frames use CS=0x1B and SS=0x23. */
     syscall_init();
     process_init();
 
-    shell_init();
-
-    /* ♥ Inicializa Window Manager */
     if (g_fb_active && g_fb.addr) {
         wm_init((uint32_t *)g_fb.addr, g_fb.width, g_fb.height, g_fb.pitch / 4);
         serial_puts("[WM] Window Manager pronto!\r\n");
     }
+
+    /* Boot direto no desktop; o shell continua disponivel via syscall. */
+    shell_init();
 
     /* ♥ OWT pronto! Digite 'owt' no shell pra testar */
 
