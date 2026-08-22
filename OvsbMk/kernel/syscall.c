@@ -1227,7 +1227,13 @@ void syscall_handler(uint64_t *regs) {
             serial_puts("mmap: falhou!\r\n");
             ret = (uint64_t)-1;
         } else {
-            serial_puts("mmap->va="); serial_puthex((uint32_t)addr); serial_puts("\r\n");
+            serial_puts("mmap->va="); serial_puthex((uint32_t)addr);
+            {
+                extern int vm_map_count_entries(void *);
+                serial_puts(" n=");
+                serial_puthex((uint32_t)vm_map_count_entries((void *)(process_current() ? process_current()->vm_map : 0)));
+            }
+            serial_puts("\r\n");
             ret = addr;
         }
         break;

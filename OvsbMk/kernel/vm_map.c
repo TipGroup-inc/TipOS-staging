@@ -166,7 +166,20 @@ int vm_map_fixed(vm_map_t *map, vm_object_t *obj, uint64_t offset,
 }
 
 /* ~ essa funcao aqui e a mais importante, presta atencao baka! */
+static int g_in_vm_remove_log = 0;
 int vm_map_remove(vm_map_t *map, uint64_t start, uint64_t end) {
+    if (!g_in_vm_remove_log && start < 0x40600000ULL && end > 0x40000000ULL) {
+        extern int process_current_pid(void);
+        g_in_vm_remove_log = 1;
+        serial_puts("[RM-TEXT] pid=");
+        serial_puthex((uint32_t)process_current_pid());
+        serial_puts(" ");
+        serial_puthex((uint32_t)(start >> 12));
+        serial_puts("-");
+        serial_puthex((uint32_t)(end >> 12));
+        serial_puts("\r\n");
+        g_in_vm_remove_log = 0;
+    }
     (void)end;
     vm_map_entry_t *e = map->head;
     while (e) {
@@ -220,12 +233,14 @@ int vm_map_wire(vm_map_t *map, uint64_t start, size_t size, uint64_t pml4) {
                     uint64_t *p4 = (uint64_t *)(uintptr_t)pml4;
                     if (!(p4[pml4_idx] & 1)) {
                         uint64_t *p = mmap_user(0,4096,3,0); if(!p) return -1;
+                        serial_puts("[wt] pml4t="); serial_puthex((uint32_t)(uintptr_t)p); serial_puts("\r\n");
                         for(int i=0;i<512;i++) p[i]=0;
                         p4[pml4_idx] = (uint64_t)(uintptr_t)p | 0x07;
                     }
                     uint64_t *pdpt = (uint64_t *)(uintptr_t)(p4[pml4_idx] & ~0xFFFULL);
                     if (!(pdpt[pdpt_idx] & 1)) {
                         uint64_t *p = mmap_user(0,4096,3,0); if(!p) return -1;
+                        serial_puts("[wt] pdpt="); serial_puthex((uint32_t)(uintptr_t)p); serial_puts("\r\n");
                         for(int i=0;i<512;i++) p[i]=0;
                         pdpt[pdpt_idx] = (uint64_t)(uintptr_t)p | 0x07;
                     }
@@ -258,6 +273,8 @@ int vm_map_wire(vm_map_t *map, uint64_t start, size_t size, uint64_t pml4) {
                     } else {
                         if (!(old & 1)) {
                             pt = mmap_user(0,4096,3,0); if(!pt) return -1;
+                            serial_puts("[wt] pt="); serial_puthex((uint32_t)(uintptr_t)pt);
+                            serial_puts(" pdi="); serial_puthex((uint32_t)pd_idx); serial_puts("\r\n");
                             for (int i = 0; i < 512; i++) pt[i] = 0;
                             pd[pd_idx] = (uint64_t)(uintptr_t)pt | 0x07;
                         } else {
@@ -270,6 +287,12 @@ int vm_map_wire(vm_map_t *map, uint64_t start, size_t size, uint64_t pml4) {
                                 uint64_t pa = obj_get_page(obj, pg);
                                 if (!pa) return -1;
                                 pt[i] = pa | 0x07;
+                            } else if (va >= ws && va < we && (pt[i] & 1)) {
+                                serial_puts("[WIRE-skip] va=");
+                                serial_puthex((uint32_t)(va >> 12));
+                                serial_puts(" pte=");
+                                serial_puthex((uint32_t)(pt[i] & 0xFFFFFFFF));
+                                serial_puts("\r\n");
                             }
                         }
                     }
@@ -351,7 +374,14 @@ static void pte_set_prot(uint64_t *pte, uint64_t va, void *ctx) {
 
 /* ~~ callback: zera a PTE (unmap) ~~ */
 static void pte_clear(uint64_t *pte, uint64_t va, void *ctx) {
-    (void)va; (void)ctx;
+    (void)ctx;
+    if (va >= 0x70000000ULL && va < 0x72000000ULL && (*pte & 1)) {
+        serial_puts("[CLR] va=");
+        serial_puthex((uint32_t)(va >> 12));
+        serial_puts(" pte=");
+        serial_puthex((uint32_t)(*pte & 0xFFFFFFFF));
+        serial_puts("\r\n");
+    }
     *pte = 0;
 }
 
@@ -359,13 +389,53 @@ static void pte_clear(uint64_t *pte, uint64_t va, void *ctx) {
 int vm_munmap(uint64_t addr, size_t size) {
     pcb_t *cur = process_current();
     if (!cur) return -1;
+    /* ~~ quem desmapeia o TEXTO do processo?! (bug do PML4 esvaziado) ~~ */
+    if (addr < 0x40600000ULL && addr + size > 0x40000000ULL) {
+        serial_puts("[UNM-TEXT] pid=");
+        serial_puthex((uint32_t)cur->pid);
+        serial_puts(" ");
+        serial_puthex((uint32_t)(addr >> 12));
+        serial_puts("-");
+        serial_puthex((uint32_t)((addr + size) >> 12));
+        serial_puts("\r\n");
+    }
     vm_map_t *map = (vm_map_t *)cur->vm_map;
     if (!map) return -1;
     size = (size + 0xFFF) & ~0xFFFULL;
     if (size == 0) return 0;
     uint64_t end = addr + size;
+
+    /* ~~ limpa PTEs E LIBERA os frames do objeto~~
+     * (antes só dava unlink: cada ciclo mmap/munmap do mallocng
+     *  vazava frames até a memória acabar~ rssrsrs) */
+    for (vm_map_entry_t *e = map->head; e; e = e->next) {
+        if (e->start < end && e->end > addr) {
+            if (e->object) {
+                /* zera refs no array antes de devolver os frames */
+                uint64_t ws = e->start > addr ? e->start : addr;
+                uint64_t we = e->end < end ? e->end : end;
+                for (uint64_t va = ws & ~0xFFFULL; va < we; va += 0x1000) {
+                    size_t pg = (va - e->start) >> 12;
+                    if (pg < (size_t)e->object->page_count &&
+                        e->object->pages[pg]) {
+                        vm_free_page(e->object->pages[pg]);
+                        e->object->pages[pg] = 0;
+                    }
+                }
+                vm_object_destroy(e->object);
+                e->object = NULL;
+            }
+        }
+    }
+
     pml4_walk_ptes(cur->pml4, addr, end, pte_clear, NULL);
-    __asm__ volatile("invlpg %0" : : "m"(*(uint8_t *)addr) : "memory");
+    /* ~~ invlpg em TODAS as páginas! Uma só deixava TLB velha — o
+     * processo acessava o frame JÁ LIBERADO sem PF (janela de uso
+     * após unmap = corrupção silenciosa que o mallocng detectava
+     * com a_crash()/hlt em ring3!) rssrsrs */
+    for (uint64_t a = addr; a < end; a += 0x1000)
+        __asm__ volatile("invlpg (%0)" : : "r"(a) : "memory");
+    __sync_synchronize();
     vm_map_remove(map, addr, end);
     return 0;
 }
@@ -385,6 +455,14 @@ int vm_mprotect(uint64_t addr, size_t size, int prot) {
 }
 
 /* ~ essa funcao aqui e a mais importante, presta atencao baka! */
+int vm_map_count_entries(void *m) {
+    vm_map_t *map = (vm_map_t *)m;
+    if (!map) return -1;
+    int n = 0;
+    for (vm_map_entry_t *e = map->head; e; e = e->next) n++;
+    return n;
+}
+
 int vm_mmap(uint64_t *addr, size_t size, int prot, int flags) {
     pcb_t *cur = process_current();
     if (!cur) return -1;
