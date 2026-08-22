@@ -27,7 +27,6 @@ extern void fds_cleanup(void);
 pcb_t pcb_table[MAX_PROC];
 int current_pid = 0;
 static int pcb_count = 0;
-uint32_t dbg_setup_count = 0;
 int next_pid = 1;
 
 extern void context_switch(pcb_t *current, pcb_t *next);
@@ -249,11 +248,6 @@ void process_switch_to(int pid) {
 /* ♥ process_exit_current ~ API antiga, usada pela syscall SYS_exit */
 /* ~ kyun~ mais uma funcao pra fazer o kernel n morrer */
 void process_exit_current(int code) {
-    serial_puts("[PROC] exit pid=");
-    serial_puthex((uint32_t)current_pid);
-    serial_puts(" code=");
-    serial_puthex((uint32_t)code);
-    serial_puts("\r\n");
     pcb_t *p = process_current();
     if (!p) return;
     fds_cleanup();
@@ -343,35 +337,18 @@ int process_current_pid(void) {
 /* ~ cuidado que essa aqui morde ~ */
 static int find_next_ready(void) {
     int start = current_pid;
-    /* ~~ Comeca em i=1: NAO se auto-encontre!~~
-     * O shell fica READY eterno (o exit acorda ele e ninguem
-     * re-marca RUNNING), entao i=0 retornava ele mesmo e o
-     * schedule() saia sem trocar — nada em background rodava~ */
-    for (int i = 1; i <= MAX_PROC; i++) {
+    for (int i = 0; i < MAX_PROC; i++) {
         int idx = (start + i) % MAX_PROC;
         if (pcb_table[idx].state == PROC_READY)
             return idx;
     }
-    return -1;
+    return current_pid; /* fica no mesmo se nao achar */
 }
 
 /* ♥ schedule ~ Round-robin scheduler chamado pelo timer! */
 /* ~ essa funcao aqui e a mais importante, presta atencao baka! */
 void schedule(void) {
     int next_idx = find_next_ready();
-    {
-        static int dbg_sch = 0;
-        if (dbg_sch < 6 && pcb_table[3].state != PROC_EMPTY) {
-            dbg_sch++;
-            serial_puts("[sch] nxt=");
-            serial_puthex((uint32_t)next_idx);
-            serial_puts(" cur=");
-            serial_puthex((uint32_t)current_pid);
-            serial_puts(" s3=");
-            serial_puthex((uint32_t)pcb_table[3].state);
-            serial_puts("\r\n");
-        }
-    }
     if (next_idx == -1 || next_idx == current_pid) return;
     int prev = current_pid;
 
@@ -383,25 +360,6 @@ void schedule(void) {
     pcb_table[next_idx].state = PROC_RUNNING;
     current_pid = next_idx;
     tss_set_rsp0(pcb_table[next_idx].rsp0);
-    {
-        /* ~~ debug: frame do proximo processo antes do switch ~~ */
-        static int dbg_cs = 0;
-        if (dbg_cs < 4 && pcb_table[next_idx].pid >= 3) {
-            dbg_cs++;
-            uint64_t *fr = (uint64_t *)pcb_table[next_idx].kernel_rsp;
-            serial_puts("[cs] krsp=");
-            serial_puthex((uint32_t)pcb_table[next_idx].kernel_rsp);
-            serial_puts(" pml4=");
-            serial_puthex((uint32_t)pcb_table[next_idx].pml4);
-            serial_puts("\r\n[fr] rip=");
-            serial_puthex((uint32_t)fr[15]);
-            serial_puts(" cs=");
-            serial_puthex((uint32_t)fr[16]);
-            serial_puts(" rsp=");
-            serial_puthex((uint32_t)fr[18]);
-            serial_puts("\r\n");
-        }
-    }
     context_switch(&pcb_table[prev], &pcb_table[next_idx]);
 }
 
@@ -425,94 +383,41 @@ void proc_yield(void) {
  *  sente falta mesmo~ mas o musl chora sem AT_PHDR as vezes)
  * ~~ kyun! ~~ */
 uint64_t setup_linux_user_stack(pcb_t *pcb, uint64_t user_stack_top,
-                                uint64_t phdr, uint64_t phent, uint64_t phnum,
-                                uint64_t elf_base,
-                                char **argv, int argc,
-                                char **envp, int envc) {
+                                 uint64_t phdr, uint64_t phent, uint64_t phnum) {
     uint64_t *sp = (uint64_t *)user_stack_top;
-    (void)pcb;
-
-    /* ~~ debug: quantas vezes e com que topo~ ~~ */
-    extern uint32_t dbg_setup_count;
-    dbg_setup_count++;
-    serial_puts("[setup] top=");
-    serial_puthex((uint32_t)user_stack_top);
-    serial_puts(" n=");
-    serial_puthex(dbg_setup_count);
-    serial_puts("\r\n");
-
-    /* ~~ Strings dos argumentos ficam no TOPO da pilha ~~
-     * Layout Linux x86_64 (de baixo pra cima):
-     *   argc, argv[], NULL, envp[], NULL, auxv[], strings
-     * Antes a gente intercalava as strings entre o argv e o
-     * environ — e o musl via os bytes de "XORG" como primeiro
-     * entry do environ! getenv("PIXMAN_DISABLE") do pixman
-     * lia "XORG\0XOR" como ponteiro (não-canônico) e o XORG
-     * tomava #GP no strncmp~ rssrsrs */
-    uint64_t str_ptrs[8];
-    for (int i = argc - 1; i >= 0; i--) {
-        const char *s = (argv && argv[i]) ? argv[i] : "";
-        size_t len = 0;
-        while (s[len]) len++;
-        sp = (uint64_t *)((uint8_t *)sp - (len + 1));
-        for (size_t j = 0; j <= len; j++) ((uint8_t *)sp)[j] = (uint8_t)s[j];
-        str_ptrs[i] = (uint64_t)sp;
-    }
-
-    /* ~~ Strings do ambiente (mesma danca do argv) ~~
-     * O FVWM precisa do DISPLAY=:0 pra achar o servidor!~ */
-    uint64_t env_ptrs[8];
-    for (int i = envc - 1; i >= 0; i--) {
-        const char *s = (envp && envp[i]) ? envp[i] : "";
-        size_t len = 0;
-        while (s[len]) len++;
-        sp = (uint64_t *)((uint8_t *)sp - (len + 1));
-        for (size_t j = 0; j <= len; j++) ((uint8_t *)sp)[j] = (uint8_t)s[j];
-        env_ptrs[i] = (uint64_t)sp;
-    }
 
     /* ~~ 16 bytes pseudo-aleatórios pro AT_RANDOM ~~
      * O kernel Linux de verdade pega do /dev/random~
      * A gente pega do /dev/memes — igualmente seguro! */
-    sp -= 2;
-    sp[0] = 0xBAADF00DBEEFCACEULL;
-    sp[1] = 0xDEADBEEFCAFEBABEULL;
+    *--sp = 0xBAADF00DBEEFCACEULL;
+    *--sp = 0xDEADBEEFCAFEBABEULL;
     uint64_t random_addr = (uint64_t)sp;
 
-    /* ~~ Vetor auxiliar ~~
-     * Layout Linux: cada par é [type][value] na memória (type no
-     * endereço MENOR), e o AT_NULL fica no TOPO (último lido).
-     * A gente escreve de trás pra frente: AT_NULL primeiro, e
-     * cada par com value antes do type (quem manda é o *--sp)~
-     * O musl static-pie usa AT_BASE pra se auto-relocar, então
-     * sem AT_BASE (ou com ele no lugar errado) ele reloca em 0~
-     * e o mundo desaba. Confia na ordem! kyun! */
-    *--sp = 0;  *--sp = 0;             /* AT_NULL — topo da pilha de pares */
+    /* ~~ Vetor auxiliar (empilhado em ordem reversa) ~~
+     * O Linux espera os pares tipo/valor na pilha~
+     * A gente empilha de trás pra frente, igual
+     * quando você calça a meia antes do sapato~ */
+    *--sp = 15;  *--sp = random_addr;  /* AT_RANDOM — "sorteia um numero ai!" */
+    *--sp = 6;   *--sp = 0x1000;       /* AT_PAGESZ — 4KB, padrao~ */
+    *--sp = 23;  *--sp = 0;            /* AT_SECURE — "to suave, sem seccomp" */
     if (phnum) {
-        *--sp = phdr;  *--sp = 3;     /* AT_PHDR — onde tao os headers~ */
-        *--sp = phent; *--sp = 4;     /* AT_PHENT — tamanho de cada um~ */
-        *--sp = phnum; *--sp = 5;     /* AT_PHNUM — quantos program headers~ */
+        *--sp = 5;  *--sp = phnum;    /* AT_PHNUM — quantos program headers~ */
+        *--sp = 4;  *--sp = phent;    /* AT_PHENT — tamanho de cada um~ */
+        *--sp = 3;  *--sp = phdr;     /* AT_PHDR — onde tao os headers~ */
     }
-    *--sp = 0;      *--sp = 23;        /* AT_SECURE — "to suave, sem seccomp" */
-    *--sp = 0x1000; *--sp = 6;         /* AT_PAGESZ — 4KB, padrao~ */
-    *--sp = elf_base; *--sp = 7;       /* AT_BASE — base do PIE pro self-reloc~ */
-    *--sp = random_addr; *--sp = 15;   /* AT_RANDOM — "sorteia um numero ai!" */
+    *--sp = 0;  *--sp = 0;             /* AT_NULL — "acabou, tchau!" */
 
-    /* ~~ Ambiente: ponteiros + NULL terminador ~~
-     * AGORA com variaveis de verdade! O musl procura o environ
-     * logo apos o argv — e o FVWM le o DISPLAY daqui~ kyun~ */
-    for (int i = envc - 1; i >= 0; i--) *--sp = env_ptrs[i];
+    /* ~~ Ambiente: lista terminada por NULL (vazia) ~~
+     * Sem variaveis de ambiente por enquanto~
+     * (quem precisa de PATH quando se tem amor?) */
     *--sp = 0;
-
-    /* ~~ Argumentos: o array de ponteiros + argc ~~ */
-    if (argc > 0 && argv) {
-        *--sp = 0;  /* NULL termina o argv[] */
-        for (int i = argc - 1; i >= 0; i--) *--sp = str_ptrs[i];
-        *--sp = (uint64_t)argc;
-    } else {
-        *--sp = 0;  /* argv: lista vazia */
-        *--sp = 0;  /* argc = 0 */
-    }
+    /* ~~ Argumentos: lista terminada por NULL (vazia) ~~
+     * O programa recebe 0 argumentos~
+     * (trabalhar sem argumentos é igual programar sem cafe~
+     *  possível mas triste~) */
+    *--sp = 0;
+    /* ~~ Contagem de argumentos (argc) ~~ */
+    *--sp = 0;
 
     return (uint64_t)sp;
 }

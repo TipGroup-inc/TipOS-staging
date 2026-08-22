@@ -583,50 +583,6 @@ int pml4_add_user_4kb(uint64_t pml4_pa, uint64_t vaddr) {
     return 0;
 }
 
-/* ~~ map_user_4kb ~ Mapeia 1 página de 4KB (frame novo) num espaço de processo ~~
- * Cria as tabelas (pml4/pdpt/pd/PT) que faltarem e aloca um frame físico
- * novo pro endereço, com U/S + RW (0x07). Se a página já estiver mapeada
- * (huge page ou 4KB), não mexe em nada e retorna 0~
- * (pro brk do musl crescer o heap — antes o handler só mudava o valor
- *  e o processo tomava PF ao escrever nas páginas novas~ rssrsrs) */
-int map_user_4kb(uint64_t pml4_pa, uint64_t va) {
-    int pml4_idx = (va >> 39) & 0x1FF;
-    int pdpt_idx = (va >> 30) & 0x1FF;
-    int pd_idx   = (va >> 21) & 0x1FF;
-    int pt_idx   = (va >> 12) & 0x1FF;
-
-    uint64_t *pml4 = (uint64_t *)(uintptr_t)pml4_pa;
-    if (!(pml4[pml4_idx] & 1)) {
-        uint64_t *pdpt = mmap_user(0, 4096, 3, 0);
-        if (!pdpt) return -1;
-        for (int i = 0; i < 512; i++) pdpt[i] = 0;
-        pml4[pml4_idx] = (uint64_t)(uintptr_t)pdpt | 0x07;
-    }
-    uint64_t *pdpt = (uint64_t *)(uintptr_t)(pml4[pml4_idx] & ~0xFFFULL);
-    if (!(pdpt[pdpt_idx] & 1)) {
-        uint64_t *pd = mmap_user(0, 4096, 3, 0);
-        if (!pd) return -1;
-        for (int i = 0; i < 512; i++) pd[i] = 0;
-        pdpt[pdpt_idx] = (uint64_t)(uintptr_t)pd | 0x07;
-    }
-    uint64_t *pd = (uint64_t *)(uintptr_t)(pdpt[pdpt_idx] & ~0xFFFULL);
-    if (pd[pd_idx] & 0x80) return 0;            /* huge page já mapeada~ */
-    if (!(pd[pd_idx] & 1)) {
-        uint64_t *pt = mmap_user(0, 4096, 3, 0);
-        if (!pt) return -1;
-        for (int i = 0; i < 512; i++) pt[i] = 0;
-        pd[pd_idx] = (uint64_t)(uintptr_t)pt | 0x07;
-    }
-    uint64_t *pt = (uint64_t *)(uintptr_t)(pd[pd_idx] & ~0xFFFULL);
-    if (pt[pt_idx] & 1) return 0;               /* 4KB já mapeada~ */
-    uint64_t *frame = mmap_user(0, 4096, 3, 0);
-    if (!frame) return -1;
-    pt[pt_idx] = (uint64_t)(uintptr_t)frame | 0x07;
-    __sync_synchronize();
-    __asm__ volatile("invlpg (%0)" : : "r"(va) : "memory");
-    return 0;
-}
-
 /* ~~ pml4_destroy ~~ */
 /* ~ cuidado que essa aqui morde ~ */
 void pml4_destroy(uint64_t pml4_pa) {

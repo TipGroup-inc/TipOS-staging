@@ -213,30 +213,10 @@ static uint32_t first_cluster_of(fat32_dir_entry_t *e) {
     return ((uint32_t)e->first_cluster_high << 16) | e->first_cluster_low;
 }
 
-/* ~~ LFN: compara nome longo montado com o pedido (case-insensitive) ~~ */
-static int lfn_match(const char *lfn, int len, const char *name) {
-    int i;
-    for (i = 0; i < len; i++) {
-        char lc = lfn[i], nc = name[i];
-        if (lc >= 'a' && lc <= 'z') lc -= 0x20;
-        if (nc >= 'a' && nc <= 'z') nc -= 0x20;
-        if (nc == '\0' || lc != nc) return 0;
-    }
-    return name[len] == '\0';
-}
-
 static int find_entry(uint32_t dir_cluster, const char *name,
                       fat32_dir_entry_t *out) {
     uint8_t name83[11];
     name_to_83(name, name83);
-
-    /* ~~ Long File Names: entradas attr 0x0F guardam o nome em UTF-16~~
-     * 13 chars por entrada, em ordem DECRESCENTE antes da entrada curta~
-     * Sem isso o kernel não enxerga fonts.dir/6x13.pcf.gz/etc~ */
-    char lfn[264];
-    int lfn_len = 0;
-    int expect_seq = 0;
-    static const int lofs[13] = {1,3,5,7,9, 14,16,18,20,22,24, 28,30};
 
     uint32_t cluster = dir_cluster;
     while (cluster >= 2 && cluster < 0x0FFFFFF8) {
@@ -247,32 +227,8 @@ static int find_entry(uint32_t dir_cluster, const char *name,
             fat32_dir_entry_t *entries = (fat32_dir_entry_t *)buf;
             for (int i = 0; i < 16; i++) {
                 if (entries[i].name[0] == 0x00) return -1;
-                if (entries[i].name[0] == 0xE5) { lfn_len = 0; continue; }
-                if (entries[i].attr == 0x0F) {
-                    int seq = entries[i].name[0];
-                    if (seq & 0x40) { lfn_len = 0; expect_seq = seq & 0x3F; }
-                    if (expect_seq >= 1 && (seq & 0x3F) == expect_seq &&
-                        (expect_seq - 1) * 13 + 13 < (int)sizeof(lfn)) {
-                        int pos = (expect_seq - 1) * 13;
-                        const uint8_t *c = entries[i].name;
-                        for (int k = 0; k < 13; k++) {
-                            uint16_t u = c[lofs[k]] | (uint16_t)(c[lofs[k]+1] << 8);
-                            if (u == 0x0000 || u == 0xFFFF) break;
-                            lfn[pos + k] = (char)(u & 0xFF);
-                            if (pos + k + 1 > lfn_len) lfn_len = pos + k + 1;
-                        }
-                        expect_seq--;
-                    } else {
-                        lfn_len = 0; expect_seq = 0;
-                    }
-                    continue;
-                }
-                /* entrada normal: tenta LFN montado, depois 8.3~ */
-                if (lfn_len > 0 && lfn_match(lfn, lfn_len, name)) {
-                    if (out) *out = entries[i];
-                    return cluster_to_sector(cluster) + s;
-                }
-                lfn_len = 0;
+                if (entries[i].name[0] == 0xE5) continue;
+                if (entries[i].attr == 0x0F) continue;
                 int match = 1;
                 for (int j = 0; j < 11; j++) {
                     if (entries[i].name[j] != name83[j]) { match = 0; break; }
@@ -469,55 +425,9 @@ int fat32_delete_file(const char *name) {
 
 /* ~~ Lendo coisinhas~ toma cuidado pra não ler lixo! */
 /* ~ essa demorou pra debugar, respeita ~ */
-/* ~~ fat32_walk ~ resolve caminho COM diretórios (absoluto ou relativo) ~~
- * Deixa o cwd no dir final e devolve o nome-base em out.
- * O caller DEVE restaurar current_dir_cluster depois (salve antes!)~
- * Sem isso "/share/X11/xkb/rules/evdev" era procurado DENTRO de /BIN! */
-static int fat32_walk(const char *path, char *out, int outlen) {
-    if (!path || !path[0]) return -1;
-    char tmp[512];
-    int ti = 0;
-    while (path[ti] && ti < 511) { tmp[ti] = path[ti]; ti++; }
-    tmp[ti] = '\0';
-    char *cur = tmp;
-    if (*cur == '/') { current_dir_cluster = boot.root_cluster; cur++; }
-    char *last = 0, *s = cur;
-    while (*s) { if (*s == '/') last = s; s++; }
-    char *file = cur;
-    if (last) {
-        *last = '\0';
-        file = last + 1;
-        /* ~~ caminha componente a componente (cada um é uma entrada!) ~~ */
-        char *w = cur;
-        while (w && *w) {
-            char *n = w;
-            while (*n && *n != '/') n++;
-            int end = (*n == '\0');
-            if (*n) *n = '\0';
-            if (w[0] && !(w[0] == '.' && w[1] == '\0')) {
-                if (fat32_change_dir(w) < 0) return -1;
-            }
-            if (end) break;
-            w = n + 1;
-        }
-    }
-    if (!file[0]) return -1;
-    int j = 0;
-    while (file[j] && j < outlen - 1) { out[j] = file[j]; j++; }
-    out[j] = '\0';
-    return 0;
-}
-
 int fat32_read_file(const char *name, uint8_t *buffer, uint32_t size) {
     fat32_dir_entry_t entry;
-    uint32_t saved = current_dir_cluster;
-    char base[256];
-    if (fat32_walk(name, base, sizeof(base)) < 0) {
-        current_dir_cluster = saved; return -1;
-    }
-    int r = find_entry(current_dir_cluster, base, &entry);
-    current_dir_cluster = saved;
-    if (r < 0) return -1;
+    if (find_entry(current_dir_cluster, name, &entry) < 0) return -1;
     uint32_t cluster = first_cluster_of(&entry);
     if (cluster == 0) return 0;
     uint32_t to_read = size < entry.size ? size : entry.size;
@@ -828,14 +738,7 @@ int fat32_rmdir(const char *name) {
 int fat32_stat(const char *name, uint32_t *size, uint8_t *attr,
                uint16_t *mtime, uint16_t *mdate) {
     fat32_dir_entry_t e;
-    uint32_t saved = current_dir_cluster;
-    char base[256];
-    if (fat32_walk(name, base, sizeof(base)) < 0) {
-        current_dir_cluster = saved; return FAT_ERR_NOTFOUND;
-    }
-    int r = find_entry(current_dir_cluster, base, &e);
-    current_dir_cluster = saved;
-    if (r < 0) return FAT_ERR_NOTFOUND;
+    if (find_entry(current_dir_cluster, name, &e) < 0) return FAT_ERR_NOTFOUND;
     if (size) *size = e.size;
     if (attr) *attr = e.attr;
     if (mtime) *mtime = e.modification_time;

@@ -150,13 +150,10 @@ int vm_map_fixed(vm_map_t *map, vm_object_t *obj, uint64_t offset,
     e->flags = flags;
 
     vm_map_entry_t **pp = &map->head;
-    vm_map_entry_t *prev = NULL;
-    while (*pp && (*pp)->start < addr) {
-        prev = *pp;
+    while (*pp && (*pp)->start < addr)
         pp = &(*pp)->next;
-    }
     e->next = *pp;
-    e->prev = prev;
+    e->prev = NULL;
     if (*pp) {
         (*pp)->prev = e;
     }
@@ -233,25 +230,16 @@ int vm_map_wire(vm_map_t *map, uint64_t start, size_t size, uint64_t pml4) {
                     uint64_t old = pd[pd_idx];
                     uint64_t *pt;
                     if ((old & 1) && (old & 0x80)) {
-                        /* ~~ Huge page: divide em 4KB SEM derrubar o resto! ~~
-                         * (antes as paginas fora do range pedido recebiam
-                         *  pt[i]=0 — o MAP_FIXED do musl desmapeava o proprio
-                         *  codigo/dados/BSS do processo! o XORG tomava PF em
-                         *  0x4057E878 depois do mmap brk~ rssrsrs) */
-                        uint64_t old_phys = old & ~0x1FFFFFULL;
-                        uint64_t old_flags = old & 0x1FF;
-                        old_flags &= ~0x80;
                         pt = mmap_user(0,4096,3,0); if(!pt) return -1;
                         for (int i = 0; i < 512; i++) {
                             uint64_t va = chunk + (uint64_t)i * 0x1000;
+                            uint64_t pa = 0;
                             if (va >= ws && va < we) {
                                 size_t pg = (va - e->start + e->offset) >> 12;
-                                uint64_t pa = obj_get_page(obj, pg);
+                                pa = obj_get_page(obj, pg);
                                 if (!pa) return -1;
-                                pt[i] = pa | 0x07;
-                            } else {
-                                pt[i] = (old_phys + (uint64_t)i * 0x1000) | old_flags;
                             }
+                            pt[i] = pa ? (pa | 0x07) : 0;
                         }
                         pd[pd_idx] = (uint64_t)(uintptr_t)pt | 0x07;
                         __sync_synchronize();

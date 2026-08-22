@@ -236,7 +236,6 @@ const linux_to_tipos: [512]u16 = brk: {
     map[33]  = 91;    // dup2 (33 colide c/ access)
     map[35]  = 234;   // nanosleep (stub)
     map[39]  = 20;    // getpid
-    map[20]  = 409;   // writev (20 colide c/ getpid → 409 livre)
     map[40]  = 40;    // sendfile (livre no TipOS)
     map[41]  = 41;    // socket (livre no TipOS)
     map[42]  = 42;    // connect (livre no TipOS)
@@ -347,16 +346,12 @@ const linux_to_tipos: [512]u16 = brk: {
 // traduz o número do syscall (Linux → TipOS se necessário),
 // ajusta o arg4 (Linux passa em r10, TipOS espera em rcx),
 // e chama o handler em C. Se o número for inválido (>= 512), retorna -1~ ☆
-extern fn syscall_trace(num: u64, rip: u64) void;
-
 export fn syscall_handler_zig(regs: [*]u64) void {
     const num = regs[0];
     if (num >= 512) {
         regs[0] = 0xFFFF_FFFF_FFFF_FFFF; // -1 = ENOSYS
         return;
     }
-
-    syscall_trace(num, regs[15]);
 
     const mapped = linux_to_tipos[@as(usize, @intCast(num))];
     regs[0] = @as(u64, mapped);

@@ -168,11 +168,6 @@ context_switch:
     ; Kernel process: just return (context was saved/restored)
     ; O next processo kernel continua no mesmo espaço de endereçamento~
     ; RSP já aponta pra kernel stack dele ~ simples assim~ :)
-    ; ~~ STI obrigatório!! Se essa troca veio de um irq0 que preemptou
-    ; alguém, o IF tá ZERADO pela entrega da interrupção — e o kernel
-    ; voltaria a rodar (e hlt!) com interrupt off PRA SEMPRE~ rssrsrs
-    ; Nos outros callers (yield normal, exit) o IF já tá 1, sti é no-op~
-    sti
     ret
 
 

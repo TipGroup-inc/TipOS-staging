@@ -11,23 +11,6 @@ var mouse_packet: [3]u8 = undefined;
 var last_reported_x: i32 = 512;
 var last_reported_y: i32 = 384;
 
-// ~~ MICE_BUF_SIZE ~~
-// Buffer circular dos bytes CRUS do mouse PS/2 (pro Xorg via
-// /dev/input/mice). O driver mouse do Xorg decodifica o protocolo
-// ele mesmo, então a gente só repassa os bytes~
-const MICE_BUF_SIZE = 256;
-var mice_buf: [MICE_BUF_SIZE]u8 = undefined;
-var mice_head: usize = 0;
-var mice_tail: usize = 0;
-
-fn mice_push(d: u8) void {
-    const next = (mice_head + 1) % MICE_BUF_SIZE;
-    if (next != mice_tail) {
-        mice_buf[mice_head] = d;
-        mice_head = next;
-    }
-}
-
 fn inb(port: u16) u8 {
     return asm volatile ("inb %[port], %[ret]"
         : [ret] "={al}" (-> u8),
@@ -113,7 +96,6 @@ export fn mouse_init() void {
 // A posição é clampada entre 0..1023 (X) e 0..767 (Y) porque não tenho
 // monitor infinito, infelizmente~
 export fn mouse_process_byte(d: u8) void {
-    mice_push(d);
     switch (mouse_cycle) {
         0 => {
             mouse_packet[0] = d;
@@ -167,21 +149,6 @@ export fn mouse_read_delta(dx: *i32, dy: *i32, buttons: *i32) void {
     buttons.* = mouse_buttons;
     last_reported_x = mouse_x;
     last_reported_y = mouse_y;
-}
-
-// ~~ mice_avail / mice_read ~~
-// Bytes crus do mouse pro Xorg (/dev/input/mice). Não bloqueia:
-// retorna o que tiver no buffer. O Xorg espera via select()~
-export fn mice_avail() i32 {
-    if (mice_head != mice_tail) return 1;
-    return 0;
-}
-
-export fn mice_read() u8 {
-    if (mice_head == mice_tail) return 0;
-    const b = mice_buf[mice_tail];
-    mice_tail = (mice_tail + 1) % MICE_BUF_SIZE;
-    return b;
 }
 
 // ~~ mouse_x / mouse_y / mouse_buttons ~~

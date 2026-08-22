@@ -21,17 +21,13 @@
 static inline void outb(uint16_t port, uint8_t val) { __asm__ volatile ("outb %0, %1" :: "a"(val), "Nd"(port)); }
 
 volatile uint64_t timer_ticks = 0;
-volatile int need_sched = 0;
 
 /* ~~ Vai tratar esse evento~ se prepara pro caos! */
 /* ~ simples mas essencial, n mexe sem saber oq ta fazendo */
 void timer_tick_handler(void) {
     timer_ticks++;
     outb(0x20, 0x20);
-    /* ~~ Agenda FORA da interrupção: o kernel_main chama schedule()~
-     * (trocar de contexto DENTRO do irq0 abandonava o frame e o
-     *  kernel voltava com IF=0 / estado pela metade~ rssrsrs) */
-    need_sched = 1;
+    schedule();
 }
 
 /* ~~ Inicializando~~ torce pra não dar panic! */

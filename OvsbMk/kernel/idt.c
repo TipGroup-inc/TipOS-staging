@@ -115,8 +115,6 @@ void idt_handler(uint64_t *regs) {
         if (cr2 != 0xDEADBEEF) {
             serial_puts("\r\nPF@");
             serial_puthex((uint32_t)cr2);
-            serial_puts(" CS=");
-            serial_puthex((uint32_t)regs[18]);
             serial_puts(" err=");
             serial_puthex((uint32_t)err_code);
             serial_puts(" RIP=");
@@ -186,9 +184,7 @@ void idt_handler(uint64_t *regs) {
 
     serial_puts("\r\n!!! EXC#");
     serial_puthex((uint32_t)exc_num);
-    serial_puts(" CS=");
-            serial_puthex((uint32_t)regs[18]);
-            serial_puts(" err=");
+    serial_puts(" err=");
     serial_puthex((uint32_t)err_code);
     serial_puts(" RIP=");
     serial_puthex((uint32_t)regs[17]);
@@ -227,21 +223,6 @@ void idt_handler(uint64_t *regs) {
     serial_puts(" CR2=");
     { uint64_t _cr2; __asm__ volatile("mov %%cr2, %0" : "=r"(_cr2)); serial_puthex((uint32_t)_cr2); }
     serial_puts(" !!!\r\n");
-    /* ~~ Backtrace: qwords da pilha do processo (retornos de call) ~~ */
-    {
-        uint64_t sp = regs[20];
-        serial_puts(" STACK:");
-        for (int i = 0; i < 24; i++) {
-            uint64_t v = *(uint64_t *)(uintptr_t)(sp + 8 * i);
-            if (v >= 0x40000000 && v < 0x40600000) {   /* só .text do user */
-                serial_puts(" ");
-                serial_puthex((uint32_t)(sp + 8 * i));
-                serial_puts(":");
-                serial_puthex((uint32_t)v);
-            }
-        }
-        serial_puts("\r\n");
-    }
     serial_puts(" CODE:");
     uint8_t *code = (uint8_t *)(uintptr_t)regs[17];
     for (int i = 0; i < 16; i++) {
