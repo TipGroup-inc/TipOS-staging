@@ -20,6 +20,7 @@
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
 #include "syscall.h"
+#include "../fs/vfs.h"
 #include "process.h"
 #include "memory.h"
 #include "console.h"
@@ -223,6 +224,28 @@ static int str_equal(const char *a, const char *b) {
     return *a == *b;
 }
 
+int g_use_ext2 = 0;
+extern int ext2_init(void);
+extern int ext2_read_file(const char *path, unsigned char *buffer, unsigned int size);
+extern int ext2_stat(const char *path, unsigned int *size);
+extern int ext2_create_file(const char *path);
+extern int ext2_write_at(const char *path, unsigned char *buffer, unsigned int size, unsigned int offset);
+
+int fs_read_file(const char *name, uint8_t *buf, uint32_t count) {
+    if (g_use_ext2) return ext2_read_file(name, buf, count);
+    return fat32_read_file(name, buf, count);
+}
+int vfs_stat_size(const char *name, uint32_t *size, uint8_t *attr) {
+    if (g_use_ext2) {
+        unsigned int sz = 0;
+        if (ext2_stat(name, &sz) != 0) return -1;
+        if (size) *size = sz;
+        if (attr) *attr = 0;
+        return 0;
+    }
+    return fat32_stat(name, size, attr, NULL, NULL);
+}
+
 /* ~~ do_write_fd ~ escreve num fd (eventfd/pipe/socket/arquivo/console) ~~
  * Devolve bytes escritos (ou -1 em erro). Compartilhado entre
  * SYS_write e SYS_writev pra nao duplicar a logica~ */
@@ -259,6 +282,17 @@ static int do_write_fd(int fd, const char *buf, int count) {
         return sock_push(peer, (const uint8_t *)buf, count);
     }
     if (fd >= 3 && fd < MAX_FDS && fds[fd].used) {
+        if (g_use_ext2) {
+            /* ~~ VFS: create-if-missing + write_at com offset do stdio~~ */
+            unsigned int cursz = 0;
+            if (vfs_stat_size_attr(fds[fd].name, &cursz, NULL) != 0 &&
+                vfs_create_file(fds[fd].name) != 0) return -1;
+            if (fds[fd].pos == 0) fds[fd].pos = cursz;
+            if (vfs_write_at(fds[fd].name, (const uint8_t *)buf, count, fds[fd].pos) < 0)
+                return -1;
+            fds[fd].pos += count;
+            return count;
+        }
         int r = fat32_write_file(fds[fd].name, (const uint8_t *)buf, count);
         if (r < 0) {
             /* ~~ arquivo novo? cria e tenta de novo (O_CREAT!) ~~
@@ -592,7 +626,7 @@ void syscall_handler(uint64_t *regs) {
         }
         if (fd >= 3 && fd < MAX_FDS && fds[fd].used) {
             static uint8_t tmp[4096];
-            int r = fat32_read_file(fds[fd].name, tmp, 4096);
+            int r = vfs_read_file(fds[fd].name, tmp, 4096);
             if (r < 0) {
                 serial_puts("[rdFAIL] ");
                 serial_puts(fds[fd].name);
@@ -613,7 +647,7 @@ void syscall_handler(uint64_t *regs) {
 
     case SYS_open: {
         const char *path = (const char *)a1;
-        char fpbuf[256];
+        char fpbuf[512];
         path = fixpath(path, fpbuf, sizeof(fpbuf));
         if (str_equal(path, "/dev/tty") || str_equal(path, "/dev/stdin")) { ret = 0; break; }
         if (str_equal(path, "/dev/stdout")) { ret = 1; break; }
@@ -680,7 +714,7 @@ void syscall_handler(uint64_t *regs) {
         }
         if (fd >= 3 && fd < MAX_FDS && fds[fd].used) {
             uint32_t size; uint8_t attr;
-            if (fat32_stat(fds[fd].name, &size, &attr, NULL, NULL) == 0) {
+            if (vfs_stat_size(fds[fd].name, &size, &attr) == 0) {
                 st->st_size = size; ret = 0; break;
             }
         }
@@ -704,14 +738,15 @@ void syscall_handler(uint64_t *regs) {
             *(uint64_t *)((uint8_t *)st + 48) = 4096;
             ret = 0; break;
         }
-        uint32_t saved_cwd_stat = fat32_get_cwd();
-        char stbase[256];
-        uint32_t size; uint8_t attr;
+        uint32_t size = 0; uint8_t attr = 0;
         int stok = 0;
-        if (resolve_at_path(AT_FDCWD, path, stbase, sizeof(stbase)) == 0 &&
-            fat32_stat(stbase, &size, &attr, NULL, NULL) == 0)
-            stok = 1;
-        fat32_set_cwd(saved_cwd_stat);
+        {
+            pcb_t *curp = process_current();
+            char absp[VFS_MAX_PATH];
+            if (vfs_abs_path(curp ? curp->cwd : "/", path, absp, sizeof(absp)) == 0 &&
+                vfs_stat_size_attr(absp, &size, &attr) == 0)
+                stok = 1;
+        }
         if (stok) {
             st->st_size = size; ret = 0; break;
         }
@@ -730,7 +765,7 @@ void syscall_handler(uint64_t *regs) {
             case 2: {
                 uint32_t size = 0;
                 uint8_t attr;
-                if (fat32_stat(fds[fd].name, &size, &attr, NULL, NULL) == 0)
+                if (vfs_stat_size(fds[fd].name, &size, &attr) == 0)
                     fds[fd].pos = size + off;
                 ret = fds[fd].pos;
                 break;
@@ -766,25 +801,39 @@ void syscall_handler(uint64_t *regs) {
      * cwd, resolve o path, opera, restaura. kyun~ */
     case SYS_openat: {
         int dirfd = (int)a1;
+        char fpbuf2[VFS_MAX_PATH];
         const char *path = (const char *)a2;
+        path = fixpath(path, fpbuf2, sizeof(fpbuf2));
         {
             int devfd = open_dev(path);
             if (devfd >= 0) { ret = devfd; break; }
         }
-        uint32_t saved = fat32_get_cwd();
-        char base[256];
-        if (resolve_at_path(dirfd, path, base, sizeof(base)) < 0) {
-            fat32_set_cwd(saved); ret = -1; break;
+        /* ~~ VFS #70: caminho absoluto via cwd POR PROCESSO~~ */
+        pcb_t *curp = process_current();
+        char abspath[VFS_MAX_PATH];
+        if (vfs_abs_path(curp ? curp->cwd : "/", path, abspath, sizeof(abspath)) != 0) { ret = -1; break; }
+
+        char base[VFS_MAX_PATH > 255 ? 255 : VFS_MAX_PATH];
+        if (!g_use_ext2) {
+            uint32_t saved = fat32_get_cwd();
+            if (resolve_at_path(dirfd, abspath, base, sizeof(base)) < 0) {
+                /* ~~ ENOENT de verdade: fd cego enganava o loader do Xorg~~ */
+                fat32_set_cwd(saved); ret = -1; break;
+            }
+            fat32_set_cwd(saved);
+        } else {
+            int bi = 0;
+            while (abspath[bi] && bi < 254) { base[bi] = abspath[bi]; bi++; }
+            base[bi] = '\0';
         }
         int fd = alloc_fd();
-        if (fd < 0) { fat32_set_cwd(saved); ret = -1; break; }
+        if (fd < 0) { ret = -1; break; }
         int i = 0;
         while (base[i] && i < 255) { fds[fd].name[i] = base[i]; i++; }
         fds[fd].name[i] = '\0';
         fds[fd].type = 0;
         fds[fd].pos = 0;
         fds[fd].used = 1;
-        fat32_set_cwd(saved);
         ret = fd;
         break;
     }
@@ -828,8 +877,31 @@ void syscall_handler(uint64_t *regs) {
             *(uint64_t *)((uint8_t *)st + 48) = 4096;        /* st_size */
             ret = 0; break;
         }
+        if (g_use_ext2) {
+            unsigned int sz = 0;
+            char fpbuf[256];
+            path = fixpath(path, fpbuf, sizeof(fpbuf));
+            if (!path || !st || ext2_stat(path, &sz) != 0) { ret = -1; break; }
+            *(unsigned int *)((uint8_t *)st + 24) = 0100644;
+            *(uint64_t *)((uint8_t *)st + 48) = sz;
+            ret = 0; break;
+        }
         uint32_t saved = fat32_get_cwd();
         char base[256];
+        if (g_use_ext2) {
+            unsigned int sz = 0;
+            char fpb[512];
+            const char *fx = fixpath(path, fpb, sizeof(fpb));
+            pcb_t *curp2 = process_current();
+            char absp[VFS_MAX_PATH];
+            if (!st || vfs_abs_path(curp2 ? curp2->cwd : "/", fx, absp, sizeof(absp)) != 0 ||
+                ext2_stat(absp, &sz) != 0) {
+                fat32_set_cwd(saved); ret = -1; break;
+            }
+            *(unsigned int *)((uint8_t *)st + 24) = 0100644;
+            *(uint64_t *)((uint8_t *)st + 48) = sz;
+            fat32_set_cwd(saved); ret = 0; break;
+        }
         if (!st || resolve_at_path(dirfd, path, base, sizeof(base)) < 0) {
             fat32_set_cwd(saved); ret = -1; break;
         }
@@ -1082,12 +1154,12 @@ void syscall_handler(uint64_t *regs) {
             v[3]  = H;                       /* yres_virtual */
             v[4]  = 0;                       /* xoffset */
             v[5]  = 0;                       /* yoffset */
-            v[6]  = 32;                      /* bits_per_pixel */
+            v[6]  = 16;                      /* bits_per_pixel — RGB565 evita o shadow framebuffer forçado do driver em 24bpp~ */
             v[7]  = 0;                       /* grayscale */
-            /* fb_bitfield {offset, length, msb_right} — XRGB8888 */
-            v[8]  = 16; v[9]  = 8;  v[10] = 0;  /* red */
-            v[11] = 8;  v[12] = 8;  v[13] = 0;  /* green */
-            v[14] = 0;  v[15] = 8;  v[16] = 0;  /* blue */
+            /* fb_bitfield {offset, length, msb_right} — RGB565 */
+            v[8]  = 11; v[9]  = 5;  v[10] = 0;  /* red */
+            v[11] = 5;  v[12] = 6;  v[13] = 0;  /* green */
+            v[14] = 0;  v[15] = 5;  v[16] = 0;  /* blue */
             v[17] = 0;  v[18] = 0;  v[19] = 0;  /* transp */
             v[20] = 0;                       /* nonstd */
             v[21] = 0;                       /* activate */

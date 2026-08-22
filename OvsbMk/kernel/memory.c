@@ -129,15 +129,12 @@ static void list_remove(free_block_t **head, free_block_t *blk) {
 /* ~ simples mas essencial, n mexe sem saber oq ta fazendo */
 static void *buddy_alloc(int order, int user) {
     if (order < 0 || order > MAX_ORDER) return NULL;
-    serial_puts("ba: lock...\r\n");
     mem_lock();
-    serial_puts("ba: locked\r\n");
     int found_order = -1;
     for (int o = order; o <= MAX_ORDER; o++) {
         if (free_area[o]) { found_order = o; break; }
     }
     if (found_order < 0) { serial_puts("ba: no free\r\n"); mem_unlock(); return NULL; }
-    serial_puts("ba: found o="); serial_puthex((uint32_t)found_order); serial_puts("\r\n");
 
     free_block_t *block = free_area[found_order];
     list_remove(&free_area[found_order], block);

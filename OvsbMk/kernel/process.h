@@ -55,6 +55,7 @@ typedef struct pcb {
     struct vm_map *vm_map;
     struct vmspace *vmspace;
     uint64_t fs_base;
+    char cwd[256];          /* ~~ diretório atual POR PROCESSO (VFS #70) ~~ */
 } pcb_t;
 
 extern pcb_t pcb_table[MAX_PROC];
