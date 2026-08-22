@@ -7,6 +7,12 @@
 #define SYSCALL_H
 #include <stdint.h>
 
+/* ~~ iovec pro writev/readv (ABI Linux x86_64) ~~ */
+struct iovec {
+    void     *iov_base;
+    uint64_t  iov_len;
+};
+
 #define SYS_exit         1
 #define SYS_read         3
 #define SYS_write        4
@@ -90,6 +96,13 @@
 #define SYS_fchown       405
 #define SYS_statfs       406
 #define SYS_fstatfs      407
+
+/* ~~ writev (issue #55) ~~
+ * Linux writev=20 colide c/ getpid=20 → 409 livre~ */
+#define SYS_writev       409
+
+/* ~~ readlink (89) ~ musl usa o syscall antigo, nao o *at ~~ */
+#define SYS_readlink     89
 
 /* ~~ sockets AF_UNIX (issue #49) ~~
  * números Linux: socket=41, connect=42, accept=43, sendto=44, recvfrom=45,

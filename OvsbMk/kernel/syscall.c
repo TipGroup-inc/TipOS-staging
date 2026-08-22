@@ -36,10 +36,18 @@
 
 extern void execute(const char *cmd);
 
+/* ~~ raw input pro Xorg (Zig) ~~
+ * Scan codes crus do teclado e bytes crus do mouse~ */
+extern int  kbd_raw_avail(void);
+extern unsigned char kbd_raw_read(void);
+extern int  mice_avail(void);
+extern unsigned char mice_read(void);
+
 #define MAX_FDS 16
 static struct {
     int used;
-    int type;          /* 0=arquivo, 1=eventfd, 2=timerfd, 3=pipe, 4=socket */
+    int type;          /* 0=arquivo, 1=eventfd, 2=timerfd, 3=pipe, 4=socket,
+                          5=/dev/fb0, 6=/dev/ttyN, 7=/dev/input/mice */
     int flags;         /* O_NONBLOCK etc (fcntl) */
     int pipe_idx;      /* pipe: indice na tabela de pipes */
     int sock_idx;      /* socket: indice na tabela de sockets */
@@ -47,6 +55,14 @@ static struct {
     uint32_t pos;
     uint64_t counter;  /* eventfd: contador; timerfd: intervalo (ms) */
 } fds[MAX_FDS];
+
+/* ~~ device fds pro Xorg ~~
+ * type 5 = /dev/fb0 (framebuffer: ioctls FBIO, mmap)
+ * type 6 = /dev/ttyN (console: ioctls VT e KD, read = scan codes crus)
+ * type 7 = /dev/input/mice (read = bytes crus do PS/2) */
+#define FD_FB    5
+#define FD_TTY   6
+#define FD_MICE  7
 
 /* ~~ pipes (issue #52) ~~ um buffer por pipe, read/write pos separados */
 #define MAX_PIPES 8
@@ -99,6 +115,7 @@ typedef struct {
 #define PT_LOAD 1
 
 extern void *elf64_load_into_pml4(const uint8_t *data, uint32_t len, uint64_t pml4);
+extern uint64_t elf64_pie_base(void);
 
 /* ~ cuidado que essa aqui morde ~ */
 void syscall_init(void) {
@@ -118,6 +135,36 @@ static int alloc_fd(void) {
     return -1;
 }
 
+/* ~~ open_dev ~ "Abre um device file" ~~
+ * /dev/fb0, /dev/ttyN e /dev/input/mice pro Xorg.
+ * Retorna o fd (ja com O_NONBLOCK setado, que e como o Xorg abre)
+ * ou -1 se o path nao for um device conhecido. */
+static int str_equal(const char *a, const char *b);
+static int open_dev(const char *path) {
+    if (!path || !path[0]) return -1;
+    int type = -1;
+    if (str_equal(path, "/dev/fb0")) {
+        type = FD_FB;
+    } else if (str_equal(path, "/dev/input/mice")) {
+        type = FD_MICE;
+    } else if (path[0] == '/' && path[1] == 'd' && path[2] == 'e' && path[3] == 'v' &&
+               path[4] == '/' && path[5] == 't' && path[6] == 't' && path[7] == 'y' &&
+               path[8] >= '0' && path[8] <= '9' && path[9] == '\0') {
+        type = FD_TTY;
+    }
+    if (type < 0) return -1;
+    int fd = alloc_fd();
+    if (fd < 0) return -1;
+    int i = 0;
+    while (path[i] && i < 255) { fds[fd].name[i] = path[i]; i++; }
+    fds[fd].name[i] = '\0';
+    fds[fd].type = type;
+    fds[fd].flags = O_NONBLOCK;
+    fds[fd].pos = 0;
+    fds[fd].used = 1;
+    return fd;
+}
+
 /* ~ kyun~ mais uma funcao pra fazer o kernel n morrer */
 static void close_fd(int fd) {
     if (fd >= 3 && fd < MAX_FDS && fds[fd].used) {
@@ -133,11 +180,113 @@ static void close_fd(int fd) {
     }
 }
 
+/* ~~ do_readlink ~ resolve symlinks de /proc que o Xorg precisa ~~
+ * /proc/self/exe → nome do processo; /proc/self/fd/N → nome do fd.
+ * O driver fbdev usa isso pra detectar se /dev/fb0 e PCI ou nao~
+ * Devolve bytes escritos (sem NUL, igual readlink real) ou -1. */
+static int do_readlink(const char *path, char *buf, size_t bufsiz) {
+    if (!path || !buf || bufsiz == 0) return -1;
+    const char *target = NULL;
+    if (str_equal(path, "/proc/self/exe")) {
+        pcb_t *cur = process_current();
+        if (cur) target = cur->name;
+    } else if (strncmp(path, "/proc/self/fd/", 14) == 0) {
+        int fd = 0;
+        for (int i = 14; path[i] >= '0' && path[i] <= '9'; i++)
+            fd = fd * 10 + (path[i] - '0');
+        if (fd >= 0 && fd < MAX_FDS && fds[fd].used)
+            target = fds[fd].name;
+    } else if (strncmp(path, "/sys/class/graphics/fb", 22) == 0) {
+        /* ~~ sysfs do fbdev ~ o driver do Xorg le /sys/class/graphics/fbN
+         * pra ver se e device PCI/DRM (strstr(buf,"devices/pci")). Aqui
+         * devolvemos "/dev/fbN" — sem "devices/pci" — pra ele tratar como
+         * fbdev puro e seguir pro FBIOGET_FSCREENINFO~ */
+        static char tmp[32];
+        tmp[0] = '/'; tmp[1] = 'd'; tmp[2] = 'e'; tmp[3] = 'v'; tmp[4] = '/';
+        tmp[5] = 'f'; tmp[6] = 'b';
+        int n = 7, i = 22;
+        while (path[i] >= '0' && path[i] <= '9' && n < 31) tmp[n++] = path[i++];
+        tmp[n] = '\0';
+        target = tmp;
+    }
+    if (!target) return -1;
+    int i = 0;
+    while (target[i] && i < (int)bufsiz - 1) { buf[i] = target[i]; i++; }
+    buf[i] = '\0';
+    return i;
+}
+
 /* ~ kyun~ mais uma funcao pra fazer o kernel n morrer */
 static int str_equal(const char *a, const char *b) {
     if (!a || !b) return 0;
     while (*a && *b) { if (*a != *b) return 0; a++; b++; }
     return *a == *b;
+}
+
+/* ~~ do_write_fd ~ escreve num fd (eventfd/pipe/socket/arquivo/console) ~~
+ * Devolve bytes escritos (ou -1 em erro). Compartilhado entre
+ * SYS_write e SYS_writev pra nao duplicar a logica~ */
+static int sock_push(int s, const uint8_t *buf, int count);
+static int do_write_fd(int fd, const char *buf, int count) {
+    if (fd >= 3 && fd < MAX_FDS && fds[fd].used && fds[fd].type == 1) {
+        /* eventfd write: soma u64 no contador */
+        if (count >= 8) {
+            uint64_t val = 0;
+            for (int i = 0; i < 8; i++) val |= (uint64_t)(uint8_t)buf[i] << (8 * i);
+            fds[fd].counter += val;
+        }
+        return count;
+    }
+    if (fd >= 3 && fd < MAX_FDS && fds[fd].used && fds[fd].type == 3) {
+        /* pipe write: copia pro buffer compartilhado */
+        int p = fds[fd].pipe_idx;
+        if (p < 0 || p >= MAX_PIPES || !pipes[p].used) return -1;
+        if (pipes[p].wpos - pipes[p].rpos >= 4096) {
+            if (fds[fd].flags & O_NONBLOCK) return -11;
+            return -1;
+        }
+        int n = 0;
+        while (n < count && pipes[p].wpos - pipes[p].rpos < 4096) {
+            pipes[p].buf[pipes[p].wpos & 4095] = (uint8_t)buf[n++];
+            pipes[p].wpos++;
+        }
+        return n;
+    }
+    if (fd >= 3 && fd < MAX_FDS && fds[fd].used && fds[fd].type == 4) {
+        /* socket write: empurra pro buffer do peer */
+        int s = fds[fd].sock_idx;
+        int peer = (s >= 0 && s < MAX_SOCKS) ? socks[s].peer : -1;
+        return sock_push(peer, (const uint8_t *)buf, count);
+    }
+    if (fd >= 3 && fd < MAX_FDS && fds[fd].used) {
+        int r = fat32_write_file(fds[fd].name, (const uint8_t *)buf, count);
+        if (r < 0) {
+            /* ~~ arquivo novo? cria e tenta de novo (O_CREAT!) ~~
+             * O XKB escreve o keymap compilado (.xkm) em arquivo que
+             * ainda não existe — sem isso o teclado não ativa~ */
+            if (fat32_create_file(fds[fd].name) == 0)
+                r = fat32_write_file(fds[fd].name, (const uint8_t *)buf, count);
+        }
+        {
+            static char wseen[6][96]; static int wn=0;
+            int dup=0;
+            for (int q=0;q<wn;q++) if (str_equal(wseen[q],fds[fd].name)){dup=1;break;}
+            if (!dup && wn<6){
+                int q2=0; while (fds[fd].name[q2] && q2<95){wseen[wn][q2]=fds[fd].name[q2];q2++;}
+                wseen[wn][q2]='\0'; wn++;
+                serial_puts("[wr] "); serial_puts(fds[fd].name);
+                serial_puts(" n="); serial_puthex((uint32_t)count);
+                serial_puts(" r="); serial_puthex((uint32_t)r);
+                serial_puts("\r\n");
+            }
+        }
+        return (r >= 0) ? count : -1;
+    }
+    if (fd == 1 || fd == 2) {
+        for (int i = 0; i < count; i++) console_putchar(buf[i]);
+        return count;
+    }
+    return -1;
 }
 
 /* ~ simples mas essencial, n mexe sem saber oq ta fazendo */
@@ -147,8 +296,30 @@ static int str_equal(const char *a, const char *b) {
  * do nome, como o spawn faz, e deixa o cwd no dir certo.
  * Retorna 0 e grava o nome base em out (ate maxlen) ou -1.
  * O caller DEVE restaurar o cwd depois (fat32_set_cwd(saved)). */
+/* ~~ fixpath ~ remap do prefixo de build do Xorg pra raiz do disco ~~
+ * O Xorg foi compilado com prefixo ABSOLUTO do host: paths tipo
+ * "/home/vinberkuko/tipos-musl/prefix/share/X11/xkb" chegam crus.
+ * No FAT32 a gente serve isso da raiz: "/share/X11/xkb"~ */
+#define XPREFIX "/home/vinberkuko/tipos-musl/prefix"
+static const char *fixpath(const char *path, char *buf, int buflen) {
+    if (!path) return path;
+    int pl = sizeof(XPREFIX) - 1;
+    int i = 0;
+    while (XPREFIX[i] && path[i] == XPREFIX[i]) i++;
+    if (i != pl) return path;                       /* sem prefixo ~ */
+    if (path[i] != '\0' && path[i] != '/') return path;
+    if (path[i] == '/') i++;                        /* come a barra dupla */
+    int j = 0;
+    buf[j++] = '/';
+    while (path[i] && j < buflen - 1) buf[j++] = path[i++];
+    buf[j] = '\0';
+    return buf;
+}
+
 static int resolve_at_path(int dirfd, const char *path, char *out, int maxlen) {
     if (!path || !path[0]) return -1;
+    char pbuf[256];
+    path = fixpath(path, pbuf, sizeof(pbuf));
     if (dirfd != AT_FDCWD) return -1;  /* dirfd != cwd ainda nao suportado */
     char _p[256]; int _i = 0;
     while (path[_i] && _i < 255) { _p[_i] = path[_i]; _i++; }
@@ -231,12 +402,44 @@ static int sock_pop(int s, uint8_t *buf, int count) {
 
 /* 1 se o fd tem dados pra ler (socket com buffer cheio ou listener com pending) */
 static int fd_readable(int fd) {
+    if (fd >= 3 && fd < MAX_FDS && fds[fd].used && fds[fd].type == FD_TTY)
+        return kbd_raw_avail();
+    if (fd >= 3 && fd < MAX_FDS && fds[fd].used && fds[fd].type == FD_MICE)
+        return mice_avail();
     if (fd >= 3 && fd < MAX_FDS && fds[fd].used && fds[fd].type == 4) {
         int s = fds[fd].sock_idx;
         if (s >= 0 && s < MAX_SOCKS)
             return (socks[s].rpos != socks[s].wpos || socks[s].npending > 0);
     }
     return 0;
+}
+
+/* ~~ syscall_trace ~~
+ * Rastreia syscalls Linux unicos (bitmap). Imprime so a primeira
+ * ocorrencia de cada numero no serial — debug do Xorg no QEMU.
+ * Chamado do dispatcher Zig antes da traducao. */
+#define TRACE_BITS 1024
+static uint8_t trace_seen[TRACE_BITS / 8];
+static int q0_len(const char *t) { int n=0; while (t[n]) n++; return n; }
+void syscall_trace(uint64_t num, uint64_t rip) {
+    if (num >= TRACE_BITS) return;
+    /* ~~ FS-calls: loga SEMPRE (bitmap come no first-shot do boot) ~~ */
+    if (num == 83 || num == 87 || num == 258 || num == 262 || num == 263 ||
+        num == 266 || num == 332 || num == 257 || num == 2 || num == 6) {
+        serial_puts("[fs");
+        serial_puthex((uint32_t)num);
+        serial_puts(" rip=");
+        serial_puthex((uint32_t)rip);
+        serial_puts("]\r\n");
+        return;
+    }
+    if (trace_seen[num / 8] & (1 << (num % 8))) return;
+    trace_seen[num / 8] |= (1 << (num % 8));
+    serial_puts("[SYS ");
+    serial_puthex((uint32_t)num);
+    serial_puts(" RIP=");
+    serial_puthex((uint32_t)rip);
+    serial_puts("]\n");
 }
 
 void syscall_handler(uint64_t *regs) {
@@ -257,51 +460,37 @@ void syscall_handler(uint64_t *regs) {
         int fd = (int)a1;
         const char *buf = (const char *)a2;
         int count = (int)a3;
-        if (fd >= 3 && fd < MAX_FDS && fds[fd].used && fds[fd].type == 1) {
-            /* eventfd write: soma u64 no contador */
-            if (count >= 8) {
-                uint64_t val = 0;
-                for (int i = 0; i < 8; i++) val |= (uint64_t)(uint8_t)buf[i] << (8 * i);
-                fds[fd].counter += val;
+        ret = do_write_fd(fd, buf, count);
+        break;
+    }
+
+    case SYS_writev: {
+        /* ~~ writev ~ o musl usa pra escrever no log (2 iovecs: buffer
+         * velho + novo). Antes o writev caia no identity mapping do Zig
+         * e virava getpid (20=20)! O __stdio_write do musl recebia o PID
+         * como "bytes escritos" e ficava num loop infinito~ rssrsrs */
+        int fd = (int)a1;
+        const struct iovec *iov = (const struct iovec *)a2;
+        int iovcnt = (int)a3;
+        {
+            static int wvn=0;
+            if (wvn<14){
+                wvn++;
+                serial_puts("[wv] fd="); serial_puthex((uint32_t)fd);
+                serial_puts(" n="); serial_puthex((uint32_t)iovcnt);
+                if (fd>=3 && fd<MAX_FDS && fds[fd].used){ serial_puts(" name="); serial_puts(fds[fd].name); }
+                serial_puts("\r\n");
             }
-            ret = count;
-            break;
         }
-        if (fd >= 3 && fd < MAX_FDS && fds[fd].used && fds[fd].type == 3) {
-            /* pipe write: copia pro buffer compartilhado */
-            int p = fds[fd].pipe_idx;
-            if (p < 0 || p >= MAX_PIPES || !pipes[p].used) { ret = -1; break; }
-            if (pipes[p].wpos - pipes[p].rpos >= 4096) {
-                if (fds[fd].flags & O_NONBLOCK) ret = (uint64_t)-11;
-                else ret = -1;
-                break;
-            }
-            int n = 0;
-            while (n < count && pipes[p].wpos - pipes[p].rpos < 4096) {
-                pipes[p].buf[pipes[p].wpos & 4095] = (uint8_t)buf[n++];
-                pipes[p].wpos++;
-            }
-            ret = n;
-            break;
+        if (!iov || iovcnt <= 0) { ret = 0; break; }
+        uint64_t total = 0;
+        int err = 0;
+        for (int i = 0; i < iovcnt; i++) {
+            int r = do_write_fd(fd, (const char *)iov[i].iov_base, (int)iov[i].iov_len);
+            if (r < 0) { err = 1; break; }
+            total += (uint64_t)r;
         }
-        if (fd >= 3 && fd < MAX_FDS && fds[fd].used && fds[fd].type == 4) {
-            /* socket write: empurra pro buffer do peer */
-            int s = fds[fd].sock_idx;
-            int peer = (s >= 0 && s < MAX_SOCKS) ? socks[s].peer : -1;
-            ret = sock_push(peer, (const uint8_t *)buf, count);
-            break;
-        }
-        if (fd >= 3 && fd < MAX_FDS && fds[fd].used) {
-            int r = fat32_write_file(fds[fd].name, (const uint8_t *)buf, count);
-            ret = (r >= 0) ? count : -1;
-            break;
-        }
-        if (fd == 1 || fd == 2) {
-            for (int i = 0; i < count; i++) console_putchar(buf[i]);
-            ret = count;
-            break;
-        }
-        ret = -1;
+        ret = (err && total == 0) ? (uint64_t)-1 : total;
         break;
     }
 
@@ -325,6 +514,38 @@ void syscall_handler(uint64_t *regs) {
                 if (buf[i] == 3) break;
             }
             ret = i;
+            break;
+        }
+        if (fd >= 3 && fd < MAX_FDS && fds[fd].used && fds[fd].type == FD_TTY) {
+            /* ~~ /dev/ttyN read ~ scan codes crus pro driver kbd do Xorg ~~
+             * O Xorg abre O_NONBLOCK e espera via select(); se nao tem
+             * dado e nao eh nonblock, espera (spin com pause~) */
+            int n = 0;
+            while (n < count && kbd_raw_avail()) buf[n++] = (char)kbd_raw_read();
+            if (n > 0) { ret = n; break; }
+            if (fds[fd].flags & O_NONBLOCK) { ret = (uint64_t)-11; break; } /* -EAGAIN */
+            while (!kbd_raw_avail())
+                for (volatile int j = 0; j < 100; j++);
+            buf[0] = (char)kbd_raw_read();
+            ret = 1;
+            break;
+        }
+        if (fd >= 3 && fd < MAX_FDS && fds[fd].used && fds[fd].type == FD_MICE) {
+            /* ~~ /dev/input/mice read ~ bytes crus do PS/2 ~~
+             * O driver mouse do Xorg decodifica o protocolo sozinho~ */
+            int n = 0;
+            while (n < count && mice_avail()) buf[n++] = (char)mice_read();
+            if (n > 0) { ret = n; break; }
+            if (fds[fd].flags & O_NONBLOCK) { ret = (uint64_t)-11; break; } /* -EAGAIN */
+            while (!mice_avail())
+                for (volatile int j = 0; j < 100; j++);
+            buf[0] = (char)mice_read();
+            ret = 1;
+            break;
+        }
+        if (fd >= 3 && fd < MAX_FDS && fds[fd].used && fds[fd].type == FD_FB) {
+            /* ~~ /dev/fb0 read ~ o Xorg nao le, so mmap+ioctl~~ */
+            ret = -1;
             break;
         }
         if (fd >= 3 && fd < MAX_FDS && fds[fd].used && fds[fd].type == 3) {
@@ -372,7 +593,12 @@ void syscall_handler(uint64_t *regs) {
         if (fd >= 3 && fd < MAX_FDS && fds[fd].used) {
             static uint8_t tmp[4096];
             int r = fat32_read_file(fds[fd].name, tmp, 4096);
-            if (r < 0) { ret = -1; break; }
+            if (r < 0) {
+                serial_puts("[rdFAIL] ");
+                serial_puts(fds[fd].name);
+                serial_puts("\r\n");
+                ret = -1; break;
+            }
             int off = fds[fd].pos;
             int n = (count < r - off) ? count : (r - off);
             if (n < 0) { ret = 0; break; }
@@ -387,9 +613,15 @@ void syscall_handler(uint64_t *regs) {
 
     case SYS_open: {
         const char *path = (const char *)a1;
+        char fpbuf[256];
+        path = fixpath(path, fpbuf, sizeof(fpbuf));
         if (str_equal(path, "/dev/tty") || str_equal(path, "/dev/stdin")) { ret = 0; break; }
         if (str_equal(path, "/dev/stdout")) { ret = 1; break; }
         if (str_equal(path, "/dev/stderr")) { ret = 2; break; }
+        {
+            int devfd = open_dev(path);
+            if (devfd >= 0) { ret = devfd; break; }
+        }
         int fd = alloc_fd();
         if (fd < 0) { ret = -1; break; }
         int i = 0;
@@ -397,6 +629,21 @@ void syscall_handler(uint64_t *regs) {
         fds[fd].name[i] = '\0';
         fds[fd].pos = 0;
         fds[fd].used = 1;
+        {
+            static char seen_names[48][96];
+            static int seen_n = 0;
+            int dup = 0;
+            for (int q = 0; q < seen_n; q++)
+                if (str_equal(seen_names[q], path)) { dup = 1; break; }
+            if (!dup && seen_n < 48) {
+                for (int q = 0; path[q] && q < 95; q++) seen_names[seen_n][q] = path[q];
+                seen_names[seen_n][q0_len(path)] = '\0';
+                seen_n++;
+                serial_puts("[open] ");
+                serial_puts(path);
+                serial_puts("\r\n");
+            }
+        }
         ret = fd;
         break;
     }
@@ -420,6 +667,17 @@ void syscall_handler(uint64_t *regs) {
         struct stat *st = (struct stat *)a2;
         if (!st) { ret = -1; break; }
         int fd = (int)a1;
+        if (fd >= 3 && fd < MAX_FDS && fds[fd].used && fds[fd].type >= FD_FB && fds[fd].type <= FD_MICE) {
+            st->st_size = 0; ret = 0; break;
+        }
+        /* ~~ /tmp virtual ~ a checagem final do Xtrans abre o diretorio
+         * e faz fstat no fd — sem isso ele desiste do listener unix~~ */
+        if (fd >= 3 && fd < MAX_FDS && fds[fd].used &&
+            (str_equal(fds[fd].name, "/tmp/.X11-unix") || str_equal(fds[fd].name, "/tmp"))) {
+            *(unsigned int *)((uint8_t *)st + 24) = 040755;  /* S_IFDIR|0755 */
+            *(uint64_t *)((uint8_t *)st + 48) = 4096;
+            ret = 0; break;
+        }
         if (fd >= 3 && fd < MAX_FDS && fds[fd].used) {
             uint32_t size; uint8_t attr;
             if (fat32_stat(fds[fd].name, &size, &attr, NULL, NULL) == 0) {
@@ -435,9 +693,26 @@ void syscall_handler(uint64_t *regs) {
     case SYS_stat: {
         const char *path = (const char *)a1;
         struct stat *st = (struct stat *)a2;
+        char fpbuf[256];
+        if (path) path = fixpath(path, fpbuf, sizeof(fpbuf));
         if (!path || !st) { ret = -1; break; }
+        /* ~~ /tmp virtual ~ o Xorg usa o lstat ANTIGO (6→199) e sem
+         * isso ele acha que o dir do socket não existe e nem tenta
+         * o mkdir~ (mesma struct stat do musl: mode@24 size@48)~~ */
+        if (str_equal(path, "/tmp/.X11-unix") || str_equal(path, "/tmp")) {
+            *(unsigned int *)((uint8_t *)st + 24) = 040755;  /* S_IFDIR|0755 */
+            *(uint64_t *)((uint8_t *)st + 48) = 4096;
+            ret = 0; break;
+        }
+        uint32_t saved_cwd_stat = fat32_get_cwd();
+        char stbase[256];
         uint32_t size; uint8_t attr;
-        if (fat32_stat(path, &size, &attr, NULL, NULL) == 0) {
+        int stok = 0;
+        if (resolve_at_path(AT_FDCWD, path, stbase, sizeof(stbase)) == 0 &&
+            fat32_stat(stbase, &size, &attr, NULL, NULL) == 0)
+            stok = 1;
+        fat32_set_cwd(saved_cwd_stat);
+        if (stok) {
             st->st_size = size; ret = 0; break;
         }
         ret = -1;
@@ -470,6 +745,13 @@ void syscall_handler(uint64_t *regs) {
         break;
 
     case SYS_mkdir2:
+        /* ~~ /tmp virtual ~ o musl usa o mkdir antigo (83→136), e o
+         * Xorg cria o diretorio do socket unix nele~ */
+        { const char *mp=(const char *)a1;
+          if (mp && mp[0]=='/' && mp[1]=='t') {
+              serial_puts("[mkdir2] "); serial_puts(mp); serial_puts("\r\n"); } }
+        if (str_equal((const char *)a1, "/tmp/.X11-unix") ||
+            str_equal((const char *)a1, "/tmp")) { ret = 0; break; }
         if (fat32_mkdir((const char *)a1) == 0) ret = 0;
         break;
 
@@ -485,6 +767,10 @@ void syscall_handler(uint64_t *regs) {
     case SYS_openat: {
         int dirfd = (int)a1;
         const char *path = (const char *)a2;
+        {
+            int devfd = open_dev(path);
+            if (devfd >= 0) { ret = devfd; break; }
+        }
         uint32_t saved = fat32_get_cwd();
         char base[256];
         if (resolve_at_path(dirfd, path, base, sizeof(base)) < 0) {
@@ -506,6 +792,17 @@ void syscall_handler(uint64_t *regs) {
     case SYS_mkdirat: {
         int dirfd = (int)a1;
         const char *path = (const char *)a2;
+        /* ~~ /tmp virtual ~ o socket unix do Xorg mora em /tmp/.X11-unix,
+         * mas o FAT32 n entende nome com ponto no inicio (".X11-unix"
+         * vira "X11" no name_to_83~). Como o bind so guarda o path como
+         * string em socks[].path, o diretorio pode ser puramente
+         * virtual — aceita o mkdir e segue o baile~ kyun~ */
+        if (path && path[0]=='/' && path[1]=='t') {
+            serial_puts("[mkdirat] "); serial_puts(path); serial_puts("\r\n");
+        }
+        if (str_equal(path, "/tmp/.X11-unix") || str_equal(path, "/tmp")) {
+            ret = 0; break;
+        }
         uint32_t saved = fat32_get_cwd();
         char base[256];
         if (resolve_at_path(dirfd, path, base, sizeof(base)) < 0) {
@@ -520,6 +817,17 @@ void syscall_handler(uint64_t *regs) {
         int dirfd = (int)a1;
         const char *path = (const char *)a2;
         struct stat *st = (struct stat *)a3;
+        /* ~~ stat do /tmp virtual ~ o Xtrans confere se o diretorio
+         * existe e e um diretorio de verdade antes do bind~~
+         * (a struct stat do musl tem st_mode em +24 e st_size em +48) */
+        if (path && path[0]=='/' && path[1]=='t') {
+            serial_puts("[fstatat] "); serial_puts(path); serial_puts("\r\n");
+        }
+        if (path && st && (str_equal(path, "/tmp/.X11-unix") || str_equal(path, "/tmp"))) {
+            *(unsigned int *)((uint8_t *)st + 24) = 040755;  /* S_IFDIR|0755 */
+            *(uint64_t *)((uint8_t *)st + 48) = 4096;        /* st_size */
+            ret = 0; break;
+        }
         uint32_t saved = fat32_get_cwd();
         char base[256];
         if (!st || resolve_at_path(dirfd, path, base, sizeof(base)) < 0) {
@@ -574,18 +882,19 @@ void syscall_handler(uint64_t *regs) {
         const char *path = (const char *)a2;
         char *buf = (char *)a3;
         size_t bufsiz = (size_t)a4;
-        if (buf && bufsiz > 0 && str_equal(path, "/proc/self/exe")) {
-            pcb_t *cur = process_current();
-            if (cur) {
-                const char *nm = cur->name;
-                int i = 0;
-                while (nm[i] && i < (int)bufsiz - 1) { buf[i] = nm[i]; i++; }
-                buf[i] = '\0';
-                ret = i;
-                break;
-            }
-        }
-        ret = -1;
+        ret = do_readlink(path, buf, bufsiz);
+        break;
+    }
+
+    case SYS_readlink: {
+        /* ~~ readlink (89) ~ musl usa o syscall antigo (nao o *at!) ~~
+         * O driver fbdev do Xorg faz readlink("/proc/self/fd/N") pra
+         * ver se /dev/fb0 e um device PCI — se der ENOSYS ele desiste
+         * e o servidor morre com "no screens found"~ rssrsrs */
+        const char *path = (const char *)a1;
+        char *buf = (char *)a2;
+        size_t bufsiz = (size_t)a3;
+        ret = do_readlink(path, buf, bufsiz);
         break;
     }
 
@@ -623,6 +932,25 @@ void syscall_handler(uint64_t *regs) {
         uint64_t len = a2;
         int prot = (int)a3;
         int flags = (int)a4;
+        int mfd = (int)regs[5]; /* Linux mmap: 5o arg = fd (r8) */
+        /* ~~ /dev/fb0: mapeia o framebuffer no processo ~~
+         * O driver fbdev do Xorg faz mmap(..., MAP_SHARED, fd, 0).
+         * Mapeamos o LFB identity (mesma ideia do vesa_init), com U/S
+         * pra userland acessar. Retorna o proprio endereco do LFB. */
+        if (!(flags & 0x20) && mfd >= 3 && mfd < MAX_FDS && fds[mfd].used && fds[mfd].type == FD_FB) {
+            extern framebuffer_t g_fb;
+            pcb_t *cur = process_current();
+            if (!cur) { ret = (uint64_t)-1; break; }
+            uint64_t fb_size = (uint64_t)g_fb.pitch * g_fb.height;
+            fb_size = (fb_size + 0x1FFFFF) & ~0x1FFFFFULL;
+            int r = pml4_map_phys(cur->pml4, g_fb.addr, g_fb.addr, fb_size, 1);
+            if (r < 0) { ret = (uint64_t)-1; break; }
+            serial_puts("mmap: fb mapped at ");
+            serial_puthex((uint32_t)g_fb.addr);
+            serial_puts("\r\n");
+            ret = g_fb.addr;
+            break;
+        }
         serial_puts("mmap: len="); serial_puthex((uint32_t)len);
         serial_puts(" prot="); serial_puthex((uint32_t)prot);
         serial_puts(" flags="); serial_puthex((uint32_t)flags);
@@ -689,6 +1017,117 @@ void syscall_handler(uint64_t *regs) {
         unsigned long req = (unsigned long)a2;
         void *argp = (void *)a3;
         (void)fd;
+        /* ~~ Linux VT/console ioctls (pro Xorg) ~~
+         * O Xorg abre /dev/tty0 e /dev/ttyN e espera a maquina VT do
+         * Linux. Aqui aceitamos tudo e devolvemos valores plausiveis
+         * (nao temos VT de verdade no TipOS~) */
+        if (req == 0x5604) { /* VT_OPENQRY -> devolve um VT livre */
+            int *v = (int *)argp;
+            if (v) *v = 1;  /* tty1, sempre livre~ */
+            ret = 0; break;
+        }
+        if (req == 0x5603) { /* VT_GETSTATE -> struct vt_stat {v_active,v_signal,v_state; int v_mode} */
+            unsigned short *vs = (unsigned short *)argp;
+            if (vs) { vs[0] = 1; vs[1] = 0; vs[2] = 0; }
+            ret = 0; break;
+        }
+        if (req == 0x5601) { /* VT_GETMODE -> struct vt_mode {char mode,waitv,relsig,acqsig,frsig; int frsig_pending} */
+            unsigned char *vm = (unsigned char *)argp;
+            if (vm) { vm[0] = 0; vm[1] = 0; vm[2] = 0; vm[3] = 0; vm[4] = 0; }
+            ret = 0; break;
+        }
+        if (req == 0x5602 || req == 0x5606 || req == 0x5607) { /* VT_SETMODE / VT_ACTIVATE / VT_WAITACTIVE */
+            ret = 0; break;
+        }
+        if (req == 0x4B3A || req == 0x4B3B) { /* KDSETMODE / KDGETMODE */
+            if (req == 0x4B3B) { int *m = (int *)argp; if (m) *m = 0; } /* KD_TEXT */
+            ret = 0; break;
+        }
+        if (req == 0x4B44) { /* KDGKBMODE -> devolve K_RAW (1) */
+            int *m = (int *)argp;
+            if (m) *m = 1;
+            ret = 0; break;
+        }
+        if (req == 0x4B45) { /* KDSKBMODE -> aceita qualquer modo */
+            ret = 0; break;
+        }
+        if (req == 0x4B31 || req == 0x4B32) { /* KDGETLED / KDSETLED */
+            if (req == 0x4B31) { int *l = (int *)argp; if (l) *l = 0; }
+            ret = 0; break;
+        }
+        if (req == 0x5410 || req == 0x540F) { /* TIOCSPGRP / TIOCGPGRP */
+            ret = 0; break;
+        }
+        if (req == 0x4600) { /* FBIOGET_VSCREENINFO (pro driver fbdev do Xorg) */
+            extern framebuffer_t g_fb;
+            uint32_t *v = (uint32_t *)argp;
+            if (!v) { ret = -1; break; }
+            uint32_t W = g_fb.width, H = g_fb.height;
+            /* ~~ Timings estilo VESA 1024x768@60 escalados pela resolucao ~~
+             * Antes voltava tudo zerado: o modo "current" do driver fbdev
+             * falhava na validacao do xf86 e o Xorg dava free() no nome
+             * estatico dele ("current" em .rodata!) — crash no malloc~
+             * Com timing de verdade o modo valida e ninguem e liberado~ */
+            uint32_t lm = W * 24 / 1024, rm = W * 160 / 1024,
+                     hs = W * 136 / 1024, um = H * 3 / 768,
+                     bmm = H * 29 / 768, vs = H * 6 / 768;
+            if (!lm) lm = 24; if (!rm) rm = 160; if (!hs) hs = 136;
+            if (!um) um = 3; if (!bmm) bmm = 29; if (!vs) vs = 6;
+            uint32_t htotal = W + lm + rm + hs;
+            uint32_t vtotal = H + um + bmm + vs;
+            uint64_t pixclk = 1000000000000ULL / (60ULL * htotal * vtotal);
+            v[0]  = W;                       /* xres */
+            v[1]  = H;                       /* yres */
+            v[2]  = W;                       /* xres_virtual */
+            v[3]  = H;                       /* yres_virtual */
+            v[4]  = 0;                       /* xoffset */
+            v[5]  = 0;                       /* yoffset */
+            v[6]  = 32;                      /* bits_per_pixel */
+            v[7]  = 0;                       /* grayscale */
+            /* fb_bitfield {offset, length, msb_right} — XRGB8888 */
+            v[8]  = 16; v[9]  = 8;  v[10] = 0;  /* red */
+            v[11] = 8;  v[12] = 8;  v[13] = 0;  /* green */
+            v[14] = 0;  v[15] = 8;  v[16] = 0;  /* blue */
+            v[17] = 0;  v[18] = 0;  v[19] = 0;  /* transp */
+            v[20] = 0;                       /* nonstd */
+            v[21] = 0;                       /* activate */
+            v[22] = W * 304 / 1024;          /* height (mm) */
+            v[23] = H * 228 / 768;           /* width (mm) */
+            v[24] = 0;                       /* accel_flags */
+            v[25] = (uint32_t)pixclk;        /* pixclock (ps) */
+            v[26] = lm; v[27] = rm;          /* left/right margin */
+            v[28] = um; v[29] = bmm;         /* upper/lower margin */
+            v[30] = hs; v[31] = vs;          /* hsync/vsync len */
+            v[32] = 0; v[33] = 0;            /* sync, vmode=NONINTERLACED */
+            v[34] = 0;                       /* rotate */
+            v[35] = 0;                       /* colorspace */
+            ret = 0; break;
+        }
+        if (req == 0x4601) { /* FBIOPUT_VSCREENINFO -> aceita e ignora */
+            ret = 0; break;
+        }
+        if (req == 0x4602) { /* FBIOGET_FSCREENINFO (pro driver fbdev do Xorg) */
+            extern framebuffer_t g_fb;
+            uint8_t *f = (uint8_t *)argp;
+            if (!f) { ret = -1; break; }
+            for (int i = 0; i < 16; i++) f[i] = 0;
+            const char *id = "TipOS fb";
+            for (int i = 0; i < 16 && id[i]; i++) f[i] = (uint8_t)id[i];
+            *(uint64_t *)(f + 16) = g_fb.addr;        /* smem_start */
+            *(uint32_t *)(f + 24) = g_fb.pitch * g_fb.height; /* smem_len */
+            *(uint32_t *)(f + 28) = 0;                /* type = FB_TYPE_PACKED_PIXELS */
+            *(uint32_t *)(f + 32) = 0;                /* type_aux */
+            *(uint32_t *)(f + 36) = 2;                /* visual = FB_VISUAL_TRUECOLOR */
+            *(uint16_t *)(f + 40) = 0;                /* xpanstep */
+            *(uint16_t *)(f + 42) = 0;                /* ypanstep */
+            *(uint16_t *)(f + 44) = 0;                /* ywrapstep */
+            *(uint32_t *)(f + 46) = g_fb.pitch;       /* line_length */
+            *(uint64_t *)(f + 48) = 0;                /* mmio_start */
+            *(uint32_t *)(f + 56) = 0;                /* mmio_len */
+            *(uint32_t *)(f + 60) = 0;                /* accel */
+            *(uint16_t *)(f + 64) = 0;                /* capabilities */
+            ret = 0; break;
+        }
         if (req == 0x5413) { /* TIOCGWINSZ */
             /* struct winsize { unsigned short ws_row, ws_col, ws_xpixel, ws_ypixel; } */
             unsigned short *ws = (unsigned short *)argp;
@@ -765,11 +1204,23 @@ void syscall_handler(uint64_t *regs) {
         uint8_t *rd_set = (uint8_t *)a2;
         (void)nfds;
 
-        /* Simplificação: só fd 0 (stdin) é monitorável */
+        /* fd 0 (stdin) + device fds (tty/mice pro Xorg) */
         int ready = 0;
-        if (rd_set && keyboard_avail()) {
+        if (!rd_set) { ret = 0; break; }
+        if (keyboard_avail()) {
             rd_set[0] |= 1;
             ready++;
+        }
+        for (int i = 3; i < nfds && i < MAX_FDS; i++) {
+            if (!fds[i].used) continue;
+            int readable = 0;
+            if (fds[i].type == FD_TTY) readable = kbd_raw_avail();
+            else if (fds[i].type == FD_MICE) readable = mice_avail();
+            else readable = fd_readable(i);
+            if (readable) {
+                rd_set[i >> 3] |= (uint8_t)(1 << (i & 7));
+                ready++;
+            }
         }
         ret = ready;
         break;
@@ -1144,23 +1595,30 @@ void syscall_handler(uint64_t *regs) {
          * ELF = Linux padrao, Mach-O = nosso formato legado~
          * Se tiver os 4 bytes magicos "\x7fELF", é um~ */
         int is_elf = (fsize >= 4 && buf[0] == 0x7F && buf[1] == 'E' && buf[2] == 'L' && buf[3] == 'F');
-        uint64_t elf_phdr = 0, elf_phent = 0, elf_phnum = 0;
+        uint64_t elf_phdr = 0, elf_phent = 0, elf_phnum = 0, elf_bss_end = 0;
         void *entry;
+        uint64_t elf_base = 0;
         if (is_elf) {
             Elf64_Ehdr *ehdr = (Elf64_Ehdr *)buf;
             elf_phent = ehdr->e_phentsize;
             elf_phnum = ehdr->e_phnum;
-            /* ~~ Calcula o endereco virtual da tabela PHDR ~~
-             * Primeiro PT_LOAD que achamos, a gente usa de base~ */
+            elf_base = (ehdr->e_type == 3) ? elf64_pie_base() : 0; /* ET_DYN = PIE */
+            /* ~~ Calcula o endereco virtual da tabela PHDR + fim do BSS ~~
+             * O BSS end vira o program_break inicial (o musl chama
+             * brk(0) pra descobrir onde o heap começa — e antes o
+             * kernel respondia 0x201000 pra todo mundo, um chute~) */
             if (elf_phnum) {
                 Elf64_Phdr *pp = (Elf64_Phdr *)(buf + ehdr->e_phoff);
                 for (uint32_t k = 0; k < elf_phnum; k++) {
                     if (pp->p_type == PT_LOAD) {
-                        elf_phdr = pp->p_vaddr + (ehdr->e_phoff - pp->p_offset);
-                        break;
+                        if (!elf_phdr)
+                            elf_phdr = elf_base + pp->p_vaddr + (ehdr->e_phoff - pp->p_offset);
+                        uint64_t seg_end = elf_base + pp->p_vaddr + pp->p_memsz;
+                        if (seg_end > elf_bss_end) elf_bss_end = seg_end;
                     }
                     pp = (Elf64_Phdr *)((uint8_t *)pp + elf_phent);
                 }
+                elf_bss_end = (elf_bss_end + 0xFFF) & ~0xFFFULL;
             }
             entry = elf64_load_into_pml4(buf, fsize, child_pml4);
         } else {
@@ -1188,10 +1646,15 @@ void syscall_handler(uint64_t *regs) {
                  * argc, argv, envp, e os AT_* pros binarios ELF~
                  * Assim o codigo do usuario acha os argumentos~ */
                 if (is_elf) {
+                    /* ~~ Program break começa no fim do BSS do ELF ~~
+                     * (era 0x201000 hardcoded do proc_spawn — o musl
+                     *  brk(0) respondia 2MB e o heap ia parar lá~) */
+                    if (elf_bss_end) pcb_table[i].program_break = elf_bss_end;
                     uint64_t *kframe = (uint64_t *)pcb_table[i].kernel_rsp;
                     uint64_t old_rsp = kframe[18];
                     kframe[18] = setup_linux_user_stack(&pcb_table[i], old_rsp,
-                                                           elf_phdr, elf_phent, elf_phnum);
+                                                           elf_phdr, elf_phent, elf_phnum,
+                                                           elf_base, NULL, 0, NULL, 0);
                 }
             }
         }
@@ -1278,16 +1741,18 @@ void syscall_handler(uint64_t *regs) {
         /* Detect ELF vs Mach-O */
         int is_elf = (fsize >= 4 && buf[0] == 0x7F && buf[1] == 'E' && buf[2] == 'L' && buf[3] == 'F');
         uint64_t elf_phdr = 0, elf_phent = 0, elf_phnum = 0;
+        uint64_t elf_base = 0;
         void *entry;
         if (is_elf) {
             Elf64_Ehdr *ehdr = (Elf64_Ehdr *)buf;
             elf_phent = ehdr->e_phentsize;
             elf_phnum = ehdr->e_phnum;
+            elf_base = (ehdr->e_type == 3) ? elf64_pie_base() : 0; /* ET_DYN = PIE */
             if (elf_phnum) {
                 Elf64_Phdr *pp = (Elf64_Phdr *)(buf + ehdr->e_phoff);
                 for (uint32_t k = 0; k < elf_phnum; k++) {
                     if (pp->p_type == PT_LOAD) {
-                        elf_phdr = pp->p_vaddr + (ehdr->e_phoff - pp->p_offset);
+                        elf_phdr = elf_base + pp->p_vaddr + (ehdr->e_phoff - pp->p_offset);
                         break;
                     }
                     pp = (Elf64_Phdr *)((uint8_t *)pp + elf_phent);
@@ -1317,7 +1782,8 @@ void syscall_handler(uint64_t *regs) {
                     uint64_t *kframe = (uint64_t *)pcb_table[i].kernel_rsp;
                     uint64_t old_rsp = kframe[18];
                     kframe[18] = setup_linux_user_stack(&pcb_table[i], old_rsp,
-                                                          elf_phdr, elf_phent, elf_phnum);
+                                                          elf_phdr, elf_phent, elf_phnum,
+                                                          elf_base, NULL, 0, NULL, 0);
                 }
                 break;
             }
@@ -1369,8 +1835,30 @@ void syscall_handler(uint64_t *regs) {
         if (a1 == 0) {
             ret = p->program_break;
         } else if (a1 > p->program_break) {
-            p->program_break = a1;
-            ret = p->program_break;
+            /* ~~ Crescendo: mapeia as páginas novas ANTES de aceitar! ~~ */
+            serial_puts("[brk] ");
+            serial_puthex((uint32_t)p->program_break);
+            serial_puts(" -> ");
+            serial_puthex((uint32_t)a1);
+            serial_puts("\r\n");
+            uint64_t start = (p->program_break + 0xFFF) & ~0xFFFULL;
+            uint64_t end = (a1 + 0xFFF) & ~0xFFFULL;
+            int ok = 1;
+            for (uint64_t va = start; va < end; va += 0x1000) {
+                if (map_user_4kb(p->pml4, va) < 0) {
+                    serial_puts("[brk] MAPFAIL va=");
+                    serial_puthex((uint32_t)va);
+                    serial_puts("\r\n");
+                    ok = 0; break;
+                }
+            }
+            if (ok) {
+                p->program_break = a1;
+                ret = a1;
+            } else {
+                /* ~~ Linux devolve o break antigo quando falha ~~ */
+                ret = p->program_break;
+            }
         } else {
             /* ~~ Shrinking brk (raro mas permitido) ~~
              * Tipo devolver um pedaço do bolo depois de já

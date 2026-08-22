@@ -12,6 +12,15 @@ var key_buf: [KB_BUF_SIZE]u8 = undefined;
 var buf_head: usize = 0;
 var buf_tail: usize = 0;
 
+// ~~ RAW_BUF_SIZE ~
+// Buffer circular DOS SCAN CODES CRUS (com bit de release 0x80 e
+// prefixos 0xE0). O Xorg (driver kbd em modo K_RAW) lê daqui via
+// /dev/ttyN. O buffer de chars (key_buf) continua sendo o do shell~
+const RAW_BUF_SIZE = 256;
+var raw_buf: [RAW_BUF_SIZE]u8 = undefined;
+var raw_head: usize = 0;
+var raw_tail: usize = 0;
+
 // ~~ norm / shf ~~
 // Tabelas de tradução scan code → caractere ASCII.
 // `norm`: teclas normais (shift desligado)
@@ -75,12 +84,24 @@ fn kbd_push(ch: u8) void {
     }
 }
 
+// ~~ raw_push ~~
+// Empurra um scan code cru no buffer raw (pro Xorg~)
+fn raw_push(b: u8) void {
+    const next = (raw_head + 1) % RAW_BUF_SIZE;
+    if (next != raw_tail) {
+        raw_buf[raw_head] = b;
+        raw_head = next;
+    }
+}
+
 // ~~ keyboard_init ~~
 // Inicializa o estado do teclado: zera o buffer, reseta shift/ctrl.
 // Chama uma vez no boot e esquece~ (ou chama de novo se quiser resetar)
 export fn keyboard_init() void {
     buf_head = 0;
     buf_tail = 0;
+    raw_head = 0;
+    raw_tail = 0;
     shift_pressed = 0;
     ctrl_pressed = 0;
 }
@@ -94,6 +115,7 @@ export fn keyboard_init() void {
 // No final, manda EOI pro PIC (0x20, 0x20) pra liberar a interrupção.
 export fn keyboard_handler() void {
     const scancode = inb(0x60);
+    raw_push(scancode);
     if ((scancode & 0x80) != 0) {
         const released = scancode & 0x7F;
         switch (released) {
@@ -142,6 +164,21 @@ export fn keyboard_read() u8 {
     const ch = key_buf[buf_tail];
     buf_tail = (buf_tail + 1) % KB_BUF_SIZE;
     return ch;
+}
+
+// ~~ kbd_raw_avail / kbd_raw_read ~~
+// Scan codes crus pro Xorg (driver kbd). Não bloqueia: retorna o que
+// tiver no buffer e deixa o resto. O Xorg espera via select()~
+export fn kbd_raw_avail() i32 {
+    if (raw_head != raw_tail) return 1;
+    return 0;
+}
+
+export fn kbd_raw_read() u8 {
+    if (raw_head == raw_tail) return 0;
+    const b = raw_buf[raw_tail];
+    raw_tail = (raw_tail + 1) % RAW_BUF_SIZE;
+    return b;
 }
 
 // ~~ shift_pressed / ctrl_pressed ~~
