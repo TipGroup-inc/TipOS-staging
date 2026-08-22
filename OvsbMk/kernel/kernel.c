@@ -130,6 +130,14 @@ void kmain(uint32_t magic, uint32_t mb_info) {
                 mouse_process_byte(d);
         }
         usb_poll();
+        /* ~~ Yield pro scheduler!~~ Sem isso processo em background
+         * ("exec XORG &") nunca rodava: o irq0 so preempta quem ta
+         * em ring 3, e o shell vive em ring 0~ rssrsrs */
+        /* ~~ Agenda FORA da interrupção (flag vem do tick)! ~~
+         * Trocar de contexto DENTRO do irq0 abandonava o frame da
+         * interrupção e o kernel voltava pela metade~ rssrsrs */
+        if (need_sched) { need_sched = 0; schedule(); }
+        proc_yield();
         __asm__ volatile("hlt");
     }
 }
