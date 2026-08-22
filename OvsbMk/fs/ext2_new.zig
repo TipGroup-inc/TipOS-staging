@@ -420,6 +420,34 @@ pub fn readFile(path: []const u8, buf: []u8) !usize {
     return to_read;
 }
 
+pub fn readFileAt(path: []const u8, buf: []u8, offset: u32) !usize {
+    const ino = try resolve(path);
+    const inode = readIno(ino);
+    if (!inode.isReg()) return error.NotAFile;
+
+    const fsize = inode.fileSize();
+    if (offset >= fsize) return 0; // EOF
+
+    const to_read = @min(buf.len, fsize - offset);
+    var done: usize = 0;
+    while (done < to_read) {
+        const pos = offset + done;
+        const logical: u32 = @intCast(pos / BLOCK_SIZE);
+        const in_off: usize = @intCast(pos % BLOCK_SIZE);
+        const chunk = @min(BLOCK_SIZE - in_off, to_read - done);
+
+        const phys = bmapRead(&inode, logical) orelse {
+            @memset(buf[done..done + chunk], 0); // sparse hole
+            done += chunk;
+            continue;
+        };
+        const blk = cacheGet(phys);
+        @memcpy(buf[done..done + chunk], blk[in_off..in_off + chunk]);
+        done += chunk;
+    }
+    return done;
+}
+
 pub fn statPath(path: []const u8) !struct { size: u32, is_dir: bool } {
     const ino = try resolve(path);
     const inode = readIno(ino);
@@ -594,6 +622,17 @@ export fn ext2new_stat(path: [*:0]const u8, out_size: *u32, out_is_dir: *bool) i
     out_size.* = st.size;
     out_is_dir.* = st.is_dir;
     return 0;
+}
+
+export fn ext2new_read_at(path: [*:0]const u8, buf: [*]u8, size: u32, offset: u32) i32 {
+    if (!fs_ready) return ERR_NOTMOUNTED;
+    const r = readFileAt(path[0..std.mem.len(path)], buf[0..size], offset) catch |err| {
+        return switch (err) {
+            error.NotFound => ERR_NOTFOUND,
+            else => ERR_IO,
+        };
+    };
+    return @intCast(r);
 }
 
 export fn ext2new_write_file(path: [*:0]const u8, data: [*]const u8, size: u32, offset: u32) i32 {

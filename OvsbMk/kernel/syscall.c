@@ -630,23 +630,19 @@ void syscall_handler(uint64_t *regs) {
             break;
         }
         if (fd >= 3 && fd < MAX_FDS && fds[fd].used) {
-            static uint8_t tmp[4096];
-            int r = vfs_read_file(fds[fd].name, tmp, 4096);
+            /* ~~ VFS: leitura com offset REAL — sem buffer estático~~
+             * Suporta arquivos de qualquer tamanho (rules/base 49KB ✓)~~ */
+            int r = vfs_read_at(fds[fd].name, (unsigned char *)buf, count, fds[fd].pos);
             if (r < 0) {
                 serial_puts("[rdFAIL] ");
                 serial_puts(fds[fd].name);
                 serial_puts("\r\n");
                 ret = -1; break;
             }
-            int off = fds[fd].pos;
-            int n = (count < r - off) ? count : (r - off);
-            if (n < 0) { ret = 0; break; }
-            for (int i = 0; i < n; i++) buf[i] = tmp[off + i];
-            fds[fd].pos += n;
-            ret = n;
+            fds[fd].pos += r;
+            ret = r;
             break;
         }
-        ret = -1;
         break;
     }
 

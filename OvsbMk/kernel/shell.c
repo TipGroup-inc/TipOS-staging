@@ -335,7 +335,7 @@ static void cmd_exec(const char *args) {
                 kframe[18] = setup_linux_user_stack(&pcb_table[i], kframe[18],
                                                      main_phdr_addr, elf_phent, elf_phnum,
                                                      atbase, argv, argc,
-                                                     exec_env, 3);
+                                                     exec_env, 0); /* TESTE A/B: sem envp */
                 /* ~~ debug: dump dos primeiros qwords da user stack ~~ */
                 if (dyn_is_dynamic) {
                     uint64_t *usp = (uint64_t *)kframe[18];

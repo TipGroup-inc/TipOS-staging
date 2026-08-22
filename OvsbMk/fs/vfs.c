@@ -23,6 +23,7 @@ extern int fat32_mkdir(const char *name);
 extern int ext2new_mount(void);
 extern int ext2new_read_file(const char *path, unsigned char *buffer, unsigned int size);
 extern int ext2new_stat(const char *path, unsigned int *size, bool *is_dir);
+extern int ext2new_read_at(const char *path, unsigned char *buffer, unsigned int size, unsigned int offset);
 extern void ext2new_sync(void);
 extern int ext2_create_file(const char *path);
 extern int ext2_write_at(const char *path, unsigned char *buffer,
@@ -110,7 +111,12 @@ int vfs_abs_path(const char *cwd, const char *path, char *out, int outlen) {
 
 /* ~~ dispatch genérico~~ */
 int vfs_read_file(const char *abs, uint8_t *buf, uint32_t count) {
-    if (g_vfs_backend == 0) return ext2new_read_file(abs, buf, count);
+    return vfs_read_at(abs, buf, count, 0);
+}
+
+int vfs_read_at(const char *abs, uint8_t *buf, uint32_t count, uint32_t offset) {
+    if (g_vfs_backend == 0) return ext2new_read_at(abs, buf, count, offset);
+    /* fat32 MVP: lê do início sempre (arquivos pequenos só~) */
     return fat32_read_file(abs, buf, count);
 }
 
