@@ -6,6 +6,7 @@
 
 #include "vfs.h"
 #include <stdint.h>
+#include <stdbool.h>
 #define NULL ((void *)0)
 
 /* ~~ backends ~~
@@ -19,9 +20,10 @@ extern int fat32_create_file(const char *name);
 extern int fat32_delete_file(const char *name);
 extern int fat32_mkdir(const char *name);
 
-extern int ext2_init(void);
-extern int ext2_read_file(const char *path, unsigned char *buffer, unsigned int size);
-extern int ext2_stat(const char *path, unsigned int *size);
+extern int ext2new_mount(void);
+extern int ext2new_read_file(const char *path, unsigned char *buffer, unsigned int size);
+extern int ext2new_stat(const char *path, unsigned int *size, bool *is_dir);
+extern void ext2new_sync(void);
 extern int ext2_create_file(const char *path);
 extern int ext2_write_at(const char *path, unsigned char *buffer,
                          unsigned int size, unsigned int offset);
@@ -32,7 +34,7 @@ int g_vfs_backend = -1; /* 0=ext2 · 1=fat32 · -1=nada */
 extern void serial_puts(const char *s);
 
 int vfs_mount(void) {
-    if (ext2_init() == 0) {
+    if (ext2new_mount() == 0) {
         g_vfs_backend = 0;
         serial_puts("[VFS] backend = EXT2\r\n");
     } else {
@@ -108,16 +110,17 @@ int vfs_abs_path(const char *cwd, const char *path, char *out, int outlen) {
 
 /* ~~ dispatch genérico~~ */
 int vfs_read_file(const char *abs, uint8_t *buf, uint32_t count) {
-    if (g_vfs_backend == 0) return ext2_read_file(abs, buf, count);
+    if (g_vfs_backend == 0) return ext2new_read_file(abs, buf, count);
     return fat32_read_file(abs, buf, count);
 }
 
 int vfs_stat_size_attr(const char *abs, uint32_t *size, uint8_t *attr) {
     if (g_vfs_backend == 0) {
         unsigned int sz = 0;
-        if (ext2_stat(abs, &sz) != 0) return -1;
+        bool is_dir = false;
+        if (ext2new_stat(abs, &sz, &is_dir) != 0) return -1;
         if (size) *size = sz;
-        if (attr) *attr = 0;
+        if (attr) *attr = is_dir ? 0x10 : 0x20;
         return 0;
     }
     return fat32_stat(abs, size, attr, NULL, NULL);
