@@ -30,6 +30,7 @@ extern int fs_read_file(const char *name, unsigned char *buf, unsigned int count
 #include "../lib/gui/vesa.h"
 #include "../fs/fat32.h"
 #include <stdint.h>
+#include "../drivers/e1000.h"
 
 /* ~ cuidado que essa aqui morde ~ */
 static inline void outb(uint16_t port, uint8_t val) {
@@ -406,14 +407,23 @@ static void cmd_reboot(void) {
 }
 
 /* ~ essa funcao aqui e a mais importante, presta atencao baka! */
-void execute(const char *cmd) {
-    while (*cmd == ' ') cmd++;
+static char *trim(char *text) {
+    while (*text == ' ' || *text == '\t' || *text == '\r' || *text == '\n') text++;
+    char *end = text;
+    while (*end) end++;
+    while (end > text && (end[-1] == ' ' || end[-1] == '\t' || end[-1] == '\r' || end[-1] == '\n'))
+        *--end = 0;
+    return text;
+}
+
+static void execute_one(char *cmd) {
+    cmd = trim(cmd);
     if (!*cmd) return;
 
-    const char *args = cmd;
-    while (*args && *args != ' ') args++;
+    char *args = cmd;
+    while (*args && *args != ' ' && *args != '\t') args++;
     int cmd_len = args - cmd;
-    while (*args == ' ') args++;
+    while (*args == ' ' || *args == '\t') args++;
 
     if (strieq(cmd, "help", 4) && cmd_len == 4) cmd_help();
     else if (strieq(cmd, "clear", 5) && cmd_len == 5) cmd_clear();
@@ -425,6 +435,11 @@ void execute(const char *cmd) {
     else if (strieq(cmd, "cd", 2) && cmd_len == 2) cmd_cd(args);
         else if (strieq(cmd, "desktop", 7) && cmd_len == 7) cmd_desktop();
     else if (strieq(cmd, "owt", 3) && cmd_len == 3) { owt_demo(); console_write("OWT ok\n"); }
+    else if (strieq(cmd, "sendpacket", 10) && cmd_len == 10) {
+        uint8_t frame[] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF, 0x52,0x54,0x00,0x12,0x34,0x56, 0x08,0x06, 0x00,0x01,0x08,0x00,0x06,0x04,0x00,0x01, 0x52,0x54,0x00,0x12,0x34,0x56, 0x0A,0x00,0x02,0x02, 0x00,0x00,0x00,0x00,0x00,0x00, 0x0A,0x00,0x02,0x01};
+        e1000_send(frame, sizeof(frame));
+        console_write("Pacote enviado!\n");
+    }
     else if (strieq(cmd, "reboot", 6) && cmd_len == 6) cmd_reboot();
     else {
         /* ~~ Fallback: comando desconhecido = tenta executar o arquivo!~~
@@ -442,6 +457,23 @@ void execute(const char *cmd) {
             console_write("\n");
         }
     }
+}
+
+void execute(const char *cmd) {
+    char segment[MAX_CMD];
+    int length = 0;
+    while (*cmd) {
+        if (*cmd == ';' || *cmd == '\n') {
+            segment[length] = 0;
+            execute_one(segment);
+            length = 0;
+        } else if (length < MAX_CMD - 1) {
+            segment[length++] = *cmd;
+        }
+        cmd++;
+    }
+    segment[length] = 0;
+    execute_one(segment);
 }
 
 /* ~ kyun~ mais uma funcao pra fazer o kernel n morrer */
