@@ -347,9 +347,7 @@ fn resolve(path: []const u8) !u32 {
 
 fn lookup(dir_ino: u32, name: []const u8) !u32 {
     const dir_inode = readIno(dir_ino);
-    if (!dir_inode.isDir()) {
-        serial_puts("x2n: not-dir ");
-        serial_puts(@as([*:0]const u8, @ptrCast(name.ptr)));
+    if (!dir_inode.isDir()) {        serial_puts(@as([*:0]const u8, @ptrCast(name.ptr)));
         serial_puts("\n");
         return error.NotADir;
     }
@@ -586,6 +584,11 @@ export fn ext2new_read_file(path: [*:0]const u8, buf: [*]u8, size: u32) i32 {
 }
 
 export fn ext2new_stat(path: [*:0]const u8, out_size: *u32, out_is_dir: *bool) i32 {
+    serial_puts("[x2s] stat('");
+    serial_puts(path);
+    serial_puts("') fs_ready=");
+    serial_puts(if (fs_ready) "Y" else "N");
+    serial_puts("\n");
     if (!fs_ready) return ERR_NOTMOUNTED;
     const st = statPath(path[0..std.mem.len(path)]) catch return ERR_NOTFOUND;
     out_size.* = st.size;

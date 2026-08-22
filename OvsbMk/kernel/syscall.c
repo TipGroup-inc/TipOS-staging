@@ -20,6 +20,7 @@
  *~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*~*/
 
 #include "syscall.h"
+#include <stdbool.h>
 #include "../fs/vfs.h"
 #include "process.h"
 #include "memory.h"
@@ -226,6 +227,7 @@ static int str_equal(const char *a, const char *b) {
 
 int g_use_ext2 = 0;
 extern int ext2_init(void);
+extern int ext2new_stat(const char *path, unsigned int *size, bool *is_dir);
 extern int ext2_read_file(const char *path, unsigned char *buffer, unsigned int size);
 extern int ext2_stat(const char *path, unsigned int *size);
 extern int ext2_create_file(const char *path);
@@ -240,9 +242,10 @@ int fs_read_file(const char *name, uint8_t *buf, uint32_t count) {
 int vfs_stat_size(const char *name, uint32_t *size, uint8_t *attr) {
     if (g_use_ext2) {
         unsigned int sz = 0;
-        if (ext2_stat(name, &sz) != 0) return -1;
+        bool is_dir = false;
+        if (ext2new_stat(name, &sz, &is_dir) != 0) return -1;
         if (size) *size = sz;
-        if (attr) *attr = 0;
+        if (attr) *attr = is_dir ? 0x10 : 0x20;
         return 0;
     }
     return fat32_stat(name, size, attr, NULL, NULL);
