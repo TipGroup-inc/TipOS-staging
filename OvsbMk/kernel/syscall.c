@@ -230,6 +230,8 @@ extern int ext2_read_file(const char *path, unsigned char *buffer, unsigned int 
 extern int ext2_stat(const char *path, unsigned int *size);
 extern int ext2_create_file(const char *path);
 extern int ext2_write_at(const char *path, unsigned char *buffer, unsigned int size, unsigned int offset);
+extern int elf64_find_interp(unsigned char *data, unsigned int len, char *out, unsigned int out_max);
+extern void *elf64_load_at(unsigned char *data, unsigned int len, uint64_t pml4, uint64_t force_base);
 
 int fs_read_file(const char *name, uint8_t *buf, uint32_t count) {
     if (g_use_ext2) return ext2_read_file(name, buf, count);
@@ -1666,6 +1668,8 @@ void syscall_handler(uint64_t *regs) {
         /* ~~ ELF vs Mach-O: dois jeitos de ser um binary ~~
          * ELF = Linux padrao, Mach-O = nosso formato legado~
          * Se tiver os 4 bytes magicos "\x7fELF", é um~ */
+        uint64_t dyn_interp_entry = 0;
+        int dyn_is_dynamic = 0;
         int is_elf = (fsize >= 4 && buf[0] == 0x7F && buf[1] == 'E' && buf[2] == 'L' && buf[3] == 'F');
         uint64_t elf_phdr = 0, elf_phent = 0, elf_phnum = 0, elf_bss_end = 0;
         void *entry;
@@ -1693,11 +1697,41 @@ void syscall_handler(uint64_t *regs) {
                 elf_bss_end = (elf_bss_end + 0xFFF) & ~0xFFFULL;
             }
             entry = elf64_load_into_pml4(buf, fsize, child_pml4);
+
+            /* ~~ ELF DINÂMICO (#71): se tem PT_INTERP, carrega o ld.so~~
+             * O interpretador roda PRIMEIRO (entry dele), resolve as
+             * libs do DT_NEEDED e só depois pula pro entry do binário.
+             * AT_BASE passa a apontar pro INTERPRETADOR~ */
+            char interp_path[256];
+            int ilen = -1;
+            if (is_elf)
+                ilen = elf64_find_interp(buf, fsize, interp_path, sizeof(interp_path));
+            if (ilen > 0) {
+                serial_puts("[dyn] interp=");
+                serial_puts(interp_path);
+                serial_puts("\r\n");
+                unsigned char *idata = kmalloc(4 * 1024 * 1024);
+                if (idata && vfs_read_file(interp_path, idata, 4 * 1024 * 1024) > 0) {
+                    const uint64_t INTERP_BASE = 0x60000000ULL; /* longe do PIE(0x40000000) e do mmap(0x70000000) */
+                    void *ientry = elf64_load_at(idata, 4 * 1024 * 1024, child_pml4, INTERP_BASE);
+                    if (ientry) {
+                        dyn_interp_entry = (uint64_t)ientry;
+                        dyn_is_dynamic = 1;
+                        serial_puts("[dyn] ld.so no ar\r\n");
+                    } else {
+                        serial_puts("[dyn] falha ao mapear interp\r\n");
+                    }
+                } else {
+                    serial_puts("[dyn] interp não encontrado no FS\r\n");
+                }
+                if (idata) kfree(idata);
+            }
         } else {
             entry = mach_o_load_into_pml4(buf, fsize, child_pml4);
         }
         kfree(buf);
         if (!entry) { ret = -1; break; }
+        if (dyn_is_dynamic) entry = (void *)dyn_interp_entry;
         void *user_stack = kmalloc(65536);
         if (!user_stack) { ret = -1; break; }
         /* ~~ Torna a pilha visivel pro usuario ~~
@@ -1724,9 +1758,13 @@ void syscall_handler(uint64_t *regs) {
                     if (elf_bss_end) pcb_table[i].program_break = elf_bss_end;
                     uint64_t *kframe = (uint64_t *)pcb_table[i].kernel_rsp;
                     uint64_t old_rsp = kframe[18];
-                    kframe[18] = setup_linux_user_stack(&pcb_table[i], old_rsp,
+                    /* ~~ AT_BASE: dinâmico → base do ld.so (interp)~~
+                     * AT_ENTRY(9): entry do binário principal pro ld.so~ */
+                    kframe[18] = setup_linux_user_stack_dyn(&pcb_table[i], old_rsp,
                                                            elf_phdr, elf_phent, elf_phnum,
-                                                           elf_base, NULL, 0, NULL, 0);
+                                                           elf_base, NULL, 0, NULL, 0,
+                                                           dyn_interp_entry, (uint64_t)entry,
+                                                           dyn_is_dynamic);
                 }
             }
         }
