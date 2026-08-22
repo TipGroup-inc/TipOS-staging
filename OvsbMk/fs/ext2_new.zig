@@ -598,9 +598,13 @@ export fn ext2new_mount() i32 {
     return -1;
 }
 
+extern fn serial_putc(c: u8) void;
 export fn ext2new_read_file(path: [*:0]const u8, buf: [*]u8, size: u32) i32 {
     if (!fs_ready) return ERR_NOTMOUNTED;
     const r = readFile(path[0..std.mem.len(path)], buf[0..size]) catch |err| {
+        serial_puts("[x2r] FAIL ");
+        serial_puts(path);
+        serial_puts("\n");
         return switch (err) {
             error.NotFound => ERR_NOTFOUND,
             error.NotADir => -20,
@@ -608,6 +612,15 @@ export fn ext2new_read_file(path: [*:0]const u8, buf: [*]u8, size: u32) i32 {
             else => ERR_IO,
         };
     };
+    if (std.mem.indexOf(u8, std.mem.span(path), "rules/base") != null) {
+        serial_puts("[x2r] rules/base OK len=");
+        var k: usize = 0;
+        while (k < 40 and k < r) : (k += 1) {
+            const ch = buf[k];
+            if (ch >= 0x20 and ch < 0x7f) serial_putc(ch) else serial_putc('.');
+        }
+        serial_puts("\n");
+    }
     return @intCast(r);
 }
 

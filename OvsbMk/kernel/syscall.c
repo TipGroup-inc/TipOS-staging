@@ -342,12 +342,25 @@ static int do_write_fd(int fd, const char *buf, int count) {
 #define XPREFIX "/home/vinberkuko/tipos-musl/prefix"
 static const char *fixpath(const char *path, char *buf, int buflen) {
     if (!path) return path;
+
+    /* ~~ ${prefix} literal do build system do Xorg ~~ */
+    if (path[0] == '$' && path[1] == '{') {
+        const char *rest = path + 9; /* pula "${prefix}" */
+        if (path[2] == 'p' && path[3] == 'r' && path[4] == 'e') {
+            int j = 0;
+            buf[j++] = '/';
+            while (*rest && j < buflen - 1) buf[j++] = *rest++;
+            buf[j] = '\0';
+            return buf;
+        }
+    }
+
     int pl = sizeof(XPREFIX) - 1;
     int i = 0;
     while (XPREFIX[i] && path[i] == XPREFIX[i]) i++;
-    if (i != pl) return path;                       /* sem prefixo ~ */
+    if (i != pl) return path;
     if (path[i] != '\0' && path[i] != '/') return path;
-    if (path[i] == '/') i++;                        /* come a barra dupla */
+    if (path[i] == '/') i++;
     int j = 0;
     buf[j++] = '/';
     while (path[i] && j < buflen - 1) buf[j++] = path[i++];

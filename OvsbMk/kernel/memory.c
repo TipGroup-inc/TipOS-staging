@@ -418,7 +418,16 @@ void *mmap_user(void *addr, size_t length, int prot, int flags) {
     if (pages == 0) pages = 1;
     int order = 0;
     while ((1UL << order) < pages) order++;
-    return buddy_alloc(order, 1);
+    void *result = buddy_alloc(order, 1);
+    if (result) {
+        /* ~~ POSIX: MAP_ANONYMOUS retorna memória ZERADA!~~
+         * Sem isso o musl mallocng lê lixo de alocações antigas
+         * e o Xorg crasha no enframe() durante init de screen~ */
+        uint8_t *p = (uint8_t *)result;
+        size_t total = pages * FRAME_SIZE;
+        for (size_t i = 0; i < total; i++) p[i] = 0;
+    }
+    return result;
 }
 
 /* ~~ munmap_user ~~ */
