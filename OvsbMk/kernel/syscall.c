@@ -63,6 +63,11 @@ typedef struct {
     uint64_t counter;  /* eventfd: contador; timerfd: intervalo (ms) */
 } fdent_t;
 typedef struct { fdent_t e[MAX_FDS]; } fdtable_t;
+/* ~~ POOL ESTÁTICO: as tabelas NÃO podem morrer no heap!~~
+ * User stacks são kmalloc'd no MESMO heap — overflow delas
+ * corrompia nossas tabelas com bytes de código (vimos type=
+ * 0x548B4808 rssrsrs). BSS é imune~ 1 tabela por slot PCB~ */
+static fdtable_t fd_tables[MAX_PROC];
 static fdtable_t boot_fds;                 /* kernel/shell antes do lazy alloc */
 static fdtable_t *fdtab = &boot_fds;
 #define fds fdtab->e
@@ -73,11 +78,13 @@ void fds_bind_current(void) {
     pcb_t *me = process_current();
     if (!me) return;
     if (!me->fds_tab) {
-        me->fds_tab = kmalloc(sizeof(fdtable_t));
-        if (!me->fds_tab) return;
+        int myslot = (int)(me - pcb_table);
+        if (myslot < 0 || myslot >= MAX_PROC) return;
+        me->fds_tab = &fd_tables[myslot];
         fdent_t *ee = ((fdtable_t *)me->fds_tab)->e;
-        for (int i = 0; i < MAX_FDS; i++) ee[i].used = 0;
+        for (int i = 0; i < MAX_FDS; i++) { ee[i].used = 0; ee[i].type = 0; }
         ee[0].used = ee[1].used = ee[2].used = 1;   /* stdin/out/err~ */
+        ee[0].type = ee[1].type = ee[2].type = 6;   /* tty console~ */
         serial_puts("[fdtab] novo para pid=");
         serial_puthex((uint32_t)me->pid);
         serial_puts(" @");
@@ -96,29 +103,25 @@ void fds_bind_current(void) {
     fdtab = (fdtable_t *)me->fds_tab;
 }
 
-/* pro fork: duplica a tabela atual e registra no PCB do filho~ */
-void *fds_dup_table(void) {
-    fdtable_t *nt = kmalloc(sizeof(fdtable_t));
-    if (!nt) return 0;
-    unsigned char *d = (unsigned char *)nt;
+/* pro fork: copia a tabela atual pro slot DO FILHO (pool!)~
+ * NÃO mexe no fdtab global — quem continua rodando é o PAI! */
+void fds_dup_into_slot(int child_slot) {
+    if (child_slot < 0 || child_slot >= MAX_PROC) return;
+    unsigned char *d = (unsigned char *)&fd_tables[child_slot];
     unsigned char *s = (unsigned char *)fdtab;
     for (int i = 0; i < (int)sizeof(fdtable_t); i++) d[i] = s[i];
-    return nt;
+    /* filho herda stdin/out/err + pipes abertos~ */
 }
-void fds_set_current(void *t) { if (t) fdtab = (fdtable_t *)t; }
+void *fds_tab_addr(int slot) {
+    if (slot < 0 || slot >= MAX_PROC) return 0;
+    return &fd_tables[slot];
+}
 /* ~~ fecha todos os fds >= 3 da tabela de um processo (no exit)~~
  * Sem isso o pipe_writers_alive via escritor morto pra sempre~ */
 void fds_close_exec(void *tab) {
     if (!tab) return;
     fdtable_t *t = (fdtable_t *)tab;
     for (int i = 3; i < MAX_FDS; i++) t->e[i].used = 0;
-}
-void fds_set_for_pid(int pid, void *t) {
-    for (int i = 0; i < MAX_PROC; i++)
-        if (pcb_table[i].pid == pid && pcb_table[i].state != PROC_EMPTY) {
-            pcb_table[i].fds_tab = t;
-            return;
-        }
 }
 
 /* ~~ device fds pro Xorg ~~
@@ -325,6 +328,12 @@ int vfs_stat_size(const char *name, uint32_t *size, uint8_t *attr) {
  * SYS_write e SYS_writev pra nao duplicar a logica~ */
 static int sock_push(int s, const uint8_t *buf, int count);
 static int do_write_fd(int fd, const char *buf, int count) {
+    {
+        serial_puts("[dw] fd="); serial_puthex((uint32_t)fd);
+        serial_puts(" type="); serial_puthex((uint32_t)(fd>=0&&fd<MAX_FDS&&fds[fd].used?fds[fd].type:0xEE));
+        serial_puts(" n="); serial_puthex((uint32_t)count);
+        serial_puts("\r\n");
+    }
     /* ~~ pipe em qualquer fd — DEPOIS de dup2(pw, 1) o stdout É o
      * pipe (Popen do Xorg depende disso!), console só se não for~~ */
     if (fd >= 0 && fd < MAX_FDS && fds[fd].used && fds[fd].type == 3) {
@@ -581,7 +590,17 @@ static int fd_readable(int fd) {
 #define TRACE_BITS 1024
 static uint8_t trace_seen[TRACE_BITS / 8];
 static int q0_len(const char *t) { int n=0; while (t[n]) n++; return n; }
+int g_trace_window = 0;
 void syscall_trace(uint64_t num, uint64_t rip) {
+    if (g_trace_window > 0) {
+        g_trace_window--;
+        extern int process_current_pid(void);
+        serial_puts("[T");
+        serial_puthex((uint32_t)process_current_pid());
+        serial_puts("]");
+        serial_puthex((uint32_t)num);
+        serial_puts(" ");
+    }
     if (num >= TRACE_BITS) return;
     /* ~~ FS-calls: loga SEMPRE (bitmap come no first-shot do boot) ~~ */
     if (num == 83 || num == 87 || num == 258 || num == 262 || num == 263 ||

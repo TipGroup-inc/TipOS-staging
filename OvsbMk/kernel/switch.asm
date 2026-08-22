@@ -200,6 +200,13 @@ context_switch:
     cmp dword [rsi + IN_KERN], 0   ; ~~ próximo bloqueou EM SYSCALL?~~
     jne context_switch_kern.restore_in_kern   ; volta NO MEIO do fluxo C~
 
+    mov dx, 0x3F8
+    mov al, '<'
+    out dx, al
+    mov al, 'U'
+    out dx, al
+    mov al, '>'
+    out dx, al
     mov rsp, [rsi + KRNL_RSP]      ; 1. Troca RSP pro kernel stack do next ~
     mov rax, [rsi + PML4]          ; 2. Troca page tables (CR3) ~
     mov cr3, rax                   ;    ATENÇÃO: endereços mudam! Mas kernel

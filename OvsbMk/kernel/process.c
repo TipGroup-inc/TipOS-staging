@@ -389,6 +389,11 @@ void schedule(void) {
     if (next_idx == -1 || next_idx == current_pid) return;
     int prev = current_pid;
 
+    if (pcb_table[prev].in_kern) {
+        serial_puts("[!] limpando in_kern de pid=");
+        serial_puthex((uint32_t)prev);
+        serial_puts("\r\n");
+    }
     pcb_table[prev].in_kern = 0;   /* caminho normal: sem resume C */
 
     // [SCHD] debug removed — context switch is stable
@@ -407,6 +412,18 @@ void schedule(void) {
         extern volatile int g_in_syscall;
         extern void context_switch_kern(pcb_t *cur, pcb_t *next);
         if (g_in_syscall && pcb_table[prev].is_user) {
+            uint64_t *nf = (uint64_t *)pcb_table[next_idx].kernel_rsp;
+            serial_puts("[nkf] slot=");
+            serial_puthex((uint32_t)next_idx);
+            serial_puts(" ik=");
+            serial_puthex((uint32_t)pcb_table[next_idx].in_kern);
+            serial_puts(" cr3next=");
+            serial_puthex((uint32_t)(pcb_table[next_idx].pml4 & 0xFFFFFFFF));
+            serial_puts(" cr3cur=");
+            serial_puthex((uint32_t)(pcb_table[prev].pml4 & 0xFFFFFFFF));
+            serial_puts(" rax=");
+            serial_puthex((uint32_t)nf[14]);
+            serial_puts("\r\n");
             context_switch_kern(&pcb_table[prev], &pcb_table[next_idx]);
             return;
         }
@@ -711,13 +728,14 @@ int proc_fork(uint64_t *parent_kframe) {
     copy_user_space(par->pml4, child_pml4);
     serial_puts("[fork] memoria ok\r\n");
 
-    /* fd table própria pro filho (cópia da do pai)~ */
+    /* ~~ fd table própria pro filho — do POOL estático, no slot dele~~
+     * NÃO troca o fdtab global: quem continua rodando é o PAI! */
     {
-        extern void *fds_dup_table(void);
-        extern void  fds_set_current(void *t);
-        extern void  fds_set_for_pid(int pid, void *t);
-        void *ft = fds_dup_table();
-        if (ft) { fds_set_current(ft); fds_set_for_pid(p->pid, ft); }
+        extern void fds_dup_into_slot(int child_slot);
+        extern void *fds_tab_addr(int slot);
+        int cslot = (int)(p - pcb_table);
+        fds_dup_into_slot(cslot);          /* copia conteúdo pro pool~ */
+        p->fds_tab = fds_tab_addr(cslot);  /* e aponta o PCB pro slot! */
     }
 
     /* ~~ frame do filho: IRET-frame completo de 20 qwords~~
@@ -756,9 +774,23 @@ int proc_fork(uint64_t *parent_kframe) {
     p->user_rsp = user_rsp_now;
     p->user_rip = parent_kframe[15];
 
+    {
+        uint64_t *f = (uint64_t *)p->kernel_rsp;
+        serial_puts("[fkf] rax=");
+        serial_puthex((uint32_t)f[14]);
+        serial_puts(" rip=");
+        serial_puthex((uint32_t)(f[15] & 0xFFFFFFFF));
+        serial_puts(" rsp=");
+        serial_puthex((uint32_t)f[18]);
+        serial_puts("\r\n");
+    }
     serial_puts("[fork] pid=");
     serial_puthex((uint32_t)p->pid);
     serial_puts(" pronto!\r\n");
+    {
+        extern int g_trace_window;
+        g_trace_window = 60;   /* loga as próximas 60 syscalls completas~ */
+    }
     return p->pid;
 }
 
