@@ -15,6 +15,7 @@
 #include "idt.h"
 #include "serial.h"
 #include "memory.h"
+#include "process.h"
 
 #define IDT_ENTRIES 256
 
@@ -186,6 +187,72 @@ void idt_handler(uint64_t *regs) {
             }
             serial_puts("\r\n");
         }
+        /* ~~ DEMAND PAGING (user): região mapeada + página ausente
+         * → aloca frame ZERADO na hora, invlpg e RETENTA~~
+         * O mallocng escreve em regiões recém-criadas antes do
+         * wire cobrir tudo; isso deixa o fluxo seguir vivo~ */
+        {
+            extern int vm_map_covers(void *, uint64_t);
+            pcb_t *me = process_current();
+            {
+                extern int g_pf_diag;
+                if (g_pf_diag < 6) {
+                    g_pf_diag++;
+                    serial_puts("[PFIX] cobre=");
+                    serial_puthex((uint32_t)(me && me->vm_map ? vm_map_covers(me->vm_map, cr2) : 9));
+                    serial_puts(" us=");
+                    serial_puthex((uint32_t)((regs[18] >> 2) & 1));
+                    serial_puts("\r\n");
+                }
+            }
+            if (me && me->vm_map && vm_map_covers(me->vm_map, cr2) &&
+                ((err_code >> 2) & 1)) {          /* veio do ring 3 */
+                uint64_t p4_pa;
+                __asm__ volatile("mov %%cr3, %0" : "=r"(p4_pa));
+                uint64_t *p4 = (uint64_t *)(uintptr_t)p4_pa;
+                int pi = (cr2 >> 39) & 0x1FF, qi = (cr2 >> 30) & 0x1FF;
+                int di = (cr2 >> 21) & 0x1FF, ti = (cr2 >> 12) & 0x1FF;
+                void *mmap_user_k(int len);
+                if (!(p4[pi] & 1)) {
+                    void *t = mmap_user_k(4096); if (!t) goto pf_dump;
+                    for (int i=0;i<512;i++) ((uint64_t*)t)[i]=0;
+                    p4[pi] = (uint64_t)(uintptr_t)t | 0x07;
+                }
+                uint64_t *p3 = (uint64_t *)(uintptr_t)(p4[pi] & ~0xFFFULL);
+                if (!(p3[qi] & 1)) {
+                    void *t = mmap_user_k(4096); if (!t) goto pf_dump;
+                    for (int i=0;i<512;i++) ((uint64_t*)t)[i]=0;
+                    p3[qi] = (uint64_t)(uintptr_t)t | 0x07;
+                }
+                uint64_t *p2 = (uint64_t *)(uintptr_t)(p3[qi] & ~0xFFFULL);
+                if (!(p2[di] & 1)) {
+                    void *t = mmap_user_k(4096); if (!t) goto pf_dump;
+                    for (int i=0;i<512;i++) ((uint64_t*)t)[i]=0;
+                    p2[di] = (uint64_t)(uintptr_t)t | 0x07;
+                }
+                uint64_t *p1 = (uint64_t *)(uintptr_t)(p2[di] & ~0xFFFULL);
+                /* ~~ SEMPRE frame fresco zerado: se o PTE dizia
+                 * 'presente' mas a CPU levava PF, o frame antigo
+                 * estava podre (liberado/reusado) — troca sem dó~ */
+                void *fr = mmap_user_k(4096);
+                if (!fr) goto pf_dump;
+                p1[ti] = (uint64_t)(uintptr_t)fr | 0x07;
+                {
+                    extern int g_pf_fix_count;
+                    g_pf_fix_count++;
+                    if (g_pf_fix_count < 10) {
+                        serial_puts("[DMND] va=");
+                        serial_puthex((uint32_t)(cr2 >> 12));
+                        serial_puts(" fr=");
+                        serial_puthex((uint32_t)(uintptr_t)fr);
+                        serial_puts("\r\n");
+                    }
+                }
+                __asm__ volatile("invlpg (%0)" :: "r"(cr2) : "memory");
+                return;   /* retry da instrução — página viva! */
+            }
+pf_dump:;
+        }
         return;
     }
 
@@ -260,3 +327,12 @@ void idt_handler(uint64_t *regs) {
 /* ♥ idt.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
 
 /* ♥ idt.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
+
+int g_pf_diag = 0;
+int g_pf_fix_count = 0;
+
+/* ~~ wrapper local: mmap_user já zera (anon POSIX) ~~ */
+void *mmap_user_k(int len) {
+    extern void *mmap_user(void *, unsigned long, int, int);
+    return mmap_user(0, (unsigned long)len, 3, 0x22);
+}

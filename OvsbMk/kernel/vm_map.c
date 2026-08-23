@@ -455,6 +455,15 @@ int vm_mprotect(uint64_t addr, size_t size, int prot) {
 }
 
 /* ~ essa funcao aqui e a mais importante, presta atencao baka! */
+/* ~~ o endereço pertence a alguma região mapeada deste processo? ~~ */
+int vm_map_covers(void *mapp, uint64_t va) {
+    vm_map_t *map = (vm_map_t *)mapp;
+    if (!map) return 0;
+    for (vm_map_entry_t *e = map->head; e; e = e->next)
+        if (va >= e->start && va < e->end) return 1;
+    return 0;
+}
+
 int vm_map_count_entries(void *m) {
     vm_map_t *map = (vm_map_t *)m;
     if (!map) return -1;

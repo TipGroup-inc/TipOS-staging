@@ -61,6 +61,7 @@ vm_object_t *vm_object_share(vm_object_t *obj);
 void vm_object_destroy(vm_object_t *obj);
 
 void vm_map_init(vm_map_t *map, uint64_t min, uint64_t max);
+int  vm_map_covers(void *map, uint64_t va);
 int vm_map_find(vm_map_t *map, vm_object_t *obj, uint64_t offset,
                 uint64_t *addr, size_t size, int prot, int flags);
 int vm_map_fixed(vm_map_t *map, vm_object_t *obj, uint64_t offset,
