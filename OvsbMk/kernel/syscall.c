@@ -74,6 +74,18 @@ static fdtable_t *fdtab = &boot_fds;
 
 /* ~ liga a tabela do processo atual (início de toda syscall)~
  * Aloca lazily na primeira vez que o processo faz syscall~ */
+
+/* ~~ mini-strstr pro freestanding (sem string.h) ~~ */
+static const char *k_strstr(const char *h, const char *n) {
+    if (!n[0]) return h;
+    for (; *h; h++) {
+        const char *a = h, *b = n;
+        while (*a && *b && *a == *b) { a++; b++; }
+        if (!*b) return h;
+    }
+    return 0;
+}
+
 void fds_bind_current(void) {
     pcb_t *me = process_current();
     if (!me) return;
@@ -233,6 +245,17 @@ static int open_dev(const char *path) {
     int i = 0;
     while (path[i] && i < 255) { fds[fd].name[i] = path[i]; i++; }
     fds[fd].name[i] = '\0';
+    if (k_strstr(fds[fd].name, "def.xkm")) {
+        extern int g_km_window;
+        g_km_window = 25;
+        serial_puts("[OPENDEF] fd=");
+        serial_puthex((uint32_t)fd);
+        serial_puts(" name='");
+        serial_puts(fds[fd].name);
+        serial_puts("' len=");
+        serial_puthex((uint32_t)i);
+        serial_puts("\r\n");
+    }
     fds[fd].type = type;
     fds[fd].flags = O_NONBLOCK;
     fds[fd].pos = 0;
@@ -621,8 +644,10 @@ void syscall_trace(uint64_t num, uint64_t rip) {
     serial_puts("]\n");
 }
 
-volatile int g_in_syscall = 0;   /* 1 enquanto o handler C de syscall roda */
+volatile int g_in_syscall = 0;
+int g_rd9_log = 0;   /* 1 enquanto o handler C de syscall roda */
 
+int g_km_window = 0;
 void syscall_handler(uint64_t *regs) {
     fds_bind_current();   /* ~~ fd table do processo atual (fork #72) ~~ */
     g_in_syscall = 1;
@@ -687,6 +712,36 @@ void syscall_handler(uint64_t *regs) {
             serial_puts(" used="); serial_puthex((uint32_t)(fd>=0&&fd<MAX_FDS?fds[fd].used:0xDEAD));
             serial_puts(" type="); serial_puthex((uint32_t)(fd>=0&&fd<MAX_FDS?fds[fd].type:0xDEAD));
             serial_puts("\r\n");
+        }
+        if (g_km_window > 0) {
+            g_km_window--;
+            serial_puts("[RDW] fd=");
+            serial_puthex((uint32_t)fd);
+            serial_puts(" cnt=");
+            serial_puthex((uint32_t)count);
+            serial_puts(" used=");
+            serial_puthex((uint32_t)(fd>=3&&fd<MAX_FDS&&fds[fd].used?1:0));
+            serial_puts(" name='");
+            if (fd>=3&&fd<MAX_FDS&&fds[fd].used) serial_puts(fds[fd].name);
+            serial_puts("'\r\n");
+        }
+        /* ~~ Linux readv (19) ~ o __stdio_read do musl SEMPRE usa
+         * readv com 2 iovecs — sem handler TODO fread retornava
+         * EOF fantasma (o keymap morria na primeira leitura!)~~ */
+        /* ~~ debug leitura do keymap (por NOME agora!) ~~ */
+        if (fd >= 3 && fd < MAX_FDS && fds[fd].used &&
+            str_equal(fds[fd].name, "/share/X11/xkb/compiled/def.xkm")) {
+            static int rkm = 0;
+            if (rkm < 8) {
+                rkm++;
+                serial_puts("[rkm] fd=");
+                serial_puthex((uint32_t)fd);
+                serial_puts(" pos=");
+                serial_puthex((uint32_t)fds[fd].pos);
+                serial_puts(" cnt=");
+                serial_puthex((uint32_t)count);
+                serial_puts("\r\n");
+            }
         }
         /* ~~ pipe read em qualquer fd (dup2(rd,0) etc)~~ */
         if (fd >= 0 && fd < MAX_FDS && fds[fd].used && fds[fd].type == 3) {
@@ -835,6 +890,81 @@ void syscall_handler(uint64_t *regs) {
         break;
     }
 
+    /* ~~ READV (19): iovecs sobre os mesmos backends do SYS_read ~~ */
+    case 19: {
+        int fd = (int)a1;
+        static int rvlog = 0;
+        if (rvlog < 14 && fd >= 3) {
+            struct { void *base; unsigned long len; } *iv = (void *)a2;
+            int ic = (int)a3;
+            rvlog++;
+            serial_puts("[RV] fd=");
+            serial_puthex((uint32_t)fd);
+            serial_puts(" n=");
+            serial_puthex((uint32_t)ic);
+            for (int q = 0; q < ic && q < 2; q++) {
+                serial_puts(" l");
+                serial_puthex((uint32_t)q);
+                serial_puts("=");
+                serial_puthex((uint32_t)(iv[q].len & 0xFFFFFFFF));
+            }
+            serial_puts("\r\n");
+        }
+        struct { void *base; unsigned long len; } *iov = (void *)a2;
+        int iovcnt = (int)a3;
+        if (!iov || iovcnt <= 0 || iovcnt > 16) { ret = -1; break; }
+        if (fd >= 3 && fd < MAX_FDS && fds[fd].used && fds[fd].type == 3) {
+            /* pipe: consome sequencialmente pelos iovecs */
+            int p = fds[fd].pipe_idx;
+            if (p < 0 || p >= MAX_PIPES || !pipes[p].used) { ret = -1; break; }
+            uint64_t tot = 0;
+            for (int i = 0; i < iovcnt; i++) {
+                if (!iov[i].base || !iov[i].len) continue;
+                int n = 0;
+                while ((uint32_t)n < iov[i].len && pipes[p].rpos != pipes[p].wpos) {
+                    ((char *)iov[i].base)[n++] = (char)pipes[p].buf[pipes[p].rpos & 4095];
+                    pipes[p].rpos++;
+                }
+                tot += n;
+                if ((uint32_t)n < iov[i].len) break;
+            }
+            ret = tot;
+            break;
+        }
+        if (fd >= 3 && fd < MAX_FDS && fds[fd].used) {
+            /* arquivo via VFS: lê iovec a iovec avançando o offset */
+            uint64_t tot = 0;
+            int hardfail = 0;
+            for (int i = 0; i < iovcnt; i++) {
+                if (!iov[i].base || !iov[i].len) continue;
+                int r = vfs_read_at(fds[fd].name,
+                                    (unsigned char *)iov[i].base,
+                                    (uint32_t)iov[i].len, fds[fd].pos);
+                {
+                    static int dlg = 0;
+                    if (dlg < 8) {
+                        dlg++;
+                        serial_puts("[RVLEG] i=");
+                        serial_puthex((uint32_t)i);
+                        serial_puts(" r=");
+                        serial_puthex((uint32_t)r);
+                        serial_puts(" pos=");
+                        serial_puthex((uint32_t)fds[fd].pos);
+                        serial_puts("\r\n");
+                    }
+                }
+                if (r < 0) { hardfail = 1; break; }
+                fds[fd].pos += r;
+                tot += r;
+                if ((uint32_t)r < iov[i].len) break;   /* short read */
+            }
+            ret = hardfail ? (uint64_t)-1 : tot;
+            break;
+        }
+        ret = -1;
+        break;
+    }
+
     case SYS_open: {
         const char *path = (const char *)a1;
         char fpbuf[512];
@@ -853,6 +983,15 @@ void syscall_handler(uint64_t *regs) {
         fds[fd].name[i] = '\0';
         fds[fd].pos = 0;
         fds[fd].used = 1;
+        if (k_strstr(fds[fd].name, "def.xkm")) {
+            extern int g_km_window;
+            g_km_window = 30;
+            serial_puts("[OPENDEF] fd=");
+            serial_puthex((uint32_t)fd);
+            serial_puts(" name='");
+            serial_puts(fds[fd].name);
+            serial_puts("'\r\n");
+        }
         {
             static char seen_names[48][96];
             static int seen_n = 0;
@@ -2885,6 +3024,19 @@ void syscall_handler(uint64_t *regs) {
         break;
     }
 
+    if (num == 3) {
+        int _fd = (int)regs[4];
+        if (_fd >= 3 && _fd < MAX_FDS && fds[_fd].used &&
+            str_equal(fds[_fd].name, "/share/X11/xkb/compiled/def.xkm")) {
+            static int n9 = 0;
+            if (n9 < 8) {
+                n9++;
+                serial_puts("[rkmret] ");
+                serial_puthex((uint32_t)(uint64_t)ret);
+                serial_puts("\r\n");
+            }
+        }
+    }
     g_in_syscall = 0;
     regs[0] = ret;
 }

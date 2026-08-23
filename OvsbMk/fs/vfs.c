@@ -115,6 +115,24 @@ int vfs_read_file(const char *abs, uint8_t *buf, uint32_t count) {
 }
 
 int vfs_read_at(const char *abs, uint8_t *buf, uint32_t count, uint32_t offset) {
+    {
+        static int kml = 0;
+        if (kml < 10 && abs) {
+            int has = 0;
+            for (const char *q = abs; q[0]; q++)
+                if (q[0]=='x' && q[1]=='k' && q[2]=='m') { has = 1; break; }
+            if (has) {
+                kml++;
+                serial_puts("[vfsrd] ");
+                serial_puts(abs);
+                serial_puts(" off=");
+                serial_puthex(offset);
+                serial_puts(" cnt=");
+                serial_puthex(count);
+                serial_puts("\r\n");
+            }
+        }
+    }
     if (g_vfs_backend == 0) return ext2new_read_at(abs, buf, count, offset);
     /* fat32 MVP: lê do início sempre (arquivos pequenos só~) */
     return fat32_read_file(abs, buf, count);
