@@ -1,8 +1,10 @@
-# TipOS v0.7.4.0
+# TipOS v0.7.5.0
 
 Sistema operacional x86-64 com kernel OvsbMk, libc própria, compositor gráfico,
 editor TUI e suporte a execução de binários **musl-linked static PIE ELF**
-(Linux x86-64 compat).
+(Linux x86-64 compat) — incluindo o **Xorg 21.1.13**, que inicializa como
+servidor gráfico: carrega keymap XKB, cria pipes de comunicação e consome
+dispositivos de entrada.
 
 ```
 /
@@ -17,7 +19,13 @@ editor TUI e suporte a execução de binários **musl-linked static PIE ELF**
 - 30 syscalls via int 0x80 (convenção XNU), suporte a `syscall` instruction (MSR LSTAR)
 - Ring 3 funcional (TSS, iretq), scheduler round-robin, PCB estático (64 slots)
 - Memória: bump + buddy (4KB frames) + SLAB, mmap_user para userland
-- FAT32 completo (read/write/create/delete), ext2 em progresso, initramfs
+- FS: VFS com backends FAT32 e **ext2 read-write** (`ext2_new.zig`, cache de
+  blocos, LFN, indirect/double-indirect), initramfs; cwd por processo
+- Processos: fork/execve/waitpid reais, fd tables por processo, pipes,
+  demand paging no PF handler, TLS por processo (FS.base)
+- Linux syscall layer (`syscall_linux.zig`): tradução Linux→TipOS com mais
+  de 80 syscalls, incluindo `readv`/`writev`, `openat`, `newfstatat` e
+  `pipe2` — pré-requisito para o stdio do musl
 - Drivers: ATA PIO, PS/2 keyboard+mouse, PCI, Virtio GPU, USB (stub)
 - GUI: VESA framebuffer 1024x768x32, OWT widgets (button, label, textbox, etc.), WM multi-janela
 - Shell MkM> com 20+ comandos, history, autocomplete, PATH, aliases, background jobs
@@ -98,13 +106,32 @@ rax=nº, rdi=a1, rsi=a2, rdx=a3, rcx=a4. Retorno em rax.
 
 ## Linux x86-64 ELF Compatibility
 
-TipOS v0.7.4.0 can run **musl-linked static PIE ELF64 binaries** natively:
+O TipOS v0.7.5.0 executa nativamente binários **ELF64 static-PIE ligados
+com musl**, do "Hello World" ao **X.Org Server**:
 
-- **ELF loader** (`elf64.zig`): loads ELF64 into a child PML4, supports PT_LOAD segments with 2MB hugepages
-- **Syscall translation** (`syscall_linux.zig`): maps Linux syscall numbers (e.g., read=0, write=1, exit_group=231) to TipOS native numbers
-- **Auxiliary vector**: `setup_linux_user_stack()` pushes AT_RANDOM, AT_PAGESZ, AT_SECURE, AT_PHNUM, AT_PHENT, AT_PHDR
-- **TLS**: FS.base MSR save/restore per process (`switch.asm`), `arch_prctl` stub
-- **Demo binary**: `HELLO` prints "Hello from musl ELF!" and exits cleanly
+- **ELF loader** (`elf64.zig`): carrega em PML4 filho, PT_LOAD com hugepages 2MB,
+  suporte a PT_INTERP (ld-musl)
+- **Tradução de syscalls** (`syscall_linux.zig`): mais de 80 números Linux
+  mapeados (read=0/write=1/exit_group=231/openat=257/readv=19 etc.)
+- **Vetor auxiliar**: `setup_linux_user_stack()` empilha AT_RANDOM, AT_PAGESZ,
+  AT_SECURE, AT_PHNUM, AT_PHENT, AT_PHDR, AT_BASE
+- **TLS**: FS.base salvo/restaurado por processo (`switch.asm`), `arch_prctl`
+- **Processos**: `fork` real (cópia eager do espaço de usuário), `execve`
+  substituindo a imagem, `waitpid`, `dup2`, `pipe`
+- **stdio do musl**: `readv`/`writev` implementados (o `__stdio_read` do
+  musl sempre usa readv — sem isso todo fread falhava)
+- **Demo**: `exec HELLO` imprime "Hello from musl ELF!"
+- **Marco**: `exec /bin/XORG -nolock -config xorg.cfg` sobe o servidor X
+  (ver `docs/XORG-XKB-CAÇADA.md`)
+
+## Documentação
+
+| Arquivo | Conteúdo |
+|---------|----------|
+| `docs/KERNEL.md` | Documentação completa do kernel |
+| `docs/XORG-XKB-CAÇADA.md` | Crônica técnica: como o Xorg passou a rodar |
+| `docs/tipos-tutorial.md` | Tutorial de desenvolvimento |
+| `TODO.md` | Roadmap e inventário |
 
 ## Licença
 - Kernel OvsbMk (`OvsbMk/`): licença do autor original

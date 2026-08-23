@@ -19,6 +19,14 @@
 | **Teste** | Validação no QEMU / CI (`make run-test`) |
 | **Concluído** | Feito, testado, mergeado — kyun! |
 
+### Snapshot 22/08/2026 (branch fs-terminal/67-ext2-clean-zig)
+
+- Concluído: VFS ext2 read-write (#67/#70), readv/writev, demand paging
+- Em validação: Xorg inicializa como servidor — keymap carregado,
+  pipes X11, mouse (#68); falta clone/threads e estabilidade de heap
+- Bloqueado por #72 (fork completo): fluxo Popen do Xorg foi bypassado
+  com keymap pré-compilado (docs/XORG-XKB-CAÇADA.md)
+
 ## 2. Squads
 
 | Squad | Domínio | Labels |

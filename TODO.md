@@ -529,6 +529,7 @@ Ring 3 / Proteção ───────────┬────────
 | **v0.7.1** | Scheduler preemptivo + PCB + paginação por processo + TLB flush | 8 semanas |
 | **v0.7.2** | Backbuffer VESA (flicker-free) + panel + multi-janela (drag/close/focus/cycle) + Ctrl+N/Ctrl+Q + HEAP 64MB + RAM 512M | 8 semanas |
 | **v0.7.4** | ELF64 loader (musl static PIE) + Linux syscall translation + TLS FS.base + aux vector + `exec HELLO` demo | 4 semanas |
+| **v0.7.5** | VFS ext2 read-write + fork/execve/waitpid reais + fd tables por processo + readv/writev + demand paging + **Xorg 21.1.13 inicializa como servidor** (keymap XKB carregado, pipes X11, mouse) | concluída |
 | **v0.8** | Terminal multiplexado (tabs/split/scrollback) + clipboard | 12 semanas |
 | **v0.9** | Rede (TCP/IP + SSH + Git) | 20 semanas |
 | **v1.0** | Auto-hospedagem: compilar TipOS dentro do TipOS | 24 semanas |
@@ -558,6 +559,12 @@ Ring 3 / Proteção ───────────┬────────
 | HOJE | **PIT timer** (100Hz, timer_ticks, sleep_ms) |
 | HOJE | **Keyboard repeat** (500ms delay, 33Hz rate, make/break tracking) |
 | HOJE | **Shell history** (128 entries circular, ↑↓ browse) |
+| 22/08/26 | **VFS com backend ext2 read-write** (ext2_new.zig: cache, LFN, indirect) + cwd por processo |
+| 22/08/26 | **fd tables por processo** (pool estático em BSS) — pré-requisito do fork |
+| 22/08/26 | **fork/execve/waitpid reais** (#72): cópia eager do espaço de usuário, frame iretq do filho, execve ELF substituindo imagem |
+| 22/08/26 | **SYS_readv/writev** — sem readv todo fread do musl falhava (o __stdio_read sempre usa readv) |
+| 22/08/26 | **Demand paging** no PF handler (frame zerado on-demand p/ regiões cobertas) |
+| 22/08/26 | **Xorg 21.1.13 inicializa como servidor**: keymap XKB carregado (missing=0x0), pipes X11 criados, /dev/input/mice lido, framebuffer renderizando — ver docs/XORG-XKB-CAÇADA.md |
 | HOJE | **Shell line editing** (Home/End/Del, ^A/^E/^K/^U/^W/^L) |
 | HOJE | **Shell PATH search** (/BIN/, /USR/BIN/, /LOCAL/BIN/) |
 | HOJE | **Redirection** `>` (write) e `>>` (append) |

@@ -1,10 +1,10 @@
-/* moe moe kyun <3 */
-v0.7.4.0
+v0.7.5.0
 
-Format: v0.STAGE.RELEASE.FEATURE
-  STAGE  = 7 = Ring 3 + proteção de memória + scheduler preemptivo +
+Formato: v0.STAGE.RELEASE.FEATURE
+  STAGE   = 7 = Ring 3 + protecao de memoria + scheduler preemptivo +
                 VESA framebuffer 1024x768 32-bit
-  RELEASE = 4 = ELF64 loader (musl static PIE), Linux syscall translation,
-                FS.base TLS save/restore, auxiliary vector, U/S bit mgmt,
-                `exec HELLO` demo
-  FEATURE = 0 = initial feature set
+  RELEASE = 5 = VFS com backend ext2 read-write, fd tables por processo,
+                fork/execve/waitpid reais, pipes, readv/writev, demand
+                paging e execucao de binarios musl static-PIE complexos
+                (Xorg 21.1.13 inicializa como servidor grafico)
+  FEATURE = 0 = conjunto inicial desta release

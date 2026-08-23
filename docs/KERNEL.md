@@ -35,6 +35,11 @@
 22. [Problemas Comuns](#22-problemas-comuns)
 23. [ELF64 Loader (musl static PIE)](#23-elf64-loader-musl-static-pie)
 24. [Linux x86-64 Compatibility](#24-linux-x86-64-compatibility)
+25. [VFS e ext2 read-write](#25-vfs-e-ext2-read-write)
+26. [Processos POSIX: fork, execve, waitpid](#26-processos-posix)
+27. [readv/writev — stdio do musl](#27-readv-writev)
+28. [Demand Paging](#28-demand-paging)
+29. [fd tables por processo](#29-fd-tables-por-processo)
 
 ---
 
@@ -1671,3 +1676,120 @@ src/userland/                 ← Userland (ring 3) — + repos irmãos ../disp,
 > **"Um sistema operacional não é sobre o que você pode fazer — é sobre o que você pode construir."**
 >
 > — TipOS Team, 2026
+
+
+---
+
+## 25. VFS e ext2 read-write
+
+**Arquivos:** `fs/vfs.c`, `fs/vfs.h`, `fs/ext2_new.zig`
+
+A VFS faz dispatch entre backends por `g_vfs_backend` (0 = ext2, 1 = FAT32):
+
+```c
+int vfs_read_at(const char *abs, uint8_t *buf, uint32_t count, uint32_t offset);
+int vfs_write_at(const char *abs, const uint8_t *buf, uint32_t count, uint32_t offset);
+int vfs_stat_size_attr(const char *abs, uint32_t *size, uint8_t *attr);
+int vfs_abs_path(const char *cwd, const char *path, char *out, size_t max); // resolve . / .. / relativo
+```
+
+O backend ext2 (`ext2_new.zig`, reescrita limpa em Zig puro):
+
+- Superblock + group descriptors validados no mount (`ext2new_mount`)
+- Cache de blocos: 64 slots de 1024 bytes com evição clock
+- Lookup case-insensitive, LFN não é necessário (nomes curtos ext2)
+- Suporte a sparse holes (buracos lidos como zeros), indirect e
+  double-indirect
+- Escrita: `ext2new_write_at` cria blocos sob demanda; `ext2new_create`
+  aloca inode+bloco de dados; unlink marca inode/blocks livres
+- Debug helpers: `[wt]`, `[CLR]`, `[x2at]` etc (remover em release)
+
+Cada processo tem `pcb.cwd[256]`; `SYS_openat`/`SYS_open` resolvem via
+`vfs_abs_path(cwd, path)` antes do lookup. `chdir` atualiza `pcb.cwd`.
+
+## 26. Processos POSIX
+
+**fork** (`proc_fork` em process.c, syscall Linux 57 → TipOS 214):
+
+1. Slot livre na PCB table + kernel stack novo
+2. `copy_user_space()`: anda PML4→PDPT→PD→PT do pai; toda página
+   present+U/S é copiada byte a byte para frame novo no filho.
+   Huge pages de 2MB são divididas em 512×4KB (máscara de PA:
+   `0x000FFFFFFFFFF000` — bits NX/software fora!)
+3. vm_map duplicado entrada a entrada (`vm_map_copy_to`)
+4. fd table duplicada (`fds_dup_into_slot`)
+5. Frame iretq completo no kernel stack do filho: cópia do frame da
+   syscall do pai com RAX=0. RIP/RFLAGS vêm do "stash" da entry asm
+   (kframe[15]/kframe[16]); user RSP vem de `current_rsp0`.
+
+Retorno: pai recebe PID; filho retorna 0 do fork.
+
+**execve** (syscall 208): copia path/argv/envp para buffers do kernel,
+resolve via VFS, valida ELF, monta PML4 novo (`clone_identity_tables` +
+U/S nos segmentos), carrega segmentos, troca CR3, fecha fds >= 3,
+monta pilha Linux nova e **reescreve o kframe corrente** — o iretq da
+syscall pula direto para o entry point do novo programa. PT_INTERP não
+é suportado neste caminho (binários dinâmicos continuam pelo cmd_exec).
+
+**waitpid**: loop poll-yield cooperativo (sem PROC_BLOCKED — o
+context_switch sempre iretq para userspace, então bloquear dentro da
+syscall quebraria o retorno). Reap: libera kstack + pml4 do zumbi.
+
+## 27. readv/writev
+
+O `__stdio_read` do musl **sempre** usa `readv(fd, iov, 2)`:
+
+```c
+iov[0] = { buf_do_usuário, len - !!f->buf_size };
+iov[1] = { f->buf (buffer interno do FILE), f->buf_size };
+```
+
+Sem handler para readv(19), todo fread/fgets retornava EOF fantasma —
+silenciosamente (F_ERR setado). Implementação em `syscall.c` case 19:
+
+- Arquivos: vfs_read_at sequencial por iovec, avançando fds[fd].pos,
+  parando em short-read
+- Pipes: consumo sequencial do ring buffer
+- Limite iovcnt <= 16
+
+writev equivalente já existia (mapeado para TipOS 409).
+
+## 28. Demand Paging
+
+O PF handler (idt.c, exc_num == 14) agora atende faults de usuário:
+
+```
+SE err_code bit2 (U/S) setado
+E process_current()->vm_map cobre cr2 (vm_map_covers)
+ENTÃO:
+    anda/cria PML4→PDPT→PD→PT (tabelas novas zeradas via mmap_user)
+    pt[i] = frame_zerado | 0x07     (mmap_user devolve zerado)
+    invlpg(cr2); return;            /* retry da instrução */
+SENÃO: dump diagnóstico como antes
+```
+
+Isso permite o musl escrever em regiões recém-mmap'd antes do wire
+cobrir tudo. Contadores de debug: `g_pf_diag`, `g_pf_fix_count`
+(print `[DMND]`).
+
+Limitação conhecida: demand paging mascara overruns reais — se um
+processo escrever FORA de qualquer região mapeada, o dump/halt antigo
+continua valendo (proteção contra ponteiro selvagem preservada).
+
+## 29. fd tables por processo
+
+A tabela global de fds virou pool estático em BSS:
+
+```c
+static fdtable_t fd_tables[MAX_PROC];   /* 1 tabela por slot PCB */
+static fdtable_t *fdtab = &boot_fds;    /* ligada no início de cada syscall */
+#define fds fdtab->e                    /* ~148 usos existentes intactos */
+```
+
+- `fds_bind_current()` no topo de `syscall_handler`: aponta `fdtab`
+  para a tabela do processo corrente (alocação lazy no pool)
+- fork: `fds_dup_into_slot(child_slot)` copia o conteúdo para o slot
+  do filho; nada é trocado no meio da syscall do pai
+- execve/exit: `fds_close_exec()` fecha fds >= 3
+- EOF de pipe: `pipe_writers_alive(p)` varre as tabelas dos processos
+  vivos procurando ponta de escrita aberta (`fdent.wend`)
