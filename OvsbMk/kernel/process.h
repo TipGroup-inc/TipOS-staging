@@ -56,6 +56,9 @@ typedef struct pcb {
     struct vmspace *vmspace;
     uint64_t fs_base;
     char cwd[256];          /* ~~ diretório atual POR PROCESSO (VFS #70) ~~ */
+    void *fds_tab;          /* ~~ tabela de fds POR PROCESSO (fork #72) ~~ */
+    int in_kern;            /* ~~ 1 = bloqueado DENTRO de syscall (resume
+                                  continua o fluxo C, sem iretq!)~~ */
 } pcb_t;
 
 extern pcb_t pcb_table[MAX_PROC];
@@ -76,6 +79,11 @@ void proc_wake_parent(int child_pid);
 int  proc_waitpid(int pid, int *exit_code);
 void proc_yield(void);
 void schedule(void);
+
+/* ♥ fork real (#72) ~ clona o processo atual~
+ * parent_kframe = frame de 20 qwords do handler da syscall~
+ * Retorna o PID do filho; filho "retorna" 0 (RAX=0 no frame dele)~ */
+int proc_fork(uint64_t *parent_kframe);
 
 void context_switch(pcb_t *current, pcb_t *next);
 

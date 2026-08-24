@@ -48,7 +48,10 @@
 - **Syscall Linux compat**: syscall_linux.zig traduz Linux→TipOS (read=0→3, write=1→4, exit_group=231→212, etc.)
 - **Processos**: Ring 3 com TSS, scheduler RR, PCB estático (64 slots), spawn/exit/waitpid
 - **Memória**: Bump allocator (boot), buddy allocator (frames 4KB), SLAB allocator, mmap_user
-- **FS**: FAT32 completo (read/write/create/delete/mkdir), ext2 parcial (Zig), initramfs
+- **FS**: VFS com backends FAT32 e ext2 read-write (`fs/ext2_new.zig`:
+  cache de blocos, LFN, indirect/double-indirect), initramfs, cwd por processo
+- **Processos**: fork/execve/waitpid reais (#72), fd tables por processo,
+  pipes, demand paging no PF handler
 - **Drivers**: ATA PIO (LBA28), PS/2 keyboard+mouse (Zig), PCI enumeration, Virtio GPU, USB (stub)
 - **GUI**: VESA framebuffer 1024x768x32, OWT widgets, WM com backbuffer
 - **Shell**: MkM> prompt, 20+ comandos, history, autocomplete, PATH, aliases
@@ -98,6 +101,18 @@ Tabela completa no README.md ou em kernel/syscall.c.
 - **U/S bit mgmt** (`memory.c`): `clone_identity_tables` strips U/S; spawn paths add U/S explicitly
 - **Bugfix** (`elf64.zig`): `mapped[32]` VA|PA OR fixed to `(va >> 32) << 32 | phys`
 - **Demo**: `exec HELLO` prints "Hello from musl ELF!" (shell_init runs HELLO first, then DISP)
+- **Xorg server** (#68): Xorg 21.1.13 inicializa — keymap XKB carregado via
+  def.xkm pré-compilado + patches binários (ver docs/XORG-XKB-CAÇADA.md)
+- **readv/writev** (19/409): obrigatórios para o __stdio_read do musl
+- **fork real** (#72): proc_fork c/ cópia eager + SYS_fork_real(214);
+  execve(208) reescrito p/ ELF static-pie via VFS
+- **Demand paging** (idt.c): PF user em região coberta aloca frame zerado,
+  invlpg e retry
+- **FS_BASE = 0xB8** em switch.asm (offset real de fs_base no PCB; 0xA8 era
+  o campo vm_map — bug latente corrigido)
+- **fd tables por processo**: pool estático fd_tables[MAX_PROC], macro `fds`
+- **Autor dos commits**: levementesalgado <mateusvideos49@gmail.com>
+  (commits antigos assinados como Haruna Himekawa foram reescritos)
 
 ## Teste no QEMU
 ```bash
@@ -108,5 +123,7 @@ make run-test        # headless, log em /tmp/tipos-boot.log
 
 ## Comandos GIT ´´´ bom, ao menos isso espero que vcs saibam nee ´´´
 - Commits com `git commit -m "msg"` (sem assinatura GPG)
-- Push: `git push origin master` (token no remote URL)
-- AutorA atual: Haruna Himekawa <whimekasyharuna@yahoo.com> # sendme amail
+- Autor atual: levementesalgado <mateusvideos49@gmail.com>
+  (usar -c user.name/-c user.email se o git config local divergir)
+- Branch de trabalho atual: fs-terminal/67-ext2-clean-zig
+- Push: `git push origin <branch>`

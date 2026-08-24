@@ -21,6 +21,7 @@ int vfs_abs_path(const char *cwd, const char *path, char *out, int outlen);
 
 /* ~~ operações de arquivo (todas recebem path ABSOLUTO) ~~ */
 int vfs_read_file(const char *abs, uint8_t *buf, uint32_t count);
+int vfs_read_at(const char *abs, uint8_t *buf, uint32_t count, uint32_t offset);
 int vfs_write_at(const char *abs, const uint8_t *buf, uint32_t count, uint32_t offset); /* cria se não existe */
 int vfs_stat_size_attr(const char *abs, uint32_t *size, uint8_t *attr);
 int vfs_create_file(const char *abs);

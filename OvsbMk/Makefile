@@ -31,7 +31,7 @@ C_SRCS := $(notdir $(wildcard kernel/*.c drivers/*.c lib/gui/*.c lib/owt/*.c lib
 # ♥ ASM_SRCS: boot, IDT assembly, keyboard asm, context switch, syscall entry
 ASM_SRCS := boot64.o idt_asm.o keyboard_asm.o switch_asm.o syscall_entry.o
 # ♥ ZIG_SRCS: syscall handler, ELF loader, ext2, initramfs
-ZIG_SRCS := syscall_linux.o elf64.o ext2.o initramfs.o
+ZIG_SRCS := syscall_linux.o elf64.o ext2.o ext2_new.o initramfs.o
 # ♥ ZIG_DRV_SRCS: keyboard e mouse em Zig (moderno~)
 ZIG_DRV_SRCS := keyboard.o mouse.o
 # ♥ OBJS: todos os .o concatenados (C + ASM + Zig)
@@ -82,6 +82,9 @@ $(BUILD_DIR)/mouse.o: kernel/drivers/mouse.zig | $(BUILD_DIR)
 
 # ♥ Compila ext2.zig (sistema de arquivos ext2)
 $(BUILD_DIR)/ext2.o: fs/ext2.zig | $(BUILD_DIR)
+	$(ZIG) build-obj $(ZIGFLAGS) -femit-bin=$@ $<
+
+$(BUILD_DIR)/ext2_new.o: fs/ext2_new.zig | $(BUILD_DIR)
 	$(ZIG) build-obj $(ZIGFLAGS) -femit-bin=$@ $<
 
 # ♥ Compila initramfs.zig (initramfs ~ arquivos iniciais)

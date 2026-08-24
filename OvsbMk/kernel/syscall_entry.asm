@@ -63,6 +63,12 @@ syscall_entry:
     push rcx                    ; RIP return (salvo pela CPU)
     push rax                    ; syscall number
 
+    ; ~~ RBX = ponteiro do frame de 15 regs (igual idt.asm faz pro
+    ; int 0x80)! Se essa syscall BLOQUEAR (wait4/read pipe), o
+    ; context_switch salva KRNL_RSP=RBX — sem isso o processo
+    ; acordava com pilha de kernel LIXO e corrompia tudo~ rssrsrs
+    mov rbx, rsp
+
     mov rdi, rsp                ; rdi = struct registers* pra C
     call syscall_handler_zig
 
