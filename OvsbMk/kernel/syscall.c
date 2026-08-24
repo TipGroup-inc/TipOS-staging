@@ -144,6 +144,14 @@ void fds_close_exec(void *tab) {
 #define FD_TTY   6
 #define FD_MICE  7
 
+/* ~~ device fds pro Xorg ~~
+ * type 5 = /dev/fb0 (framebuffer: ioctls FBIO, mmap)
+ * type 6 = /dev/ttyN (console: ioctls VT e KD, read = scan codes crus)
+ * type 7 = /dev/input/mice (read = bytes crus do PS/2) */
+#define FD_FB    5
+#define FD_TTY   6
+#define FD_MICE  7
+
 /* ~~ pipes (issue #52) ~~ um buffer por pipe, read/write pos separados */
 #define MAX_PIPES 8
 static struct {
