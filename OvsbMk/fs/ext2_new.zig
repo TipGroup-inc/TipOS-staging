@@ -338,19 +338,13 @@ fn resolve(path: []const u8) !u32 {
     var tok = std.mem.tokenizeScalar(u8, path, '/');
     while (tok.next()) |comp| {
         ino = try lookup(ino, comp);
-        if (@import("builtin").os.tag == .freestanding) {
-            // debug
-        }
     }
     return ino;
 }
 
 fn lookup(dir_ino: u32, name: []const u8) !u32 {
     const dir_inode = readIno(dir_ino);
-    if (!dir_inode.isDir()) {        serial_puts(@as([*:0]const u8, @ptrCast(name.ptr)));
-        serial_puts("\n");
-        return error.NotADir;
-    }
+    if (!dir_inode.isDir()) return error.NotADir;
 
     var off: u32 = 0;
     const fsize = dir_inode.fileSize();
@@ -378,6 +372,7 @@ fn lookup(dir_ino: u32, name: []const u8) !u32 {
     }
     return error.NotFound;
 }
+
 
 // ===== Public API =====
 
@@ -639,11 +634,11 @@ export fn ext2new_stat(path: [*:0]const u8, out_size: *u32, out_is_dir: *bool) i
 
 export fn ext2new_read_at(path: [*:0]const u8, buf: [*]u8, size: u32, offset: u32) i32 {
     if (!fs_ready) return ERR_NOTMOUNTED;
-    const r = readFileAt(path[0..std.mem.len(path)], buf[0..size], offset) catch |err| {
-        return switch (err) {
-            error.NotFound => ERR_NOTFOUND,
-            else => ERR_IO,
-        };
+    const r = readFileAt(path[0..std.mem.len(path)], buf[0..size], offset) catch {
+        serial_puts("[E2RD] fail path=");
+        serial_puts(path);
+        serial_puts("\r\n");
+        return ERR_IO;
     };
     return @intCast(r);
 }

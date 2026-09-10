@@ -59,6 +59,10 @@ typedef struct pcb {
     void *fds_tab;          /* ~~ tabela de fds POR PROCESSO (fork #72) ~~ */
     int in_kern;            /* ~~ 1 = bloqueado DENTRO de syscall (resume
                                   continua o fluxo C, sem iretq!)~~ */
+    int th_parent_pid;      /* ~~ clone/THREAD: pid do criador; -1 = não é
+                                  thread (processo de verdade)~~ */
+    volatile long *clear_tid; /* ~~ CLONE_CHILD_CLEARTID: zera + acorda o
+                                  joiner no exit da thread~~ */
 } pcb_t;
 
 extern pcb_t pcb_table[MAX_PROC];
@@ -84,6 +88,9 @@ void schedule(void);
  * parent_kframe = frame de 20 qwords do handler da syscall~
  * Retorna o PID do filho; filho "retorna" 0 (RAX=0 no frame dele)~ */
 int proc_fork(uint64_t *parent_kframe);
+int proc_clone_thread(uint64_t flags, uint64_t newsp, uint64_t ptid,
+                      uint64_t ctid, uint64_t tls, uint64_t *parent_kframe);
+void proc_thread_exit(int code);
 
 void context_switch(pcb_t *current, pcb_t *next);
 

@@ -62,6 +62,8 @@ void process_init(void) {
         for (int j = 0; j < (int)sizeof(pcb_t); j++)
             ((uint8_t *)&pcb_table[i])[j] = 0;
         pcb_table[i].pid = -1;
+        pcb_table[i].th_parent_pid = -1;
+        pcb_table[i].clear_tid = 0;
         pcb_table[i].state = PROC_EMPTY;
     }
     pcb_count = 0;
@@ -137,6 +139,8 @@ int process_create_user(const char *name, void *entry, void *user_stack, uint64_
     pcb->vm_map = (struct vm_map *)kmalloc(sizeof(struct vm_map));
     if (pcb->vm_map) vm_map_init((vm_map_t *)pcb->vm_map, 0x10000, 0x7FFFF000ULL);
     pcb->fs_base = 0;
+    pcb->th_parent_pid = -1;
+    pcb->clear_tid = 0;
 
     pcb->cwd[0] = '/'; pcb->cwd[1] = '\0';
     setup_user_stack(pcb, entry, user_stack, user_stack_size);
@@ -176,6 +180,8 @@ int proc_spawn(const char *name, void *entry, void *user_stack_top) {
     p->vm_map = (struct vm_map *)kmalloc(sizeof(struct vm_map));
     if (p->vm_map) vm_map_init((vm_map_t *)p->vm_map, 0x10000, 0x7FFFF000ULL);
     p->fs_base = 0;
+    p->th_parent_pid = -1;
+    p->clear_tid = 0;
     p->cwd[0] = '/'; p->cwd[1] = '\0';
 
     // proc_spawn nao usa alloc_pcb(), entao precisamos
@@ -793,5 +799,127 @@ int proc_fork(uint64_t *parent_kframe) {
     }
     return p->pid;
 }
+
+
+
+/* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ * ♥ CLONE (Linux 56) ~ threads estilo POSIX pro musl!~
+ * Thread = PCB novo COMPARTILHANDO PML4/vm_map/fd_table com o pai
+ * (zero cópia de memória!). O musl prepara o trampolino no `stack`
+ * novo — o kernel só troca RSP e devolve 0 no filho~ kyun~ */
+int proc_clone_thread(uint64_t flags, uint64_t newsp,
+                      uint64_t ptid, uint64_t ctid,
+                      uint64_t tls, uint64_t *parent_kframe) {
+    pcb_t *par = process_current();
+    if (!par || !parent_kframe) return -1;
+
+    /* só threads (o fork "de verdade" já tem caminho próprio)~ */
+    #define CLONE_VM_       0x00000100ULL
+    #define CLONE_FS_       0x00000200ULL
+    #define CLONE_FILES_    0x00000400ULL
+    #define CLONE_SIGHAND_  0x00000800ULL
+    #define CLONE_THREAD_   0x00010000ULL
+    #define CLONE_SYSVSEM_  0x00040000ULL
+    #define CLONE_SETTLS_   0x00080000ULL
+    #define CLONE_PARENT_SETTID_ 0x00100000ULL
+    #define CLONE_CHILD_CLEARTID_ 0x00200000ULL
+    #define CLONE_CHILD_SETTID_  0x01000000ULL
+
+    if (!(flags & CLONE_THREAD_) || !(flags & CLONE_VM_)) {
+        serial_puts("[clone] flags sem THREAD/VM — EINVAL\r\n");
+        return -22; /* -EINVAL: musl não usa clone-fork aqui */
+    }
+
+    int slot = -1;
+    for (int i = 0; i < MAX_PROC; i++)
+        if (pcb_table[i].state == PROC_EMPTY) { slot = i; break; }
+    if (slot < 0) { serial_puts("[clone] sem slot\r\n"); return -1; }
+
+    void *kstack = kmalloc(STACK_SIZE);
+    if (!kstack) { serial_puts("[clone] sem kstack\r\n"); return -1; }
+
+    pcb_t *p = &pcb_table[slot];
+    for (int j = 0; j < (int)sizeof(pcb_t); j++)
+        ((uint8_t *)p)[j] = 0;
+    p->pid = next_pid++;
+    p->state = PROC_READY;
+    p->is_user = 1;
+    {
+        int ni = 0;
+        while (par->name[ni] && ni < PROC_NAME_MAX - 4) { p->name[ni] = par->name[ni]; ni++; }
+        p->name[ni] = 't'; p->name[ni+1] = 'h'; p->name[ni+2] = '\0';
+    }
+    p->rsp0 = (uint64_t)kstack + STACK_SIZE;
+    /* ~~ COMPARTILHADOS (é isso que faz ser thread!)~~ */
+    p->pml4 = par->pml4;
+    p->vm_map = par->vm_map;
+    p->fds_tab = par->fds_tab;
+    p->program_break = par->program_break;
+    p->heap_start = par->heap_start;
+    p->parent_pid = par->pid;
+    p->th_parent_pid = par->pid;
+    p->vmspace = 0;
+    p->in_kern = 0;
+    for (int ci = 0; ci < 256; ci++) p->cwd[ci] = par->cwd[ci];
+
+    if (slot >= pcb_count) pcb_count = slot + 1;
+
+    /* ~~ TLS: FS.base da thread~~ */
+    p->fs_base = (flags & CLONE_SETTLS_) ? tls : par->fs_base;
+
+    /* ~~ clear_tid: zera no exit pra acordar o joiner~~ */
+    p->clear_tid = (flags & CLONE_CHILD_CLEARTID_) ? (volatile long *)ctid : 0;
+
+    /* ~~ notificações de TID (escrita direta em VA user — CR3 é o pai)~~ */
+    if ((flags & CLONE_PARENT_SETTID_) && ptid)
+        *(int *)(uintptr_t)ptid = p->pid;
+    if ((flags & CLONE_CHILD_SETTID_) && ctid)
+        *(int *)(uintptr_t)ctid = p->pid;
+
+    /* ~~ frame do filho: igual ao pai, mas NOVO RSP e RAX=0~~
+     * O musl preparou o trampolino (fn/arg) na base do stack novo —
+     * quando a CPU der iretq, ele roda lá~ */
+    uint64_t *sp = (uint64_t *)p->rsp0;
+    sp -= 20;
+    for (int q = 0; q < 15; q++) sp[q] = parent_kframe[q];
+    sp[14] = 0;                          /* RAX=0: filho "retorna" 0 */
+    sp[15] = parent_kframe[15];          /* RIP de retorno (stash)   */
+    sp[16] = 0x1B;                       /* CS ring3                 */
+    sp[17] = parent_kframe[16];          /* RFLAGS (stash)           */
+    sp[18] = newsp ? newsp : parent_kframe[18];
+    sp[19] = 0x23;                       /* SS                       */
+    p->kernel_rsp = (uint64_t)sp;
+    p->user_rsp = sp[18];
+    p->user_rip = sp[15];
+
+    serial_puts("[clone] tid=");
+    serial_puthex((uint32_t)p->pid);
+    serial_puts(" fs=");
+    serial_puthex((uint32_t)(p->fs_base >> 12));
+    serial_puts("\r\n");
+    return p->pid;
+}
+
+/* ~~ exit de THREAD: NÃO derruba espaço/fds compartilhados~~
+ * Zera clear_tid (joiner enxerga via poll) e libera só o PCB.
+ * O kernel stack vaza por ora (documentado — barato e raro~) */
+void proc_thread_exit(int code) {
+    pcb_t *me = process_current();
+    if (!me) return;
+    if (me->clear_tid) {
+        *me->clear_tid = 0;              /* tid=0: joiner solta~ */
+        __asm__ volatile("" ::: "memory");
+    }
+    serial_puts("[thexit] pid=");
+    serial_puthex((uint32_t)me->pid);
+    serial_puts(" code=");
+    serial_puthex((uint32_t)code);
+    serial_puts("\r\n");
+    me->exit_code = code;
+    me->state = PROC_EMPTY;              /* sem zombie: join é por futex */
+    schedule();
+    for (;;) __asm__ volatile("hlt");
+}
+/* ♥ fim clone/threads ♥ */
 
 /* ♥ process.c ~ arquivo fofinho do OvsbMkM! kyun~ <3 */
