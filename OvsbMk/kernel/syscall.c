@@ -477,12 +477,14 @@ static const char *fixpath(const char *path, char *buf, int buflen) {
 
     /* ~~ ${prefix} literal do build system do Xorg ~~ */
     if (path[0] == '$' && path[1] == '{') {
+
         const char *rest = path + 9; /* pula "${prefix}" */
         if (path[2] == 'p' && path[3] == 'r' && path[4] == 'e') {
             int j = 0;
-            buf[j++] = '/';
+            if (*rest != '/') buf[j++] = '/';
             while (*rest && j < buflen - 1) buf[j++] = *rest++;
             buf[j] = '\0';
+
             return buf;
         }
     }
@@ -668,7 +670,14 @@ void syscall_handler(uint64_t *regs) {
 
     switch (num) {
     case SYS_exit:
-        process_exit_current((int)a1);
+        {
+            pcb_t *me_e = process_current();
+            if (me_e && me_e->th_parent_pid >= 0) {
+                proc_thread_exit((int)a1);   /* só a thread morre~ */
+                for (;;) __asm__ volatile("hlt");
+            }
+            process_exit_current((int)a1);   /* processo de verdade */
+        }
         for (;;) __asm__ volatile("hlt");
         break;
 
@@ -895,6 +904,22 @@ void syscall_handler(uint64_t *regs) {
             ret = r;
             break;
         }
+        break;
+    }
+
+    /* ~~ Linux clone (56) ~ threads do musl! ~~
+     * ATENÇÃO args: clone é identity-mapped, então o Zig NÃO move
+     * r10->rcx. Assinatura Linux: clone(flags, stack, ptid, tls,
+     * ctid) = rdi, rsi, rdx, r10, r8. No frame: regs[4],regs[3],
+     * regs[2],regs[7],regs[5]. LER DIRETO DOS REGS!~~ */
+    case 56: {
+        uint64_t flags_ = regs[4];
+        uint64_t newsp_ = regs[3];
+        uint64_t ptid_  = regs[2];
+        uint64_t tls_   = regs[7];
+        uint64_t ctid_  = regs[5];
+        int cpid = proc_clone_thread(flags_, newsp_, ptid_, ctid_, tls_, regs);
+        ret = (cpid < 0) ? (uint64_t)-1 : (uint64_t)cpid;
         break;
     }
 
@@ -2434,16 +2459,35 @@ void syscall_handler(uint64_t *regs) {
     /* ~~ Linux exit_group (212) ~ "Mata todo mundo!" ~~
      * No nosso caso sem thread groups, vira um exit normal~
      * (você é grupo de um só, hihi~ solidão mode on) */
-    case SYS_exit_group:
+    case SYS_exit_group: {
+        pcb_t *me_g = process_current();
+        if (me_g && me_g->th_parent_pid >= 0) {
+            proc_thread_exit((int)a1);
+            for (;;) __asm__ volatile("hlt");
+        }
+        if (me_g) {
+            /* ~~ mata threads irmãs (mesmo espaço) silenciosamente ~~ */
+            for (int i = 0; i < MAX_PROC; i++) {
+                if (pcb_table[i].state != PROC_EMPTY &&
+                    pcb_table[i].pid != me_g->pid &&
+                    pcb_table[i].pml4 == me_g->pml4)
+                    pcb_table[i].state = PROC_EMPTY;
+            }
+        }
         process_exit_current((int)a1);
         for (;;) __asm__ volatile("hlt");
         break;
+    }
 
     /* ~~ Linux set_tid_address (218) ~ "Aqui, guarda meu TID!" ~~
      * Musl passa o endereço de uma variável onde o kernel
      * deveria escrever o TID quando a thread morre~
      * Mas como somos um kernel ~fofo~ e sem threads de verdade,
      * a gente só devolve o PID e ignora o endereço~ */
+    case 186: /* gettid — musl pthread usa p/ self tid */
+        ret = process_current_pid();
+        break;
+
     case SYS_set_tid_address:
         ret = process_current_pid();
         break;
@@ -2537,8 +2581,14 @@ void syscall_handler(uint64_t *regs) {
         int val = (int)a3;
         int op_part = op & 0x7F; /* ignora FLAGS/PRIVATE bits */
         (void)val;
-        if (op_part == 0 && uaddr) { /* FUTEX_WAIT: dorme até acordar */
-            /* sem threads de verdade, sempre "acordado" — devolve 0 */
+        if (op_part == 0 && uaddr) { /* FUTEX_WAIT: spin cooperativo */
+            /* ~~ poll-yield: enquanto *uaddr==val, cede a CPU~~
+             * pthread_join espera assim até o clear_tid zerar! */
+            int spins = 0;
+            while (*(volatile uint32_t *)uaddr == (uint32_t)val) {
+                schedule();
+                if (++spins > 4000000) break; /* safety net~ */
+            }
             ret = 0;
             break;
         }
